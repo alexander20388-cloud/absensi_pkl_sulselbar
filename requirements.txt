@@ -1,0 +1,7 @@
+streamlit>=1.50
+streamlit-js-eval
+pandas
+openpyxl
+sqlalchemy
+psycopg2-binary
+pillow
