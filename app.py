@@ -391,7 +391,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 /* ---------- header biru ---------- */
 .pr-head {
   background: linear-gradient(135deg, #2563eb 0%, #3b3fd8 100%);
-  color: #fff; padding: 34px 22px 86px; border-radius: 0 0 0 0;
+  color: #fff; padding: 30px 22px 76px; border-radius: 0 0 0 0;
   position: relative; overflow: hidden;
 }
 .pr-head::after {
@@ -411,40 +411,27 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 .pr-sub { font-size: 13px; color: rgba(255,255,255,.75); margin-top: 3px; }
 
 /* ---------- kartu presensi ---------- */
-.pr-card { background: #fff; border-radius: 26px; margin: -52px 22px 0; padding: 20px 18px 18px;
+.pr-card { background: #fff; border-radius: 22px; margin: -46px 22px 0; padding: 14px 14px 14px;
   box-shadow: 0 8px 28px rgba(37,52,140,.10); position: relative; z-index: 2; }
-.pr-date { display: flex; align-items: center; gap: 12px; color: #2f3b6b; font-size: 17px; font-weight: 500; }
+.pr-date { display: flex; align-items: center; gap: 9px; color: #2f3b6b; font-size: 14px; font-weight: 500; }
 .pr-date svg { color: #4a5788; }
 .pr-badge { margin-left: auto; background: #d9f7e8; color: #12a15f; font-weight: 600; font-size: 15px;
-  padding: 7px 18px; border-radius: 999px; }
-.pr-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 18px; }
-.pr-tile { border-radius: 18px; text-align: center; padding: 16px 4px 14px; }
-.pr-tile .lb { font-size: 14px; font-weight: 500; margin-top: 6px; }
-.pr-tile .vl { font-size: 24px; font-weight: 700; margin-top: 6px; line-height: 1.1; }
-.pr-tile .vl.sm { font-size: 17px; margin-top: 10px; }
+  padding: 4px 12px; border-radius: 999px; }
+.pr-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.pr-tile { border-radius: 14px; text-align: center; padding: 10px 4px 9px; }
+.pr-tile .lb { font-size: 12px; font-weight: 500; margin-top: 3px; }
+.pr-tile .vl { font-size: 19px; font-weight: 700; margin-top: 3px; line-height: 1.1; }
+.pr-tile .vl.sm { font-size: 14px; margin-top: 5px; }
 .t-green { background: #e6f9f0; color: #14a068; }
 .t-yellow { background: #fff6dc; color: #c58a05; }
 .t-red { background: #fdeaea; color: #e04a4a; }
-.pr-info { margin-top: 16px; background: #eaf1ff; border-radius: 16px; padding: 14px 16px; color: #2f5fd0; }
-.pr-info .h { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 500; }
-.pr-info .s { font-size: 15px; margin-top: 4px; color: #3b6fdc; }
+.pr-info { margin-top: 10px; background: #eaf1ff; border-radius: 12px; padding: 9px 12px; color: #2f5fd0; }
+.pr-info .h { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; }
+.pr-info .s { font-size: 12.5px; margin-top: 2px; color: #3b6fdc; line-height: 1.3; }
 
 /* kolom tidak boleh turun ke bawah di layar sempit */
 [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; }
 [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { min-width: 0 !important; flex: 1 1 0 !important; width: auto !important; }
-
-/* ---------- menu ---------- */
-.st-key-menucard { width: calc(100% - 44px) !important; background: #fff; border-radius: 26px; margin: 22px 22px 0; padding: 22px 12px 18px;
-  box-shadow: 0 8px 28px rgba(37,52,140,.08); }
-.pr-menu-title { font-size: 21px; font-weight: 600; color: #1e2a5a; padding: 0 8px 22px; }
-.mn { text-align: center; }
-.mn .bx { width: 66px; height: 66px; border-radius: 20px; margin: 0 auto; display: flex;
-  align-items: center; justify-content: center; }
-.mn .tx { font-size: 15px; color: #6b779e; margin-top: 10px; line-height: 1.25; }
-.b-pink { background: #fde8ec; color: #e0436a; }
-.b-sky { background: #e3f3fd; color: #1b9bd8; }
-.b-mint { background: #dff7ec; color: #15a36a; }
-.b-lav { background: #ece9fd; color: #5a47d6; }
 
 /* ---------- tombol transparan di atas tampilan custom ---------- */
 [class*="st-key-ov_"] { position: relative; }
@@ -742,13 +729,13 @@ def tab_beranda(eng, nama, peserta):
 <div class="pr-sub">{peserta["divisi"]} • Gedung {peserta["gedung"]}</div>
 </div>
 <div class="pr-card">
-<div class="pr-date">{ic("calendar", 26)}<span>{tgl_indonesia(now.date())}</span><span class="pr-badge">Aktif</span></div>
+<div class="pr-date">{ic("calendar", 20)}<span>{tgl_indonesia(now.date())}</span><span class="pr-badge">Aktif</span></div>
 <div class="pr-tiles">
-<div class="pr-tile t-green">{ic("login", 26)}<div class="lb">Masuk</div><div class="vl">{jam_masuk}</div></div>
-<div class="pr-tile t-yellow">{ic("file", 26)}<div class="lb">Uang Makan</div><div class="vl sm">{uang}</div></div>
-<div class="pr-tile t-red">{ic("clock", 26)}<div class="lb">Batas Masuk</div><div class="vl">{batas}</div></div>
+<div class="pr-tile t-green">{ic("login", 20)}<div class="lb">Masuk</div><div class="vl">{jam_masuk}</div></div>
+<div class="pr-tile t-yellow">{ic("file", 20)}<div class="lb">Uang Makan</div><div class="vl sm">{uang}</div></div>
+<div class="pr-tile t-red">{ic("clock", 20)}<div class="lb">Batas Masuk</div><div class="vl">{batas}</div></div>
 </div>
-<div class="pr-info"><div class="h">{ic("clock", 22)}<span>{info_judul}</span></div><div class="s">{info_sub}</div></div>
+<div class="pr-info"><div class="h">{ic("clock", 16)}<span>{info_judul}</span></div><div class="s">{info_sub}</div></div>
 </div>""",
         unsafe_allow_html=True,
     )
@@ -756,23 +743,6 @@ def tab_beranda(eng, nama, peserta):
     with st.container(key="ov_keluar"):
         if st.button("‎", key="ovb_keluar"):
             keluar()
-
-    with st.container(key="menucard"):
-        st.markdown('<div class="pr-menu-title">Menu</div>', unsafe_allow_html=True)
-        menu = [
-            ("izin", "calendar_days", "b-pink", "Izin"),
-            ("approval", "inbox", "b-sky", "Approval Izin"),
-            ("dinas", "plane", "b-mint", "Dinas Luar"),
-            ("usulan", "file", "b-lav", "Usulan"),
-        ]
-        cols = st.columns(4)
-        for col, (kunci, ikon, warna, label) in zip(cols, menu):
-            with col:
-                tombol_overlay(
-                    f"mn_{kunci}",
-                    f'<div class="mn"><div class="bx {warna}">{ic(ikon, 30)}</div><div class="tx">{label}</div></div>',
-                    toast=f"Fitur {label} belum tersedia.",
-                )
 
 
 def tab_absen(eng, nama, peserta):
