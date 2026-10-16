@@ -491,6 +491,138 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 """
 
 
+
+CSS_AUTH_ADMIN = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
+  background: #eef2fb !important; font-family: 'Inter', system-ui, sans-serif;
+}
+[data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], footer { display:none !important; }
+[data-testid="stMainBlockContainer"], .block-container {
+  max-width: 520px; padding: 0 0 48px 0 !important; background:#eef2fb;
+}
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { gap: 0.8rem; }
+.auth-head, .admin-head {
+  background: linear-gradient(135deg,#2563eb 0%,#3b3fd8 100%);
+  color:#fff; padding: 30px 24px 64px; position:relative; overflow:hidden;
+}
+.auth-head { border-radius:0 0 30px 30px; }
+.auth-brand { display:flex; align-items:center; gap:13px; font-size:24px; font-weight:700; }
+.auth-brand-icon { width:48px;height:48px;border-radius:15px;background:rgba(255,255,255,.18);
+  display:flex;align-items:center;justify-content:center;font-size:25px; }
+.auth-sub { margin-top:20px; font-size:14px; opacity:.85; }
+.auth-greet { margin-top:5px; font-size:22px; font-weight:650; }
+.st-key-loginbody {
+  width:calc(100% - 36px) !important; margin:-34px 18px 0; background:#fff;
+  border-radius:24px; padding:22px 20px 24px; position:relative; z-index:2;
+  box-shadow:0 8px 28px rgba(37,52,140,.10);
+}
+.st-key-loginbody [data-testid="stRadio"] > label { font-weight:600; color:#27334a; }
+.st-key-loginbody input, .st-key-loginbody [data-baseweb="select"] > div {
+  border-radius:12px !important;
+}
+.st-key-loginbody button[kind="primary"] {
+  background:linear-gradient(135deg,#2563eb,#3b3fd8) !important;
+  border:0 !important; border-radius:14px !important; min-height:46px; font-weight:600;
+}
+.st-key-adminbody {
+  width:calc(100% - 36px) !important; margin:-34px 18px 0; background:#fff;
+  border-radius:24px; padding:22px 20px 26px; position:relative; z-index:2;
+  box-shadow:0 8px 28px rgba(37,52,140,.10);
+}
+[data-testid="stMainBlockContainer"]:has(.st-key-adminbody), .block-container:has(.st-key-adminbody) {
+  max-width:1100px !important; padding-bottom:40px !important;
+}
+.admin-head { border-radius:0 0 30px 30px; padding-bottom:58px; }
+.admin-title { font-size:25px; font-weight:700; }
+.admin-sub { margin-top:5px; font-size:14px; opacity:.82; }
+.st-key-adminbody [data-testid="stButton"] button[kind="primary"],
+.st-key-adminbody button[kind="primary"] {
+  background:#2563eb !important; border:0 !important; border-radius:12px !important;
+}
+.st-key-adminbody [data-testid="stRadio"] > label { font-weight:600; }
+.st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
+  border-radius:14px; overflow:hidden;
+}
+@media (max-width:600px) {
+  [data-testid="stMainBlockContainer"]:has(.st-key-adminbody), .block-container:has(.st-key-adminbody) {
+    max-width:100% !important;
+  }
+  .st-key-adminbody { padding:16px 12px 22px; width:calc(100% - 24px) !important; margin-left:12px; }
+  .admin-head { padding:26px 18px 58px; }
+  .auth-head { padding:28px 20px 60px; }
+}
+</style>
+"""
+
+
+
+CSS_AUTH_ADMIN = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
+  background: #eef2fb !important; font-family: 'Inter', system-ui, sans-serif;
+}
+[data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], footer { display:none !important; }
+[data-testid="stMainBlockContainer"], .block-container {
+  max-width: 520px; padding: 0 0 48px 0 !important; background:#eef2fb;
+}
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { gap: 0.8rem; }
+.auth-head, .admin-head {
+  background: linear-gradient(135deg,#2563eb 0%,#3b3fd8 100%);
+  color:#fff; padding: 30px 24px 64px; position:relative; overflow:hidden;
+}
+.auth-head { border-radius:0 0 30px 30px; }
+.auth-brand { display:flex; align-items:center; gap:13px; font-size:24px; font-weight:700; }
+.auth-brand-icon { width:48px;height:48px;border-radius:15px;background:rgba(255,255,255,.18);
+  display:flex;align-items:center;justify-content:center;font-size:25px; }
+.auth-sub { margin-top:20px; font-size:14px; opacity:.85; }
+.auth-greet { margin-top:5px; font-size:22px; font-weight:650; }
+.st-key-loginbody {
+  width:calc(100% - 36px) !important; margin:-34px 18px 0; background:#fff;
+  border-radius:24px; padding:22px 20px 24px; position:relative; z-index:2;
+  box-shadow:0 8px 28px rgba(37,52,140,.10);
+}
+.st-key-loginbody [data-testid="stRadio"] > label { font-weight:600; color:#27334a; }
+.st-key-loginbody input, .st-key-loginbody [data-baseweb="select"] > div {
+  border-radius:12px !important;
+}
+.st-key-loginbody button[kind="primary"] {
+  background:linear-gradient(135deg,#2563eb,#3b3fd8) !important;
+  border:0 !important; border-radius:14px !important; min-height:46px; font-weight:600;
+}
+.st-key-adminbody {
+  width:calc(100% - 36px) !important; margin:-34px 18px 0; background:#fff;
+  border-radius:24px; padding:22px 20px 26px; position:relative; z-index:2;
+  box-shadow:0 8px 28px rgba(37,52,140,.10);
+}
+[data-testid="stMainBlockContainer"]:has(.st-key-adminbody), .block-container:has(.st-key-adminbody) {
+  max-width:1100px !important; padding-bottom:40px !important;
+}
+.admin-head { border-radius:0 0 30px 30px; padding-bottom:58px; }
+.admin-title { font-size:25px; font-weight:700; }
+.admin-sub { margin-top:5px; font-size:14px; opacity:.82; }
+.st-key-adminbody [data-testid="stButton"] button[kind="primary"],
+.st-key-adminbody button[kind="primary"] {
+  background:#2563eb !important; border:0 !important; border-radius:12px !important;
+}
+.st-key-adminbody [data-testid="stRadio"] > label { font-weight:600; }
+.st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
+  border-radius:14px; overflow:hidden;
+}
+@media (max-width:600px) {
+  [data-testid="stMainBlockContainer"]:has(.st-key-adminbody), .block-container:has(.st-key-adminbody) {
+    max-width:100% !important;
+  }
+  .st-key-adminbody { padding:16px 12px 22px; width:calc(100% - 24px) !important; margin-left:12px; }
+  .admin-head { padding:26px 18px 58px; }
+  .auth-head { padding:28px 20px 60px; }
+}
+</style>
+"""
+
+
 def inisial(nama):
     bagian = [b for b in nama.split() if b]
     return "".join(b[0] for b in bagian[:2]).upper() or "?"
@@ -938,67 +1070,89 @@ def keluar():
 
 
 def halaman_login(eng):
-    """Layar pertama: pilih peran, lalu login. Peserta -> halaman absen, Admin -> area admin."""
-    st.title("📍 Absensi PKL")
-    st.caption("Bank Sulselbar")
+    """Layar pertama: pilih peran, lalu login. Desain mengikuti tema Presensi peserta."""
+    st.markdown(CSS_AUTH_ADMIN, unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="auth-head">
+          <div class="auth-brand"><div class="auth-brand-icon">◉</div><div>Presensi</div></div>
+          <div class="auth-sub">BANK SULSELBAR • ABSENSI PKL</div>
+          <div class="auth-greet">Selamat Datang 👋</div>
+          <div style="font-size:14px;opacity:.82;margin-top:5px">Silakan masuk untuk melanjutkan</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.container(key="loginbody"):
+        st.subheader("Masuk ke akun")
+        peran = st.radio("Masuk sebagai", ["Peserta PKL", "Admin"], horizontal=True, key="login_peran")
 
-    peran = st.radio("Masuk sebagai", ["Peserta PKL", "Admin"], horizontal=True, key="login_peran")
-
-    if peran == "Peserta PKL":
-        df = list_peserta(eng)
-        if df.empty:
-            st.warning("Belum ada peserta terdaftar. Hubungi admin untuk didaftarkan.")
-            return
-        with st.form("login_peserta"):
-            nama = st.selectbox("Nama", df["nama"])
-            pin = st.text_input("PIN", type="password", max_chars=6)
-            kirim = st.form_submit_button("Masuk", type="primary", width="stretch")
-        if kirim:
-            if cek_pin(eng, nama, pin):
-                st.session_state.peran = "user"
-                st.session_state.nama_login = nama
-                st.rerun()
-            else:
-                st.error("PIN salah.")
-    else:
-        pw_benar = password_admin()
-        if pw_benar is None:
-            st.error("admin_password belum diatur di Secrets. Hubungi pengelola aplikasi.")
-            return
-        if not secret("admin_password") and not secret("database_url"):
-            st.info("Mode lokal: password admin default = admin123")
-        with st.form("login_admin"):
-            pw = st.text_input("Password admin", type="password")
-            kirim = st.form_submit_button("Masuk", type="primary", width="stretch")
-        if kirim:
-            if hmac.compare_digest(pw, pw_benar):
-                st.session_state.peran = "admin"
-                st.session_state.admin_ok = True
-                st.rerun()
-            else:
-                st.error("Password salah.")
+        if peran == "Peserta PKL":
+            df = list_peserta(eng)
+            if df.empty:
+                st.warning("Belum ada peserta terdaftar. Hubungi admin untuk didaftarkan.")
+                return
+            with st.form("login_peserta"):
+                nama = st.selectbox("Nama peserta", df["nama"])
+                pin = st.text_input("PIN", type="password", max_chars=6)
+                kirim = st.form_submit_button("Masuk", type="primary", width="stretch")
+            if kirim:
+                if cek_pin(eng, nama, pin):
+                    st.session_state.peran = "user"
+                    st.session_state.nama_login = nama
+                    st.rerun()
+                else:
+                    st.error("PIN salah. Silakan periksa kembali.")
+        else:
+            pw_benar = password_admin()
+            if pw_benar is None:
+                st.error("admin_password belum diatur di Secrets. Hubungi pengelola aplikasi.")
+                return
+            if not secret("admin_password") and not secret("database_url"):
+                st.info("Mode lokal: password admin default = admin123")
+            with st.form("login_admin"):
+                pw = st.text_input("Password admin", type="password")
+                kirim = st.form_submit_button("Masuk sebagai admin", type="primary", width="stretch")
+            if kirim:
+                if hmac.compare_digest(pw, pw_benar):
+                    st.session_state.peran = "admin"
+                    st.session_state.admin_ok = True
+                    st.rerun()
+                else:
+                    st.error("Password salah. Silakan coba lagi.")
 
 
 def halaman_admin(eng):
-    """Area admin (setelah login): Kelola Peserta / Rekap / Bukti Foto."""
-    kiri, kanan = st.columns([4, 1])
-    kiri.caption("Masuk sebagai admin")
-    if kanan.button("Keluar", key="keluar_admin", width="stretch"):
-        keluar()
-
-    menu = st.radio(
-        "Menu admin",
-        ["Kelola Peserta", "Rekap & Export", "Bukti Foto"],
-        horizontal=True,
-        label_visibility="collapsed",
-        key="menu_admin",
+    """Area admin dengan gaya visual yang selaras dengan halaman peserta."""
+    st.markdown(CSS_AUTH_ADMIN, unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="admin-head">
+          <div class="admin-title">Presensi · Panel Admin</div>
+          <div class="admin-sub">BANK SULSELBAR • Pengelolaan Absensi PKL</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    if menu == "Kelola Peserta":
-        halaman_kelola_peserta(eng)
-    elif menu == "Rekap & Export":
-        halaman_rekap(eng)
-    else:
-        halaman_foto(eng)
+    with st.container(key="adminbody"):
+        kiri, kanan = st.columns([4, 1])
+        kiri.caption("Masuk sebagai admin")
+        if kanan.button("Keluar", key="keluar_admin", width="stretch"):
+            keluar()
+
+        menu = st.radio(
+            "Menu admin",
+            ["Kelola Peserta", "Rekap & Export", "Bukti Foto"],
+            horizontal=True,
+            key="menu_admin",
+        )
+        st.markdown("---")
+        if menu == "Kelola Peserta":
+            halaman_kelola_peserta(eng)
+        elif menu == "Rekap & Export":
+            halaman_rekap(eng)
+        else:
+            halaman_foto(eng)
 
 
 def main():
