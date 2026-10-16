@@ -487,6 +487,78 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 .pr-stat b { display: block; font-size: 22px; margin-top: 4px; }
 .pr-stat span { font-size: 13px; }
 .st-key-pagebody [data-testid="stButton"] button[kind="primary"] { background: #2563eb; border: 0; border-radius: 14px; }
+
+/* === Perbaikan kontras dan fokus: login + admin === */
+.st-key-loginbody, .st-key-adminbody {
+  color: #111827 !important;
+  color-scheme: light !important;
+}
+.st-key-loginbody :is(p, label, span, small, .stMarkdown, [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"]),
+.st-key-adminbody :is(p, label, span, small, .stMarkdown, [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"]) {
+  color: #1f2937;
+}
+.st-key-loginbody h1, .st-key-loginbody h2, .st-key-loginbody h3,
+.st-key-adminbody h1, .st-key-adminbody h2, .st-key-adminbody h3 {
+  color: #111827 !important;
+}
+.st-key-loginbody input, .st-key-adminbody input,
+.st-key-loginbody textarea, .st-key-adminbody textarea,
+.st-key-loginbody [data-baseweb="select"] > div,
+.st-key-adminbody [data-baseweb="select"] > div {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border-color: #d1d5db !important;
+  border-radius: 12px !important;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.st-key-loginbody input::placeholder, .st-key-adminbody input::placeholder,
+.st-key-loginbody textarea::placeholder, .st-key-adminbody textarea::placeholder {
+  color: #6b7280 !important;
+  opacity: 1 !important;
+}
+.st-key-loginbody input:focus, .st-key-adminbody input:focus,
+.st-key-loginbody textarea:focus, .st-key-adminbody textarea:focus,
+.st-key-loginbody [data-baseweb="select"] > div:focus-within,
+.st-key-adminbody [data-baseweb="select"] > div:focus-within {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.22) !important;
+  outline: none !important;
+}
+.st-key-loginbody [data-testid="stRadio"] label,
+.st-key-adminbody [data-testid="stRadio"] label {
+  color: #374151 !important;
+  cursor: pointer;
+}
+.st-key-loginbody [data-testid="stRadio"] label > div:first-child,
+.st-key-adminbody [data-testid="stRadio"] label > div:first-child {
+  transition: transform .16s ease, box-shadow .16s ease;
+  border-radius: 50%;
+}
+.st-key-loginbody [data-testid="stRadio"] label:has(input:checked) > div:first-child,
+.st-key-adminbody [data-testid="stRadio"] label:has(input:checked) > div:first-child {
+  transform: scale(1.10);
+  box-shadow: 0 0 0 4px rgba(59,130,246,.18);
+}
+.st-key-loginbody [data-testid="stRadio"] input:checked + div,
+.st-key-adminbody [data-testid="stRadio"] input:checked + div {
+  border-color: #3b82f6 !important;
+}
+.st-key-loginbody [data-testid="stRadio"] input:focus-visible + div,
+.st-key-adminbody [data-testid="stRadio"] input:focus-visible + div {
+  box-shadow: 0 0 0 4px rgba(59,130,246,.22) !important;
+}
+.st-key-loginbody button[kind="primary"], .st-key-adminbody button[kind="primary"] {
+  color: #ffffff !important;
+}
+.st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
+  color: #1f2937 !important;
+}
+.st-key-adminbody [data-testid="stDataFrame"] *, .st-key-adminbody [data-testid="stTable"] * {
+  color: inherit;
+}
+/* Header tetap menggunakan teks putih di atas gradasi biru. */
+.auth-head, .admin-head, .auth-head *, .admin-head * { color: #ffffff; }
+
 </style>
 """
 
@@ -553,6 +625,78 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
   .admin-head { padding:26px 18px 58px; }
   .auth-head { padding:28px 20px 60px; }
 }
+
+/* === Perbaikan kontras dan fokus: login + admin === */
+.st-key-loginbody, .st-key-adminbody {
+  color: #111827 !important;
+  color-scheme: light !important;
+}
+.st-key-loginbody :is(p, label, span, small, .stMarkdown, [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"]),
+.st-key-adminbody :is(p, label, span, small, .stMarkdown, [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"]) {
+  color: #1f2937;
+}
+.st-key-loginbody h1, .st-key-loginbody h2, .st-key-loginbody h3,
+.st-key-adminbody h1, .st-key-adminbody h2, .st-key-adminbody h3 {
+  color: #111827 !important;
+}
+.st-key-loginbody input, .st-key-adminbody input,
+.st-key-loginbody textarea, .st-key-adminbody textarea,
+.st-key-loginbody [data-baseweb="select"] > div,
+.st-key-adminbody [data-baseweb="select"] > div {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border-color: #d1d5db !important;
+  border-radius: 12px !important;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.st-key-loginbody input::placeholder, .st-key-adminbody input::placeholder,
+.st-key-loginbody textarea::placeholder, .st-key-adminbody textarea::placeholder {
+  color: #6b7280 !important;
+  opacity: 1 !important;
+}
+.st-key-loginbody input:focus, .st-key-adminbody input:focus,
+.st-key-loginbody textarea:focus, .st-key-adminbody textarea:focus,
+.st-key-loginbody [data-baseweb="select"] > div:focus-within,
+.st-key-adminbody [data-baseweb="select"] > div:focus-within {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.22) !important;
+  outline: none !important;
+}
+.st-key-loginbody [data-testid="stRadio"] label,
+.st-key-adminbody [data-testid="stRadio"] label {
+  color: #374151 !important;
+  cursor: pointer;
+}
+.st-key-loginbody [data-testid="stRadio"] label > div:first-child,
+.st-key-adminbody [data-testid="stRadio"] label > div:first-child {
+  transition: transform .16s ease, box-shadow .16s ease;
+  border-radius: 50%;
+}
+.st-key-loginbody [data-testid="stRadio"] label:has(input:checked) > div:first-child,
+.st-key-adminbody [data-testid="stRadio"] label:has(input:checked) > div:first-child {
+  transform: scale(1.10);
+  box-shadow: 0 0 0 4px rgba(59,130,246,.18);
+}
+.st-key-loginbody [data-testid="stRadio"] input:checked + div,
+.st-key-adminbody [data-testid="stRadio"] input:checked + div {
+  border-color: #3b82f6 !important;
+}
+.st-key-loginbody [data-testid="stRadio"] input:focus-visible + div,
+.st-key-adminbody [data-testid="stRadio"] input:focus-visible + div {
+  box-shadow: 0 0 0 4px rgba(59,130,246,.22) !important;
+}
+.st-key-loginbody button[kind="primary"], .st-key-adminbody button[kind="primary"] {
+  color: #ffffff !important;
+}
+.st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
+  color: #1f2937 !important;
+}
+.st-key-adminbody [data-testid="stDataFrame"] *, .st-key-adminbody [data-testid="stTable"] * {
+  color: inherit;
+}
+/* Header tetap menggunakan teks putih di atas gradasi biru. */
+.auth-head, .admin-head, .auth-head *, .admin-head * { color: #ffffff; }
+
 </style>
 """
 
@@ -619,6 +763,78 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
   .admin-head { padding:26px 18px 58px; }
   .auth-head { padding:28px 20px 60px; }
 }
+
+/* === Perbaikan kontras dan fokus: login + admin === */
+.st-key-loginbody, .st-key-adminbody {
+  color: #111827 !important;
+  color-scheme: light !important;
+}
+.st-key-loginbody :is(p, label, span, small, .stMarkdown, [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"]),
+.st-key-adminbody :is(p, label, span, small, .stMarkdown, [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"]) {
+  color: #1f2937;
+}
+.st-key-loginbody h1, .st-key-loginbody h2, .st-key-loginbody h3,
+.st-key-adminbody h1, .st-key-adminbody h2, .st-key-adminbody h3 {
+  color: #111827 !important;
+}
+.st-key-loginbody input, .st-key-adminbody input,
+.st-key-loginbody textarea, .st-key-adminbody textarea,
+.st-key-loginbody [data-baseweb="select"] > div,
+.st-key-adminbody [data-baseweb="select"] > div {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border-color: #d1d5db !important;
+  border-radius: 12px !important;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.st-key-loginbody input::placeholder, .st-key-adminbody input::placeholder,
+.st-key-loginbody textarea::placeholder, .st-key-adminbody textarea::placeholder {
+  color: #6b7280 !important;
+  opacity: 1 !important;
+}
+.st-key-loginbody input:focus, .st-key-adminbody input:focus,
+.st-key-loginbody textarea:focus, .st-key-adminbody textarea:focus,
+.st-key-loginbody [data-baseweb="select"] > div:focus-within,
+.st-key-adminbody [data-baseweb="select"] > div:focus-within {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.22) !important;
+  outline: none !important;
+}
+.st-key-loginbody [data-testid="stRadio"] label,
+.st-key-adminbody [data-testid="stRadio"] label {
+  color: #374151 !important;
+  cursor: pointer;
+}
+.st-key-loginbody [data-testid="stRadio"] label > div:first-child,
+.st-key-adminbody [data-testid="stRadio"] label > div:first-child {
+  transition: transform .16s ease, box-shadow .16s ease;
+  border-radius: 50%;
+}
+.st-key-loginbody [data-testid="stRadio"] label:has(input:checked) > div:first-child,
+.st-key-adminbody [data-testid="stRadio"] label:has(input:checked) > div:first-child {
+  transform: scale(1.10);
+  box-shadow: 0 0 0 4px rgba(59,130,246,.18);
+}
+.st-key-loginbody [data-testid="stRadio"] input:checked + div,
+.st-key-adminbody [data-testid="stRadio"] input:checked + div {
+  border-color: #3b82f6 !important;
+}
+.st-key-loginbody [data-testid="stRadio"] input:focus-visible + div,
+.st-key-adminbody [data-testid="stRadio"] input:focus-visible + div {
+  box-shadow: 0 0 0 4px rgba(59,130,246,.22) !important;
+}
+.st-key-loginbody button[kind="primary"], .st-key-adminbody button[kind="primary"] {
+  color: #ffffff !important;
+}
+.st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
+  color: #1f2937 !important;
+}
+.st-key-adminbody [data-testid="stDataFrame"] *, .st-key-adminbody [data-testid="stTable"] * {
+  color: inherit;
+}
+/* Header tetap menggunakan teks putih di atas gradasi biru. */
+.auth-head, .admin-head, .auth-head *, .admin-head * { color: #ffffff; }
+
 </style>
 """
 
