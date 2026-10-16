@@ -835,6 +835,179 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 /* Header tetap menggunakan teks putih di atas gradasi biru. */
 .auth-head, .admin-head, .auth-head *, .admin-head * { color: #ffffff; }
 
+
+/* ===== Tema Presensi: biru, putih, pastel — tanpa teks hitam ===== */
+:root {
+  color-scheme: light;
+  --pr-blue: #285bea;
+  --pr-blue-deep: #3544d8;
+  --pr-ink: #263858;
+  --pr-muted: #64748b;
+  --pr-border: #dce6f8;
+  --pr-page: #eef3ff;
+  --pr-card: #ffffff;
+}
+html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"],
+[data-testid="stMain"], [data-testid="stMainBlockContainer"], .block-container {
+  background: var(--pr-page) !important;
+  color: var(--pr-ink) !important;
+  color-scheme: light !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+}
+[data-testid="stMainBlockContainer"], .block-container {
+  padding-top: 1rem !important;
+}
+[data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li, [data-testid="stWidgetLabel"],
+[data-testid="stCaptionContainer"], label, .stText, .stMarkdown,
+[data-testid="stMetricLabel"], [data-testid="stMetricValue"] {
+  color: var(--pr-ink) !important;
+}
+h1, h2, h3, h4, h5, h6 {
+  color: var(--pr-ink) !important;
+  letter-spacing: -.02em;
+}
+.st-key-loginbody, .st-key-adminbody {
+  background: var(--pr-card) !important;
+  border: 1px solid rgba(211, 224, 250, .9) !important;
+  border-radius: 26px !important;
+  box-shadow: 0 12px 34px rgba(45, 77, 160, .10) !important;
+  color: var(--pr-ink) !important;
+}
+.auth-head, .admin-head {
+  background: linear-gradient(135deg, #2864ef 0%, #3d3dd7 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 26px rgba(45, 77, 200, .12);
+}
+.auth-head *, .admin-head *, .auth-brand, .auth-sub, .auth-greet,
+.admin-title, .admin-sub {
+  color: #ffffff !important;
+}
+.auth-brand-icon {
+  background: rgba(255,255,255,.18) !important;
+  border: 1px solid rgba(255,255,255,.18);
+}
+.st-key-loginbody [data-testid="stWidgetLabel"],
+.st-key-adminbody [data-testid="stWidgetLabel"],
+.st-key-loginbody label, .st-key-adminbody label {
+  color: var(--pr-ink) !important;
+  font-weight: 600;
+}
+/* Input putih, tulisan biru tua, fokus biru lembut */
+.st-key-loginbody input, .st-key-adminbody input,
+.st-key-loginbody textarea, .st-key-adminbody textarea,
+.st-key-loginbody [data-baseweb="select"] > div,
+.st-key-adminbody [data-baseweb="select"] > div,
+.st-key-loginbody [data-baseweb="input"] > div,
+.st-key-adminbody [data-baseweb="input"] > div {
+  background: #ffffff !important;
+  color: var(--pr-ink) !important;
+  -webkit-text-fill-color: var(--pr-ink) !important;
+  border: 1px solid var(--pr-border) !important;
+  border-radius: 13px !important;
+  box-shadow: 0 2px 7px rgba(52, 82, 160, .035);
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.st-key-loginbody input::placeholder, .st-key-adminbody input::placeholder,
+.st-key-loginbody textarea::placeholder, .st-key-adminbody textarea::placeholder {
+  color: #8493ad !important;
+  -webkit-text-fill-color: #8493ad !important;
+  opacity: 1 !important;
+}
+.st-key-loginbody input:focus, .st-key-adminbody input:focus,
+.st-key-loginbody textarea:focus, .st-key-adminbody textarea:focus,
+.st-key-loginbody [data-baseweb="select"] > div:focus-within,
+.st-key-adminbody [data-baseweb="select"] > div:focus-within,
+.st-key-loginbody [data-baseweb="input"] > div:focus-within,
+.st-key-adminbody [data-baseweb="input"] > div:focus-within {
+  border-color: #6da0ff !important;
+  box-shadow: 0 0 0 3px rgba(67, 131, 255, .18) !important;
+}
+/* Radio: tidak hitam, pilihan mendapat aksen biru dan sedikit membesar */
+.st-key-loginbody [data-testid="stRadio"] label,
+.st-key-adminbody [data-testid="stRadio"] label {
+  color: var(--pr-ink) !important;
+}
+.st-key-loginbody [data-testid="stRadio"] label > div:first-child,
+.st-key-adminbody [data-testid="stRadio"] label > div:first-child {
+  border-radius: 50%;
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+.st-key-loginbody [data-testid="stRadio"] label:has(input:checked) > div:first-child,
+.st-key-adminbody [data-testid="stRadio"] label:has(input:checked) > div:first-child {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, .18);
+}
+.st-key-loginbody [data-testid="stRadio"] input:focus-visible + div,
+.st-key-adminbody [data-testid="stRadio"] input:focus-visible + div {
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, .22) !important;
+}
+/* Tombol senada dengan header dan kartu pastel */
+.st-key-loginbody button[kind="primary"],
+.st-key-adminbody button[kind="primary"],
+.st-key-loginbody [data-testid="stFormSubmitButton"] button,
+.st-key-adminbody [data-testid="stFormSubmitButton"] button {
+  background: linear-gradient(135deg, #3269f2, #4646dc) !important;
+  color: #ffffff !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  min-height: 44px;
+  font-weight: 650 !important;
+  box-shadow: 0 5px 13px rgba(49, 87, 218, .16);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.st-key-loginbody button[kind="primary"]:hover,
+.st-key-adminbody button[kind="primary"]:hover {
+  box-shadow: 0 8px 18px rgba(49, 87, 218, .22);
+  transform: translateY(-1px);
+}
+/* Tombol sekunder juga memakai warna lembut, bukan hitam */
+.st-key-loginbody button:not([kind="primary"]),
+.st-key-adminbody button:not([kind="primary"]) {
+  background: #edf3ff !important;
+  color: #3158bd !important;
+  border: 1px solid #dce7ff !important;
+  border-radius: 12px !important;
+}
+.st-key-loginbody button:not([kind="primary"]) *,
+.st-key-adminbody button:not([kind="primary"]) * {
+  color: #3158bd !important;
+}
+/* Kartu metrik dan tabel admin */
+.st-key-adminbody [data-testid="stMetric"],
+.st-key-adminbody [data-testid="stVerticalBlockBorderWrapper"] {
+  background: #ffffff !important;
+  border: 1px solid #e1eaff !important;
+  border-radius: 17px !important;
+  box-shadow: 0 5px 16px rgba(45, 77, 160, .055);
+}
+.st-key-adminbody [data-testid="stDataFrame"],
+.st-key-adminbody [data-testid="stTable"] {
+  border: 1px solid #dce6f8 !important;
+  border-radius: 14px !important;
+  overflow: hidden;
+  color: var(--pr-ink) !important;
+}
+.st-key-adminbody [data-testid="stDataFrame"] *,
+.st-key-adminbody [data-testid="stTable"] * {
+  color: var(--pr-ink) !important;
+}
+.st-key-adminbody hr, .st-key-loginbody hr {
+  border-color: #e4ebfa !important;
+}
+[data-testid="stAlert"] {
+  border-radius: 14px !important;
+}
+@media (max-width: 600px) {
+  [data-testid="stMainBlockContainer"], .block-container {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  .auth-head, .admin-head { padding-left: 20px !important; padding-right: 20px !important; }
+  .st-key-loginbody { padding: 20px 16px 22px !important; }
+  .st-key-adminbody { padding: 18px 14px 22px !important; }
+}
+
 </style>
 """
 
