@@ -413,8 +413,8 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 /* ---------- kartu presensi ---------- */
 .pr-card { background: #fff; border-radius: 26px; margin: -52px 22px 0; padding: 20px 18px 18px;
   box-shadow: 0 8px 28px rgba(37,52,140,.10); position: relative; z-index: 2; }
-.pr-date { display: flex; align-items: center; gap: 12px; color: #374151; font-size: 17px; font-weight: 500; }
-.pr-date svg { color: #4b5563; }
+.pr-date { display: flex; align-items: center; gap: 12px; color: #2f3b6b; font-size: 17px; font-weight: 500; }
+.pr-date svg { color: #4a5788; }
 .pr-badge { margin-left: auto; background: #d9f7e8; color: #12a15f; font-weight: 600; font-size: 15px;
   padding: 7px 18px; border-radius: 999px; }
 .pr-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 18px; }
@@ -436,11 +436,11 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 /* ---------- menu ---------- */
 .st-key-menucard { width: calc(100% - 44px) !important; background: #fff; border-radius: 26px; margin: 22px 22px 0; padding: 22px 12px 18px;
   box-shadow: 0 8px 28px rgba(37,52,140,.08); }
-.pr-menu-title { font-size: 21px; font-weight: 600; color: #1f2937; padding: 0 8px 22px; }
+.pr-menu-title { font-size: 21px; font-weight: 600; color: #1e2a5a; padding: 0 8px 22px; }
 .mn { text-align: center; }
 .mn .bx { width: 66px; height: 66px; border-radius: 20px; margin: 0 auto; display: flex;
   align-items: center; justify-content: center; }
-.mn .tx { font-size: 15px; color: #6b7280; margin-top: 10px; line-height: 1.25; }
+.mn .tx { font-size: 15px; color: #6b779e; margin-top: 10px; line-height: 1.25; }
 .b-pink { background: #fde8ec; color: #e0436a; }
 .b-sky { background: #e3f3fd; color: #1b9bd8; }
 .b-mint { background: #dff7ec; color: #15a36a; }
@@ -475,539 +475,170 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
   box-shadow: 0 8px 28px rgba(37,52,140,.10); position: relative; z-index: 2; }
 .pr-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #eef0f5; }
 .pr-row:last-child { border-bottom: 0; }
-.pr-row .d { font-weight: 600; color: #1f2937; font-size: 15px; }
-.pr-row .m { font-size: 13px; color: #6b7280; margin-top: 2px; }
+.pr-row .d { font-weight: 600; color: #1e2a5a; font-size: 15px; }
+.pr-row .m { font-size: 13px; color: #6b779e; margin-top: 2px; }
 .pr-row .r { margin-left: auto; text-align: right; font-size: 13px; font-weight: 600; }
 .ok { color: #14a068; } .bad { color: #e04a4a; }
 .pr-kv { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #eef0f5; font-size: 15px; }
 .pr-kv:last-child { border-bottom: 0; }
-.pr-kv span:first-child { color: #6b7280; } .pr-kv span:last-child { font-weight: 600; color: #1f2937; }
+.pr-kv span:first-child { color: #6b779e; } .pr-kv span:last-child { font-weight: 600; color: #1e2a5a; }
 .pr-stat { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
 .pr-stat div { background: #eaf1ff; border-radius: 16px; padding: 14px; color: #2f5fd0; }
 .pr-stat b { display: block; font-size: 22px; margin-top: 4px; }
 .pr-stat span { font-size: 13px; }
 .st-key-pagebody [data-testid="stButton"] button[kind="primary"] { background: #2563eb; border: 0; border-radius: 14px; }
 
-/* === Perbaikan kontras dan fokus: login + admin === */
-.st-key-loginbody, .st-key-adminbody {
-  color: #111827 !important;
-  color-scheme: light !important;
-}
-.st-key-loginbody :is(p, label, span, small, .stMarkdown, [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"]),
-.st-key-adminbody :is(p, label, span, small, .stMarkdown, [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"]) {
-  color: #1f2937;
-}
-.st-key-loginbody h1, .st-key-loginbody h2, .st-key-loginbody h3,
-.st-key-adminbody h1, .st-key-adminbody h2, .st-key-adminbody h3 {
-  color: #111827 !important;
-}
-.st-key-loginbody input, .st-key-adminbody input,
-.st-key-loginbody textarea, .st-key-adminbody textarea,
-.st-key-loginbody [data-baseweb="select"] > div,
-.st-key-adminbody [data-baseweb="select"] > div {
-  background: #ffffff !important;
-  color: #111827 !important;
-  border-color: #d1d5db !important;
-  border-radius: 12px !important;
-  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
-}
-.st-key-loginbody input::placeholder, .st-key-adminbody input::placeholder,
-.st-key-loginbody textarea::placeholder, .st-key-adminbody textarea::placeholder {
-  color: #6b7280 !important;
-  opacity: 1 !important;
-}
-.st-key-loginbody input:focus, .st-key-adminbody input:focus,
-.st-key-loginbody textarea:focus, .st-key-adminbody textarea:focus,
-.st-key-loginbody [data-baseweb="select"] > div:focus-within,
-.st-key-adminbody [data-baseweb="select"] > div:focus-within {
-  border-color: #60a5fa !important;
-  box-shadow: 0 0 0 3px rgba(59,130,246,.22) !important;
-  outline: none !important;
-}
-.st-key-loginbody [data-testid="stRadio"] label,
-.st-key-adminbody [data-testid="stRadio"] label {
-  color: #374151 !important;
-  cursor: pointer;
-}
-.st-key-loginbody [data-testid="stRadio"] label > div:first-child,
-.st-key-adminbody [data-testid="stRadio"] label > div:first-child {
-  transition: transform .16s ease, box-shadow .16s ease;
-  border-radius: 50%;
-}
-.st-key-loginbody [data-testid="stRadio"] label:has(input:checked) > div:first-child,
-.st-key-adminbody [data-testid="stRadio"] label:has(input:checked) > div:first-child {
-  transform: scale(1.10);
-  box-shadow: 0 0 0 4px rgba(59,130,246,.18);
-}
-.st-key-loginbody [data-testid="stRadio"] input:checked + div,
-.st-key-adminbody [data-testid="stRadio"] input:checked + div {
-  border-color: #3b82f6 !important;
-}
-.st-key-loginbody [data-testid="stRadio"] input:focus-visible + div,
-.st-key-adminbody [data-testid="stRadio"] input:focus-visible + div {
-  box-shadow: 0 0 0 4px rgba(59,130,246,.22) !important;
-}
-.st-key-loginbody button[kind="primary"], .st-key-adminbody button[kind="primary"] {
-  color: #ffffff !important;
-}
-.st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
-  color: #1f2937 !important;
-}
-.st-key-adminbody [data-testid="stDataFrame"] *, .st-key-adminbody [data-testid="stTable"] * {
-  color: inherit;
-}
-/* Header tetap menggunakan teks putih di atas gradasi biru. */
-.auth-head, .admin-head, .auth-head *, .admin-head * { color: #ffffff; }
-
 </style>
 """
 
 
 
-CSS_AUTH_ADMIN = """
+CSS_TEMA = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
-  background: #eef2fb !important; font-family: 'Inter', system-ui, sans-serif;
-}
-[data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], footer { display:none !important; }
-[data-testid="stMainBlockContainer"], .block-container {
-  max-width: 520px; padding: 0 0 48px 0 !important; background:#eef2fb;
-}
-[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { gap: 0.8rem; }
-.auth-head, .admin-head {
-  background: linear-gradient(135deg,#2563eb 0%,#3b3fd8 100%);
-  color:#fff; padding: 30px 24px 64px; position:relative; overflow:hidden;
-}
-.auth-head { border-radius:0 0 30px 30px; }
-.auth-brand { display:flex; align-items:center; gap:13px; font-size:24px; font-weight:700; }
-.auth-brand-icon { width:48px;height:48px;border-radius:15px;background:rgba(255,255,255,.18);
-  display:flex;align-items:center;justify-content:center;font-size:25px; }
-.auth-sub { margin-top:20px; font-size:14px; opacity:.85; }
-.auth-greet { margin-top:5px; font-size:22px; font-weight:650; }
-.st-key-loginbody {
-  width:calc(100% - 36px) !important; margin:-34px 18px 0; background:#fff;
-  border-radius:24px; padding:22px 20px 24px; position:relative; z-index:2;
-  box-shadow:0 8px 28px rgba(37,52,140,.10);
-}
-.st-key-loginbody [data-testid="stRadio"] > label { font-weight:600; color:#27334a; }
-.st-key-loginbody input, .st-key-loginbody [data-baseweb="select"] > div {
-  border-radius:12px !important;
-}
-.st-key-loginbody button[kind="primary"] {
-  background:linear-gradient(135deg,#2563eb,#3b3fd8) !important;
-  border:0 !important; border-radius:14px !important; min-height:46px; font-weight:600;
-}
-.st-key-adminbody {
-  width:calc(100% - 36px) !important; margin:-34px 18px 0; background:#fff;
-  border-radius:24px; padding:22px 20px 26px; position:relative; z-index:2;
-  box-shadow:0 8px 28px rgba(37,52,140,.10);
-}
-[data-testid="stMainBlockContainer"]:has(.st-key-adminbody), .block-container:has(.st-key-adminbody) {
-  max-width:1100px !important; padding-bottom:40px !important;
-}
-.admin-head { border-radius:0 0 30px 30px; padding-bottom:58px; }
-.admin-title { font-size:25px; font-weight:700; }
-.admin-sub { margin-top:5px; font-size:14px; opacity:.82; }
-.st-key-adminbody [data-testid="stButton"] button[kind="primary"],
-.st-key-adminbody button[kind="primary"] {
-  background:#2563eb !important; border:0 !important; border-radius:12px !important;
-}
-.st-key-adminbody [data-testid="stRadio"] > label { font-weight:600; }
-.st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
-  border-radius:14px; overflow:hidden;
-}
-@media (max-width:600px) {
-  [data-testid="stMainBlockContainer"]:has(.st-key-adminbody), .block-container:has(.st-key-adminbody) {
-    max-width:100% !important;
-  }
-  .st-key-adminbody { padding:16px 12px 22px; width:calc(100% - 24px) !important; margin-left:12px; }
-  .admin-head { padding:26px 18px 58px; }
-  .auth-head { padding:28px 20px 60px; }
-}
-
-/* === Perbaikan kontras dan fokus: login + admin === */
-.st-key-loginbody, .st-key-adminbody {
-  color: #111827 !important;
-  color-scheme: light !important;
-}
-.st-key-loginbody :is(p, label, span, small, .stMarkdown, [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"]),
-.st-key-adminbody :is(p, label, span, small, .stMarkdown, [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"]) {
-  color: #1f2937;
-}
-.st-key-loginbody h1, .st-key-loginbody h2, .st-key-loginbody h3,
-.st-key-adminbody h1, .st-key-adminbody h2, .st-key-adminbody h3 {
-  color: #111827 !important;
-}
-.st-key-loginbody input, .st-key-adminbody input,
-.st-key-loginbody textarea, .st-key-adminbody textarea,
-.st-key-loginbody [data-baseweb="select"] > div,
-.st-key-adminbody [data-baseweb="select"] > div {
-  background: #ffffff !important;
-  color: #111827 !important;
-  border-color: #d1d5db !important;
-  border-radius: 12px !important;
-  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
-}
-.st-key-loginbody input::placeholder, .st-key-adminbody input::placeholder,
-.st-key-loginbody textarea::placeholder, .st-key-adminbody textarea::placeholder {
-  color: #6b7280 !important;
-  opacity: 1 !important;
-}
-.st-key-loginbody input:focus, .st-key-adminbody input:focus,
-.st-key-loginbody textarea:focus, .st-key-adminbody textarea:focus,
-.st-key-loginbody [data-baseweb="select"] > div:focus-within,
-.st-key-adminbody [data-baseweb="select"] > div:focus-within {
-  border-color: #60a5fa !important;
-  box-shadow: 0 0 0 3px rgba(59,130,246,.22) !important;
-  outline: none !important;
-}
-.st-key-loginbody [data-testid="stRadio"] label,
-.st-key-adminbody [data-testid="stRadio"] label {
-  color: #374151 !important;
-  cursor: pointer;
-}
-.st-key-loginbody [data-testid="stRadio"] label > div:first-child,
-.st-key-adminbody [data-testid="stRadio"] label > div:first-child {
-  transition: transform .16s ease, box-shadow .16s ease;
-  border-radius: 50%;
-}
-.st-key-loginbody [data-testid="stRadio"] label:has(input:checked) > div:first-child,
-.st-key-adminbody [data-testid="stRadio"] label:has(input:checked) > div:first-child {
-  transform: scale(1.10);
-  box-shadow: 0 0 0 4px rgba(59,130,246,.18);
-}
-.st-key-loginbody [data-testid="stRadio"] input:checked + div,
-.st-key-adminbody [data-testid="stRadio"] input:checked + div {
-  border-color: #3b82f6 !important;
-}
-.st-key-loginbody [data-testid="stRadio"] input:focus-visible + div,
-.st-key-adminbody [data-testid="stRadio"] input:focus-visible + div {
-  box-shadow: 0 0 0 4px rgba(59,130,246,.22) !important;
-}
-.st-key-loginbody button[kind="primary"], .st-key-adminbody button[kind="primary"] {
-  color: #ffffff !important;
-}
-.st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
-  color: #1f2937 !important;
-}
-.st-key-adminbody [data-testid="stDataFrame"] *, .st-key-adminbody [data-testid="stTable"] * {
-  color: inherit;
-}
-/* Header tetap menggunakan teks putih di atas gradasi biru. */
-.auth-head, .admin-head, .auth-head *, .admin-head * { color: #ffffff; }
-
-</style>
-"""
-
-
-
-CSS_AUTH_ADMIN = """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
-  background: #eef2fb !important; font-family: 'Inter', system-ui, sans-serif;
-}
-[data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], footer { display:none !important; }
-[data-testid="stMainBlockContainer"], .block-container {
-  max-width: 520px; padding: 0 0 48px 0 !important; background:#eef2fb;
-}
-[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { gap: 0.8rem; }
-.auth-head, .admin-head {
-  background: linear-gradient(135deg,#2563eb 0%,#3b3fd8 100%);
-  color:#fff; padding: 30px 24px 64px; position:relative; overflow:hidden;
-}
-.auth-head { border-radius:0 0 30px 30px; }
-.auth-brand { display:flex; align-items:center; gap:13px; font-size:24px; font-weight:700; }
-.auth-brand-icon { width:48px;height:48px;border-radius:15px;background:rgba(255,255,255,.18);
-  display:flex;align-items:center;justify-content:center;font-size:25px; }
-.auth-sub { margin-top:20px; font-size:14px; opacity:.85; }
-.auth-greet { margin-top:5px; font-size:22px; font-weight:650; }
-.st-key-loginbody {
-  width:calc(100% - 36px) !important; margin:-34px 18px 0; background:#fff;
-  border-radius:24px; padding:22px 20px 24px; position:relative; z-index:2;
-  box-shadow:0 8px 28px rgba(37,52,140,.10);
-}
-.st-key-loginbody [data-testid="stRadio"] > label { font-weight:600; color:#27334a; }
-.st-key-loginbody input, .st-key-loginbody [data-baseweb="select"] > div {
-  border-radius:12px !important;
-}
-.st-key-loginbody button[kind="primary"] {
-  background:linear-gradient(135deg,#2563eb,#3b3fd8) !important;
-  border:0 !important; border-radius:14px !important; min-height:46px; font-weight:600;
-}
-.st-key-adminbody {
-  width:calc(100% - 36px) !important; margin:-34px 18px 0; background:#fff;
-  border-radius:24px; padding:22px 20px 26px; position:relative; z-index:2;
-  box-shadow:0 8px 28px rgba(37,52,140,.10);
-}
-[data-testid="stMainBlockContainer"]:has(.st-key-adminbody), .block-container:has(.st-key-adminbody) {
-  max-width:1100px !important; padding-bottom:40px !important;
-}
-.admin-head { border-radius:0 0 30px 30px; padding-bottom:58px; }
-.admin-title { font-size:25px; font-weight:700; }
-.admin-sub { margin-top:5px; font-size:14px; opacity:.82; }
-.st-key-adminbody [data-testid="stButton"] button[kind="primary"],
-.st-key-adminbody button[kind="primary"] {
-  background:#2563eb !important; border:0 !important; border-radius:12px !important;
-}
-.st-key-adminbody [data-testid="stRadio"] > label { font-weight:600; }
-.st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
-  border-radius:14px; overflow:hidden;
-}
-@media (max-width:600px) {
-  [data-testid="stMainBlockContainer"]:has(.st-key-adminbody), .block-container:has(.st-key-adminbody) {
-    max-width:100% !important;
-  }
-  .st-key-adminbody { padding:16px 12px 22px; width:calc(100% - 24px) !important; margin-left:12px; }
-  .admin-head { padding:26px 18px 58px; }
-  .auth-head { padding:28px 20px 60px; }
-}
-
-/* === Perbaikan kontras dan fokus: login + admin === */
-.st-key-loginbody, .st-key-adminbody {
-  color: #111827 !important;
-  color-scheme: light !important;
-}
-.st-key-loginbody :is(p, label, span, small, .stMarkdown, [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"]),
-.st-key-adminbody :is(p, label, span, small, .stMarkdown, [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"]) {
-  color: #1f2937;
-}
-.st-key-loginbody h1, .st-key-loginbody h2, .st-key-loginbody h3,
-.st-key-adminbody h1, .st-key-adminbody h2, .st-key-adminbody h3 {
-  color: #111827 !important;
-}
-.st-key-loginbody input, .st-key-adminbody input,
-.st-key-loginbody textarea, .st-key-adminbody textarea,
-.st-key-loginbody [data-baseweb="select"] > div,
-.st-key-adminbody [data-baseweb="select"] > div {
-  background: #ffffff !important;
-  color: #111827 !important;
-  border-color: #d1d5db !important;
-  border-radius: 12px !important;
-  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
-}
-.st-key-loginbody input::placeholder, .st-key-adminbody input::placeholder,
-.st-key-loginbody textarea::placeholder, .st-key-adminbody textarea::placeholder {
-  color: #6b7280 !important;
-  opacity: 1 !important;
-}
-.st-key-loginbody input:focus, .st-key-adminbody input:focus,
-.st-key-loginbody textarea:focus, .st-key-adminbody textarea:focus,
-.st-key-loginbody [data-baseweb="select"] > div:focus-within,
-.st-key-adminbody [data-baseweb="select"] > div:focus-within {
-  border-color: #60a5fa !important;
-  box-shadow: 0 0 0 3px rgba(59,130,246,.22) !important;
-  outline: none !important;
-}
-.st-key-loginbody [data-testid="stRadio"] label,
-.st-key-adminbody [data-testid="stRadio"] label {
-  color: #374151 !important;
-  cursor: pointer;
-}
-.st-key-loginbody [data-testid="stRadio"] label > div:first-child,
-.st-key-adminbody [data-testid="stRadio"] label > div:first-child {
-  transition: transform .16s ease, box-shadow .16s ease;
-  border-radius: 50%;
-}
-.st-key-loginbody [data-testid="stRadio"] label:has(input:checked) > div:first-child,
-.st-key-adminbody [data-testid="stRadio"] label:has(input:checked) > div:first-child {
-  transform: scale(1.10);
-  box-shadow: 0 0 0 4px rgba(59,130,246,.18);
-}
-.st-key-loginbody [data-testid="stRadio"] input:checked + div,
-.st-key-adminbody [data-testid="stRadio"] input:checked + div {
-  border-color: #3b82f6 !important;
-}
-.st-key-loginbody [data-testid="stRadio"] input:focus-visible + div,
-.st-key-adminbody [data-testid="stRadio"] input:focus-visible + div {
-  box-shadow: 0 0 0 4px rgba(59,130,246,.22) !important;
-}
-.st-key-loginbody button[kind="primary"], .st-key-adminbody button[kind="primary"] {
-  color: #ffffff !important;
-}
-.st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
-  color: #1f2937 !important;
-}
-.st-key-adminbody [data-testid="stDataFrame"] *, .st-key-adminbody [data-testid="stTable"] * {
-  color: inherit;
-}
-/* Header tetap menggunakan teks putih di atas gradasi biru. */
-.auth-head, .admin-head, .auth-head *, .admin-head * { color: #ffffff; }
-
-
-/* ===== Tema Presensi: biru, putih, pastel — tanpa teks hitam ===== */
 :root {
+  --biru: #2563eb; --ungu: #3b3fd8; --bg: #eef2fb; --tint: #eaf1ff;
+  --navy: #1e2a5a; --navy2: #4a5788; --muted: #6b779e; --garis: #d5def3;
+}
+html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+  background: var(--bg) !important; color: var(--navy); font-family: 'Inter', system-ui, sans-serif;
   color-scheme: light;
-  --pr-blue: #285bea;
-  --pr-blue-deep: #3544d8;
-  --pr-ink: #263858;
-  --pr-muted: #64748b;
-  --pr-border: #dce6f8;
-  --pr-page: #eef3ff;
-  --pr-card: #ffffff;
 }
-html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"],
-[data-testid="stMain"], [data-testid="stMainBlockContainer"], .block-container {
-  background: var(--pr-page) !important;
-  color: var(--pr-ink) !important;
-  color-scheme: light !important;
-  font-family: 'Inter', system-ui, sans-serif !important;
-}
+[data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"],
+.stDeployButton, footer, [class*="viewerBadge"], [class*="StatusWidget"] { display: none !important; }
 [data-testid="stMainBlockContainer"], .block-container {
-  padding-top: 1rem !important;
+  padding: 0 0 48px 0 !important; background: var(--bg); position: relative; min-height: 100vh;
 }
-[data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] p,
-[data-testid="stMarkdownContainer"] li, [data-testid="stWidgetLabel"],
-[data-testid="stCaptionContainer"], label, .stText, .stMarkdown,
-[data-testid="stMetricLabel"], [data-testid="stMetricValue"] {
-  color: var(--pr-ink) !important;
-}
-h1, h2, h3, h4, h5, h6 {
-  color: var(--pr-ink) !important;
-  letter-spacing: -.02em;
-}
-.st-key-loginbody, .st-key-adminbody {
-  background: var(--pr-card) !important;
-  border: 1px solid rgba(211, 224, 250, .9) !important;
-  border-radius: 26px !important;
-  box-shadow: 0 12px 34px rgba(45, 77, 160, .10) !important;
-  color: var(--pr-ink) !important;
-}
-.auth-head, .admin-head {
-  background: linear-gradient(135deg, #2864ef 0%, #3d3dd7 100%) !important;
-  color: #ffffff !important;
-  box-shadow: 0 10px 26px rgba(45, 77, 200, .12);
-}
-.auth-head *, .admin-head *, .auth-brand, .auth-sub, .auth-greet,
-.admin-title, .admin-sub {
-  color: #ffffff !important;
-}
-.auth-brand-icon {
-  background: rgba(255,255,255,.18) !important;
-  border: 1px solid rgba(255,255,255,.18);
-}
-.st-key-loginbody [data-testid="stWidgetLabel"],
-.st-key-adminbody [data-testid="stWidgetLabel"],
-.st-key-loginbody label, .st-key-adminbody label {
-  color: var(--pr-ink) !important;
-  font-weight: 600;
-}
-/* Input putih, tulisan biru tua, fokus biru lembut */
-.st-key-loginbody input, .st-key-adminbody input,
-.st-key-loginbody textarea, .st-key-adminbody textarea,
-.st-key-loginbody [data-baseweb="select"] > div,
-.st-key-adminbody [data-baseweb="select"] > div,
-.st-key-loginbody [data-baseweb="input"] > div,
-.st-key-adminbody [data-baseweb="input"] > div {
-  background: #ffffff !important;
-  color: var(--pr-ink) !important;
-  -webkit-text-fill-color: var(--pr-ink) !important;
-  border: 1px solid var(--pr-border) !important;
-  border-radius: 13px !important;
-  box-shadow: 0 2px 7px rgba(52, 82, 160, .035);
-  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
-}
-.st-key-loginbody input::placeholder, .st-key-adminbody input::placeholder,
-.st-key-loginbody textarea::placeholder, .st-key-adminbody textarea::placeholder {
-  color: #8493ad !important;
-  -webkit-text-fill-color: #8493ad !important;
-  opacity: 1 !important;
-}
-.st-key-loginbody input:focus, .st-key-adminbody input:focus,
-.st-key-loginbody textarea:focus, .st-key-adminbody textarea:focus,
-.st-key-loginbody [data-baseweb="select"] > div:focus-within,
-.st-key-adminbody [data-baseweb="select"] > div:focus-within,
-.st-key-loginbody [data-baseweb="input"] > div:focus-within,
-.st-key-adminbody [data-baseweb="input"] > div:focus-within {
-  border-color: #6da0ff !important;
-  box-shadow: 0 0 0 3px rgba(67, 131, 255, .18) !important;
-}
-/* Radio: tidak hitam, pilihan mendapat aksen biru dan sedikit membesar */
-.st-key-loginbody [data-testid="stRadio"] label,
-.st-key-adminbody [data-testid="stRadio"] label {
-  color: var(--pr-ink) !important;
-}
-.st-key-loginbody [data-testid="stRadio"] label > div:first-child,
-.st-key-adminbody [data-testid="stRadio"] label > div:first-child {
-  border-radius: 50%;
-  transition: transform .16s ease, box-shadow .16s ease;
-}
-.st-key-loginbody [data-testid="stRadio"] label:has(input:checked) > div:first-child,
-.st-key-adminbody [data-testid="stRadio"] label:has(input:checked) > div:first-child {
-  transform: scale(1.12);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, .18);
-}
-.st-key-loginbody [data-testid="stRadio"] input:focus-visible + div,
-.st-key-adminbody [data-testid="stRadio"] input:focus-visible + div {
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, .22) !important;
-}
-/* Tombol senada dengan header dan kartu pastel */
-.st-key-loginbody button[kind="primary"],
-.st-key-adminbody button[kind="primary"],
-.st-key-loginbody [data-testid="stFormSubmitButton"] button,
-.st-key-adminbody [data-testid="stFormSubmitButton"] button {
-  background: linear-gradient(135deg, #3269f2, #4646dc) !important;
-  color: #ffffff !important;
-  border: 0 !important;
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { gap: 0 !important; }
+
+/* ---------- komponen form (login + admin) ---------- */
+.st-key-loginbody, .st-key-adminbody { color: var(--navy); }
+.st-key-loginbody :is(p, label, span, small, li, h1, h2, h3, h4),
+.st-key-adminbody :is(p, label, span, small, li, h1, h2, h3, h4) { color: var(--navy); }
+.st-key-loginbody [data-testid="stCaptionContainer"] *, .st-key-adminbody [data-testid="stCaptionContainer"] * { color: var(--muted); }
+.st-key-loginbody h2, .st-key-adminbody h2 { font-size: 20px; font-weight: 700; padding: 4px 0 8px; }
+.st-key-adminbody h3 { font-size: 17px; font-weight: 700; }
+.st-key-loginbody hr, .st-key-adminbody hr { border: 0; border-top: 1px solid var(--garis); margin: 14px 0; }
+
+.st-key-adminbody textarea,
+.st-key-loginbody [data-baseweb="select"] > div, .st-key-adminbody [data-baseweb="select"] > div,
+.st-key-adminbody [data-baseweb="base-input"], .st-key-loginbody [data-baseweb="base-input"] {
+  background: #f6f8ff !important; color: var(--navy) !important; border-color: var(--garis) !important;
   border-radius: 14px !important;
-  min-height: 44px;
-  font-weight: 650 !important;
-  box-shadow: 0 5px 13px rgba(49, 87, 218, .16);
-  transition: transform .15s ease, box-shadow .15s ease;
 }
-.st-key-loginbody button[kind="primary"]:hover,
-.st-key-adminbody button[kind="primary"]:hover {
-  box-shadow: 0 8px 18px rgba(49, 87, 218, .22);
-  transform: translateY(-1px);
+.st-key-loginbody input, .st-key-adminbody input { background: transparent !important; color: var(--navy) !important; }
+.st-key-loginbody input::placeholder, .st-key-adminbody input::placeholder { color: var(--muted) !important; opacity: 1; }
+.st-key-loginbody [data-baseweb="select"] > div:focus-within, .st-key-adminbody [data-baseweb="select"] > div:focus-within,
+.st-key-loginbody [data-baseweb="base-input"]:focus-within, .st-key-adminbody [data-baseweb="base-input"]:focus-within {
+  border-color: var(--biru) !important; box-shadow: 0 0 0 3px rgba(37,99,235,.18) !important;
 }
-/* Tombol sekunder juga memakai warna lembut, bukan hitam */
-.st-key-loginbody button:not([kind="primary"]),
-.st-key-adminbody button:not([kind="primary"]) {
-  background: #edf3ff !important;
-  color: #3158bd !important;
-  border: 1px solid #dce7ff !important;
-  border-radius: 12px !important;
+
+/* radio -> tombol pil */
+:is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadio"] [role="radiogroup"] {
+  background: var(--tint); border-radius: 16px; padding: 5px; gap: 4px; flex-wrap: nowrap; width: 100%;
 }
-.st-key-loginbody button:not([kind="primary"]) *,
-.st-key-adminbody button:not([kind="primary"]) * {
-  color: #3158bd !important;
+:is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"] {
+  flex: 1 1 0; justify-content: center; border-radius: 12px; padding: 9px 8px; margin: 0 !important;
+  cursor: pointer; transition: background .15s ease; min-width: 0;
 }
-/* Kartu metrik dan tabel admin */
-.st-key-adminbody [data-testid="stMetric"],
-.st-key-adminbody [data-testid="stVerticalBlockBorderWrapper"] {
-  background: #ffffff !important;
-  border: 1px solid #e1eaff !important;
-  border-radius: 17px !important;
-  box-shadow: 0 5px 16px rgba(45, 77, 160, .055);
+:is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"] > div { width: 100%; justify-content: center; }
+:is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"] > div > div:first-child { display: none; }
+:is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"] p { font-weight: 600; font-size: 15px; color: var(--biru); text-align: center; white-space: nowrap; }
+:is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"][data-selected="true"] {
+  background: linear-gradient(135deg, var(--biru), var(--ungu)); box-shadow: 0 4px 12px rgba(37,63,216,.3);
 }
-.st-key-adminbody [data-testid="stDataFrame"],
-.st-key-adminbody [data-testid="stTable"] {
-  border: 1px solid #dce6f8 !important;
-  border-radius: 14px !important;
-  overflow: hidden;
-  color: var(--pr-ink) !important;
+:is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"][data-selected="true"] p { color: #fff; }
+
+/* tombol */
+:is(.st-key-loginbody, .st-key-adminbody) button[kind="primary"],
+:is(.st-key-loginbody, .st-key-adminbody) button[kind="primaryFormSubmit"] {
+  background: linear-gradient(135deg, var(--biru), var(--ungu)) !important; border: 0 !important; color: #fff !important;
+  border-radius: 14px !important; min-height: 48px; font-weight: 600; box-shadow: 0 6px 16px rgba(37,63,216,.3);
 }
-.st-key-adminbody [data-testid="stDataFrame"] *,
-.st-key-adminbody [data-testid="stTable"] * {
-  color: var(--pr-ink) !important;
+:is(.st-key-loginbody, .st-key-adminbody) button[kind="primary"] *, :is(.st-key-loginbody, .st-key-adminbody) button[kind="primaryFormSubmit"] * { color: #fff !important; }
+:is(.st-key-loginbody, .st-key-adminbody) button[kind="secondary"],
+:is(.st-key-loginbody, .st-key-adminbody) button[kind="secondaryFormSubmit"],
+.st-key-adminbody [data-testid="stDownloadButton"] button {
+  background: #fff !important; color: var(--biru) !important; border: 1.5px solid var(--biru) !important;
+  border-radius: 14px !important; font-weight: 600; min-height: 44px;
 }
-.st-key-adminbody hr, .st-key-loginbody hr {
-  border-color: #e4ebfa !important;
+:is(.st-key-loginbody, .st-key-adminbody) button[kind="secondary"] *, :is(.st-key-loginbody, .st-key-adminbody) button[kind="secondaryFormSubmit"] *, .st-key-adminbody [data-testid="stDownloadButton"] button * { color: var(--biru) !important; }
+:is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadio"], :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadio"] > div { width: 100%; }
+:is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadio"] [role="radiogroup"] { display: flex; }
+
+/* kartu statistik, tabel, expander, alert */
+.st-key-adminbody [data-testid="stMetric"] { background: var(--tint); border-radius: 18px; padding: 14px 16px; }
+.st-key-adminbody [data-testid="stMetricLabel"] * { color: #2f5fd0 !important; }
+.st-key-adminbody [data-testid="stMetricValue"] * { color: var(--navy) !important; font-weight: 700; font-family: 'Inter', system-ui, sans-serif !important; }
+.st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
+  border: 1px solid var(--garis); border-radius: 16px; overflow: hidden;
 }
-[data-testid="stAlert"] {
-  border-radius: 14px !important;
+.st-key-adminbody [data-testid="stExpander"] details { background: #f6f8ff; border: 1px solid var(--garis); border-radius: 16px; }
+.st-key-adminbody [data-testid="stExpander"] summary * { color: var(--navy); font-weight: 600; }
+.st-key-adminbody [data-testid="stAlert"], .st-key-loginbody [data-testid="stAlert"] { border-radius: 14px; }
+.st-key-adminbody [data-testid="stImage"] img { border-radius: 14px; }
+.st-key-adminbody [data-testid="stForm"] {
+  border: 1px solid var(--garis); border-radius: 18px; background: #fbfcff; padding: 16px;
+}
+</style>
+"""
+
+CSS_AUTH_ADMIN = """
+<style>
+[data-testid="stMainBlockContainer"], .block-container { max-width: 460px !important; }
+.auth-head {
+  background: linear-gradient(135deg, #2563eb 0%, #3b3fd8 100%); color: #fff;
+  padding: 36px 24px 92px; position: relative; overflow: hidden;
+}
+.auth-head::after {
+  content: ""; position: absolute; left: -10%; right: -10%; bottom: -34px; height: 70px;
+  background: #eef2fb; border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+}
+.auth-brand { display: flex; align-items: center; gap: 14px; }
+.auth-logo { width: 52px; height: 52px; border-radius: 16px; background: rgba(255,255,255,.2);
+  display: flex; align-items: center; justify-content: center; color: #fff; }
+.auth-title { font-size: 27px; font-weight: 700; letter-spacing: .2px; color: #fff; }
+.auth-bank { font-size: 13px; color: rgba(255,255,255,.8); margin-top: 2px; }
+.auth-greet { margin-top: 30px; font-size: 22px; font-weight: 600; color: #fff; }
+.auth-desc { margin-top: 5px; font-size: 14px; color: rgba(255,255,255,.82); }
+.st-key-loginbody {
+  width: calc(100% - 44px) !important; margin: -50px 22px 0; background: #fff; border-radius: 26px;
+  padding: 24px 18px 22px; position: relative; z-index: 2; box-shadow: 0 8px 28px rgba(37,52,140,.12);
+}
+.auth-foot { text-align: center; color: #6b779e; font-size: 13px; padding: 20px 0 0; }
+</style>
+"""
+
+CSS_ADMIN = """
+<style>
+[data-testid="stMainBlockContainer"], .block-container { max-width: 1100px !important; }
+.admin-head {
+  background: linear-gradient(135deg, #2563eb 0%, #3b3fd8 100%); color: #fff;
+  padding: 32px 28px 84px; position: relative; overflow: hidden;
+}
+.admin-head::after {
+  content: ""; position: absolute; left: -10%; right: -10%; bottom: -34px; height: 70px;
+  background: #eef2fb; border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+}
+.admin-top { display: flex; align-items: center; gap: 14px; }
+.admin-logo { width: 50px; height: 50px; border-radius: 15px; background: rgba(255,255,255,.2);
+  display: flex; align-items: center; justify-content: center; color: #fff; }
+.admin-title { font-size: 25px; font-weight: 700; color: #fff; flex: 1; }
+.admin-sub { font-size: 13px; color: rgba(255,255,255,.82); margin-top: 2px; font-weight: 400; }
+.admin-out { width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.2);
+  display: flex; align-items: center; justify-content: center; color: #fff; }
+.st-key-adminlogout { position: absolute !important; top: 32px; right: 28px; width: 50px; height: 50px; z-index: 10; }
+.st-key-adminlogout [data-testid="stElementContainer"] { height: 50px; }
+.st-key-adminlogout button { width: 50px !important; height: 50px !important; opacity: 0; cursor: pointer; padding: 0; }
+.st-key-adminbody {
+  width: calc(100% - 36px) !important; margin: -44px 18px 0; background: #fff; border-radius: 26px;
+  padding: 22px 22px 26px; position: relative; z-index: 2; box-shadow: 0 8px 28px rgba(37,52,140,.12);
 }
 @media (max-width: 600px) {
-  [data-testid="stMainBlockContainer"], .block-container {
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-  }
-  .auth-head, .admin-head { padding-left: 20px !important; padding-right: 20px !important; }
-  .st-key-loginbody { padding: 20px 16px 22px !important; }
-  .st-key-adminbody { padding: 18px 14px 22px !important; }
+  .admin-head { padding: 28px 18px 80px; }
+  .st-key-adminlogout { right: 18px; top: 28px; }
+  .st-key-adminbody { padding: 16px 12px 22px; width: calc(100% - 20px) !important; margin-left: 10px; }
 }
-
 </style>
 """
 
@@ -1404,11 +1035,11 @@ def halaman_rekap(eng):
     st.subheader("Grafik")
     if not rekap.empty:
         st.caption("Hari hadir per peserta")
-        st.bar_chart(rekap.set_index("Nama")["Hari Hadir"])
+        st.bar_chart(rekap.set_index("Nama")["Hari Hadir"], color="#2563eb")
     harian = berhasil.groupby("tanggal").size()
     if not harian.empty:
         st.caption("Jumlah peserta yang hadir per hari")
-        st.bar_chart(harian)
+        st.bar_chart(harian, color="#2563eb")
 
     st.subheader("Detail Absensi")
     detail = df.rename(columns={
@@ -1462,78 +1093,80 @@ def halaman_login(eng):
     """Layar pertama: pilih peran, lalu login. Desain mengikuti tema Presensi peserta."""
     st.markdown(CSS_AUTH_ADMIN, unsafe_allow_html=True)
     st.markdown(
-        """
-        <div class="auth-head">
-          <div class="auth-brand"><div class="auth-brand-icon">◉</div><div>Presensi</div></div>
-          <div class="auth-sub">BANK SULSELBAR • ABSENSI PKL</div>
-          <div class="auth-greet">Selamat Datang 👋</div>
-          <div style="font-size:14px;opacity:.82;margin-top:5px">Silakan masuk untuk melanjutkan</div>
-        </div>
-        """,
+        f"""<div class="auth-head">
+<div class="auth-brand"><div class="auth-logo">{ic("fingerprint", 30)}</div>
+<div><div class="auth-title">Presensi</div><div class="auth-bank">Bank Sulselbar • Absensi PKL</div></div></div>
+<div class="auth-greet">Selamat Datang 👋</div>
+<div class="auth-desc">Silakan masuk untuk melanjutkan</div>
+</div>""",
         unsafe_allow_html=True,
     )
     with st.container(key="loginbody"):
-        st.subheader("Masuk ke akun")
-        peran = st.radio("Masuk sebagai", ["Peserta PKL", "Admin"], horizontal=True, key="login_peran")
+        peran = st.radio(
+            "Masuk sebagai", ["Peserta PKL", "Admin"], horizontal=True, key="login_peran",
+            label_visibility="collapsed",
+        )
 
         if peran == "Peserta PKL":
             df = list_peserta(eng)
             if df.empty:
                 st.warning("Belum ada peserta terdaftar. Hubungi admin untuk didaftarkan.")
-                return
-            with st.form("login_peserta"):
-                nama = st.selectbox("Nama peserta", df["nama"])
-                pin = st.text_input("PIN", type="password", max_chars=6)
-                kirim = st.form_submit_button("Masuk", type="primary", width="stretch")
-            if kirim:
-                if cek_pin(eng, nama, pin):
-                    st.session_state.peran = "user"
-                    st.session_state.nama_login = nama
-                    st.rerun()
-                else:
-                    st.error("PIN salah. Silakan periksa kembali.")
+            else:
+                with st.form("login_peserta", border=False):
+                    nama = st.selectbox("Nama peserta", df["nama"])
+                    pin = st.text_input("PIN", type="password", max_chars=6, placeholder="Masukkan PIN kamu")
+                    kirim = st.form_submit_button("Masuk", type="primary", width="stretch")
+                if kirim:
+                    if cek_pin(eng, nama, pin):
+                        st.session_state.peran = "user"
+                        st.session_state.nama_login = nama
+                        st.rerun()
+                    else:
+                        st.error("PIN salah. Silakan periksa kembali.")
         else:
             pw_benar = password_admin()
             if pw_benar is None:
                 st.error("admin_password belum diatur di Secrets. Hubungi pengelola aplikasi.")
-                return
-            if not secret("admin_password") and not secret("database_url"):
-                st.info("Mode lokal: password admin default = admin123")
-            with st.form("login_admin"):
-                pw = st.text_input("Password admin", type="password")
-                kirim = st.form_submit_button("Masuk sebagai admin", type="primary", width="stretch")
-            if kirim:
-                if hmac.compare_digest(pw, pw_benar):
-                    st.session_state.peran = "admin"
-                    st.session_state.admin_ok = True
-                    st.rerun()
-                else:
-                    st.error("Password salah. Silakan coba lagi.")
+            else:
+                if not secret("admin_password") and not secret("database_url"):
+                    st.info("Mode lokal: password admin default = admin123")
+                with st.form("login_admin", border=False):
+                    pw = st.text_input("Password admin", type="password", placeholder="Masukkan password admin")
+                    kirim = st.form_submit_button("Masuk sebagai admin", type="primary", width="stretch")
+                if kirim:
+                    if hmac.compare_digest(pw, pw_benar):
+                        st.session_state.peran = "admin"
+                        st.session_state.admin_ok = True
+                        st.rerun()
+                    else:
+                        st.error("Password salah. Silakan coba lagi.")
+
+    st.markdown('<div class="auth-foot">© Bank Sulselbar • Absensi Peserta PKL</div>', unsafe_allow_html=True)
 
 
 def halaman_admin(eng):
     """Area admin dengan gaya visual yang selaras dengan halaman peserta."""
-    st.markdown(CSS_AUTH_ADMIN, unsafe_allow_html=True)
+    st.markdown(CSS_ADMIN, unsafe_allow_html=True)
     st.markdown(
-        """
-        <div class="admin-head">
-          <div class="admin-title">Presensi · Panel Admin</div>
-          <div class="admin-sub">BANK SULSELBAR • Pengelolaan Absensi PKL</div>
-        </div>
-        """,
+        f"""<div class="admin-head"><div class="admin-top">
+<div class="admin-logo">{ic("fingerprint", 28)}</div>
+<div><div class="admin-title">Panel Admin</div><div class="admin-sub">Bank Sulselbar • Pengelolaan Absensi PKL</div></div>
+<div style="flex:1"></div>
+<div class="admin-out">{ic("logout", 24)}</div>
+</div></div>""",
         unsafe_allow_html=True,
     )
-    with st.container(key="adminbody"):
-        kiri, kanan = st.columns([4, 1])
-        kiri.caption("Masuk sebagai admin")
-        if kanan.button("Keluar", key="keluar_admin", width="stretch"):
+    with st.container(key="adminlogout"):
+        if st.button("‎", key="keluar_admin"):
             keluar()
 
+    with st.container(key="adminbody"):
         menu = st.radio(
             "Menu admin",
             ["Kelola Peserta", "Rekap & Export", "Bukti Foto"],
             horizontal=True,
             key="menu_admin",
+            label_visibility="collapsed",
         )
         st.markdown("---")
         if menu == "Kelola Peserta":
@@ -1545,7 +1178,8 @@ def halaman_admin(eng):
 
 
 def main():
-    st.set_page_config(page_title="Presensi - Bank Sulselbar", page_icon="📍")
+    st.set_page_config(page_title="Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
+    st.markdown(CSS_TEMA, unsafe_allow_html=True)
     eng = get_engine()
 
     peran = st.session_state.get("peran")
