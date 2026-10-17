@@ -20,19 +20,23 @@ import hashlib
 import hmac
 import io
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
 from functools import wraps
+from copy import copy
 from datetime import datetime, date, time as dtime, timedelta, timezone
 from math import radians, sin, cos, sqrt, atan2
 
+import openpyxl
+from openpyxl.worksheet.properties import PageSetupProperties
 import pandas as pd
 import streamlit as st
 from PIL import Image
 from sqlalchemy import (
     Column, Integer, String, Float, LargeBinary, MetaData, Table,
-    create_engine, select, insert, update, delete, func, and_,
+    create_engine, select, insert, update, delete, func, and_, inspect, text,
 )
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from streamlit_js_eval import get_geolocation
@@ -101,6 +105,7 @@ peserta_t = Table(
     Column("gedung", String(1), nullable=False),
     Column("divisi", String(100), nullable=False, default=""),
     Column("pin_hash", String(64), nullable=False),
+    Column("no_rekening", String(40)),
 )
 
 absensi_t = Table(
@@ -138,6 +143,14 @@ def _sqlite_bisa_tulis(path):
         return False
 
 
+def _migrasi(eng):
+    """Tambah kolom baru ke database lama (create_all tidak mengubah tabel yang sudah ada)."""
+    kolom = {k["name"] for k in inspect(eng).get_columns("peserta")}
+    if "no_rekening" not in kolom:
+        with eng.begin() as c:
+            c.execute(text("ALTER TABLE peserta ADD COLUMN no_rekening VARCHAR(40)"))
+
+
 @st.cache_resource
 def get_engine():
     url = secret("database_url")
@@ -165,6 +178,7 @@ def get_engine():
             connect_args={"check_same_thread": False, "timeout": 15},
         )
     metadata.create_all(eng)
+    _migrasi(eng)
     eng.db_sementara = sementara
     return eng
 
@@ -198,7 +212,9 @@ def hash_pin(nama, pin):
 def list_peserta(eng):
     with eng.connect() as c:
         return pd.read_sql(
-            select(peserta_t.c.nama, peserta_t.c.gedung, peserta_t.c.divisi).order_by(peserta_t.c.nama), c
+            select(
+                peserta_t.c.nama, peserta_t.c.gedung, peserta_t.c.divisi, peserta_t.c.no_rekening
+            ).order_by(peserta_t.c.nama), c
         )
 
 
@@ -208,11 +224,28 @@ def get_peserta(eng, nama):
 
 
 @coba_ulang
-def add_peserta(eng, nama, gedung, divisi, pin):
+def add_peserta(eng, nama, gedung, divisi, pin, no_rekening=None):
     with eng.begin() as c:
         c.execute(insert(peserta_t).values(
-            nama=nama.strip(), gedung=gedung, divisi=divisi.strip(), pin_hash=hash_pin(nama, pin)
+            nama=nama.strip(), gedung=gedung, divisi=divisi.strip(), pin_hash=hash_pin(nama, pin),
+            no_rekening=(no_rekening or None),
         ))
+
+
+@coba_ulang
+def set_rekening(eng, nama, no_rekening):
+    with eng.begin() as c:
+        c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(no_rekening=(no_rekening or None)))
+
+
+def validasi_rekening(teks):
+    """Kembalikan (nomor_rapi, pesan_error). Boleh angka dan tanda hubung, mis. 130-210-000554616-9."""
+    rapi = re.sub(r"\s+", "", teks or "")
+    if not rapi:
+        return "", "Nomor rekening wajib diisi."
+    if not re.fullmatch(r"[0-9\-]+", rapi) or not (8 <= len(re.sub(r"\D", "", rapi)) <= 25):
+        return rapi, "Nomor rekening hanya boleh angka dan tanda hubung (-), minimal 8 angka."
+    return rapi, ""
 
 
 @coba_ulang
@@ -328,6 +361,161 @@ def excel_bytes(rekap, detail):
         beri_nomor(rekap).to_excel(w, sheet_name="Rekap Uang Makan")
         beri_nomor(detail).to_excel(w, sheet_name="Detail Absensi")
     return buf.getvalue()
+
+
+# ------------------------------------------------------------------
+# EXCEL FORMAT TEMPLATE (satu sheet per peserta)
+# ------------------------------------------------------------------
+TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template_absen.xlsx")
+JAM_PULANG_DEFAULT = dtime(17, 0)   # aplikasi hanya mencatat absen masuk; jam pulang diisi standar ini
+# Penandatangan per divisi. Kalau divisi tidak ada di sini, dipakai tulisan bawaan di template_absen.xlsx.
+# Contoh: {"Divisi Kepatuhan": ("Nama Pimpinan", "Pimdept. Kepatuhan")}
+PENANDATANGAN = {}
+BULAN_TTD = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli",
+             "Agustus", "September", "Oktober", "November", "Desember"]
+
+
+def _nama_sheet(nama, dipakai):
+    """Nama sheet Excel: maks 31 karakter, tanpa karakter terlarang, unik."""
+    dasar = re.sub(r"[\[\]:*?/\\]", " ", nama).strip()[:31] or "Peserta"
+    hasil, i = dasar, 2
+    while hasil.lower() in dipakai:
+        akhiran = f" ({i})"
+        hasil = dasar[: 31 - len(akhiran)] + akhiran
+        i += 1
+    dipakai.add(hasil.lower())
+    return hasil
+
+
+def tanggal_pertama_absen(eng, nama):
+    with eng.connect() as c:
+        return c.execute(select(func.min(absensi_t.c.tanggal)).where(absensi_t.c.nama == nama)).scalar()
+
+
+def _salin_gaya(src, dst, nilai=None):
+    dst._style = copy(src._style)
+    if nilai is not None:
+        dst.value = nilai
+
+
+def _isi_sheet_peserta(ws, tpl, peserta, hari, awal, akhir):
+    """Isi satu sheet memakai gaya dari sheet 'Template'. hari = {tanggal_iso: (jam_masuk, uang)}."""
+    isi = {
+        "{nama}": peserta["nama"],
+        "{unit_kerja}": (peserta["divisi"] or "-").upper(),
+        "{no_rek}": peserta["no_rekening"] or "-",
+        "{divisi}": peserta["divisi"] or "-",
+        "{tanggal_ttd}": f"{akhir.day} {BULAN_TTD[akhir.month - 1]} {akhir.year}",
+    }
+
+    def ganti(v):
+        if isinstance(v, str):
+            for k, x in isi.items():
+                v = v.replace(k, x)
+        return v
+
+    for k, dim in tpl.column_dimensions.items():
+        nd = ws.column_dimensions[k]
+        nd.width, nd.min, nd.max = dim.width, dim.min, dim.max
+
+    def baris(sr, dr, nilai_ganti=True):
+        for col in "BCDEF":
+            sc = tpl[f"{col}{sr}"]
+            _salin_gaya(sc, ws[f"{col}{dr}"], ganti(sc.value) if nilai_ganti else None)
+        h = tpl.row_dimensions[sr].height
+        if h:
+            ws.row_dimensions[dr].height = h
+
+    for r in range(3, 8):          # identitas + judul kolom
+        baris(r, r)
+
+    r = 8
+    tgl = awal
+    while tgl <= akhir:
+        iso = tgl.isoformat()
+        if iso in hari:
+            jam, uang = hari[iso]
+            baris(8, r, nilai_ganti=False)
+            ws[f"B{r}"].value = datetime(tgl.year, tgl.month, tgl.day)
+            ws[f"C{r}"].value = jam
+            ws[f"D{r}"].value = JAM_PULANG_DEFAULT
+            ws[f"E{r}"].value = "Hadir"
+            ws[f"F{r}"].value = uang
+        else:
+            baris(9, r, nilai_ganti=False)
+            ws[f"B{r}"].value = datetime(tgl.year, tgl.month, tgl.day)
+            ws[f"C{r}"].value = "Libur " if tgl.weekday() >= 5 else "Tidak hadir"
+            ws.merge_cells(f"C{r}:F{r}")
+        r += 1
+        tgl += timedelta(days=1)
+
+    jumlah = r
+    baris(10, jumlah)
+    ws.merge_cells(f"B{jumlah}:E{jumlah}")
+    ws[f"F{jumlah}"].value = f"=SUM(F8:F{jumlah - 1})" if jumlah > 8 else 0
+
+    geser = jumlah - 10             # footer (tanda tangan) ikut turun
+    penanda = PENANDATANGAN.get(peserta["divisi"])
+    for sr in range(11, tpl.max_row + 1):
+        baris(sr, sr + geser)
+    for rng in tpl.merged_cells.ranges:
+        if rng.min_row >= 11:
+            ws.merge_cells(start_row=rng.min_row + geser, end_row=rng.max_row + geser,
+                           start_column=rng.min_col, end_column=rng.max_col)
+    if penanda:
+        for sr in range(11, tpl.max_row + 1):
+            if tpl[f"E{sr}"].value == "Faisal Hafiz ":
+                ws[f"E{sr + geser}"].value = penanda[0]
+                ws[f"E{sr + geser + 1}"].value = penanda[1]
+
+    ws.page_margins = copy(tpl.page_margins)
+    ws.page_setup.orientation = "portrait"
+    ws.page_setup.paperSize = 9
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+
+
+def excel_template_bytes(eng, df_bulan, tahun, bulan, daftar_nama):
+    """Excel format template: satu sheet per nama. Mengembalikan bytes (None kalau tidak ada data)."""
+    wb = openpyxl.load_workbook(TEMPLATE_PATH)
+    tpl = wb["Template"]
+    awal_bulan = date(tahun, bulan, 1)
+    akhir_bulan = (date(tahun + (bulan == 12), bulan % 12 + 1, 1) - timedelta(days=1))
+    hari_ini = datetime.now(WITA).date()
+    akhir = min(akhir_bulan, hari_ini) if (tahun, bulan) == (hari_ini.year, hari_ini.month) else akhir_bulan
+
+    dipakai, jumlah_sheet = set(), 0
+    for nama in daftar_nama:
+        data = df_bulan[df_bulan["nama"] == nama]
+        if data.empty:
+            continue
+        info = get_peserta(eng, nama)
+        peserta = {
+            "nama": nama,
+            "divisi": (info["divisi"] if info else "") or "",
+            "no_rekening": info["no_rekening"] if info else None,
+        }
+        hari = {}
+        for _, row in data[data["status"] == "berhasil"].iterrows():
+            if row["tanggal"] not in hari:
+                jam = datetime.strptime(row["jam"], "%H:%M:%S").time().replace(second=0)
+                hari[row["tanggal"]] = (jam, int(row["uang_makan"]))
+        pertama = tanggal_pertama_absen(eng, nama) or data["tanggal"].min()
+        awal = max(awal_bulan, date.fromisoformat(pertama))
+        if awal > akhir:
+            continue
+        ws = wb.create_sheet(_nama_sheet(nama, dipakai))
+        _isi_sheet_peserta(ws, tpl, peserta, hari, awal, akhir)
+        jumlah_sheet += 1
+
+    if jumlah_sheet == 0:
+        return None
+    del wb["Template"]
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
 
 
 def kompres_foto(data: bytes) -> bytes:
@@ -955,17 +1143,21 @@ def halaman_kelola_peserta(eng):
         nama = st.text_input("Nama peserta")
         divisi = st.selectbox("Divisi", list(DIVISI_GEDUNG.keys()))
         gedung = DIVISI_GEDUNG[divisi]
+        no_rek = st.text_input("Nomor rekening", placeholder="contoh: 130-210-000554616-9", max_chars=30)
         pin = st.text_input("PIN (4-6 angka)", max_chars=6)
         kirim = st.form_submit_button("Tambah Peserta")
 
     if kirim:
+        rek_rapi, rek_err = validasi_rekening(no_rek)
         if not nama.strip():
             st.error("Nama wajib diisi.")
+        elif rek_err:
+            st.error(rek_err)
         elif not (pin.isdigit() and 4 <= len(pin) <= 6):
             st.error("PIN harus 4-6 angka.")
         else:
             try:
-                add_peserta(eng, nama, gedung, divisi, pin)
+                add_peserta(eng, nama, gedung, divisi, pin, rek_rapi)
                 st.success(f"{nama.strip()} ditambahkan ke Gedung {gedung}. Kasih tahu PIN-nya ke yang bersangkutan.")
             except IntegrityError:
                 st.error("Nama itu sudah terdaftar.")
@@ -978,12 +1170,14 @@ def halaman_kelola_peserta(eng):
 
     df = list_peserta(eng)
     st.dataframe(
-        beri_nomor(df.rename(columns={"nama": "Nama", "gedung": "Gedung", "divisi": "Divisi"})),
+        beri_nomor(df.rename(columns={
+            "nama": "Nama", "gedung": "Gedung", "divisi": "Divisi", "no_rekening": "No. Rekening",
+        }).fillna({"No. Rekening": "-"})),
         width="stretch",
     )
 
     if not df.empty:
-        with st.expander("Edit Divisi / Reset PIN / Hapus peserta"):
+        with st.expander("Edit Divisi / No. Rekening / Reset PIN / Hapus peserta"):
             target = st.selectbox("Pilih peserta", df["nama"], key="target_kelola")
 
             opsi_divisi = list(DIVISI_GEDUNG.keys())
@@ -999,6 +1193,24 @@ def halaman_kelola_peserta(eng):
                 else:
                     st.success("Divisi & Gedung diperbarui.")
                     st.rerun()
+
+            rek_lama = df.loc[df["nama"] == target, "no_rekening"].values[0]
+            rek_baru = st.text_input(
+                "Nomor rekening", value=rek_lama if isinstance(rek_lama, str) else "",
+                max_chars=30, key=f"rek_baru_{target}",
+            )
+            if st.button("Simpan No. Rekening"):
+                rek_rapi, rek_err = validasi_rekening(rek_baru)
+                if rek_err:
+                    st.error(rek_err)
+                else:
+                    try:
+                        set_rekening(eng, target, rek_rapi)
+                    except SQLAlchemyError as e:
+                        st.error(pesan_db(e))
+                    else:
+                        st.success("Nomor rekening diperbarui.")
+                        st.rerun()
 
             pin_baru = st.text_input("PIN baru (4-6 angka)", max_chars=6, key="pin_baru")
             hapus_absen_juga = st.checkbox(
@@ -1108,12 +1320,38 @@ def halaman_rekap(eng):
         f"Uang makan Rp{int(ok['Uang Makan'].sum()):,}".replace(",", ".")
     )
     st.dataframe(beri_nomor(detail_pilih), width="stretch")
-    st.caption("File Excel di bawah berisi detail absensi seluruh peserta.")
 
+    st.subheader("Download Excel")
+    st.caption(
+        "Format template absensi magang (Nama, Unit Kerja, No. Rekening, tabel kehadiran, tanda tangan) "
+        "terisi otomatis dari data peserta."
+    )
+    tahun_i, bulan_i = int(tahun), int(bulan)
+    aman = lambda t: re.sub(r"[^A-Za-z0-9]+", "_", t).strip("_")
+    mime_xlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    try:
+        data_satu = excel_template_bytes(eng, df, tahun_i, bulan_i, [pilih])
+        data_semua = excel_template_bytes(eng, df, tahun_i, bulan_i, daftar_nama)
+    except FileNotFoundError:
+        data_satu = data_semua = None
+        st.warning(
+            "File **template_absen.xlsx** tidak ditemukan di folder aplikasi. "
+            "Unggah file itu ke folder yang sama dengan app.py (GitHub), lalu muat ulang."
+        )
+    d1, d2 = st.columns(2)
+    if data_satu:
+        d1.download_button(
+            f"⬇️ Excel {pilih}", data=data_satu, width="stretch",
+            file_name=f"ABSEN_MAGANG_{aman(pilih)}_{tahun_i}_{bulan_i:02d}.xlsx", mime=mime_xlsx,
+        )
+    if data_semua:
+        d2.download_button(
+            "⬇️ Excel semua peserta", data=data_semua, width="stretch",
+            file_name=f"ABSEN_MAGANG_SEMUA_{tahun_i}_{bulan_i:02d}.xlsx", mime=mime_xlsx,
+        )
     st.download_button(
-        "⬇️ Download Excel", data=excel_bytes(rekap, detail),
-        file_name=f"rekap_absensi_{int(tahun)}_{int(bulan):02d}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "⬇️ Rekap ringkas (tabel)", data=excel_bytes(rekap, detail),
+        file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx", mime=mime_xlsx,
     )
 
 
