@@ -682,6 +682,9 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; }
 [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { min-width: 0 !important; flex: 1 1 0 !important; width: auto !important; }
 
+/* penyangga di akhir halaman: memberi ruang scroll di atas navigasi bawah */
+.pr-spacer { height: 150px; }
+
 /* ---------- tombol transparan di atas tampilan custom ---------- */
 [class*="st-key-ov_"] { position: relative; }
 [class*="st-key-ov_"] [data-testid="stElementContainer"]:has(button) { position: absolute; inset: 0; z-index: 5; }
@@ -1128,6 +1131,7 @@ def halaman_peserta(eng, nama):
     else:
         tab = "beranda"
         tab_beranda(eng, nama, peserta)
+    st.markdown('<div class="pr-spacer"></div>', unsafe_allow_html=True)
     navigasi_bawah(tab)
 
 
