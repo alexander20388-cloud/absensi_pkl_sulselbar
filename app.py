@@ -19,6 +19,7 @@ Jalanin lokal:   streamlit run app.py
 import hashlib
 import hmac
 import io
+import json
 import os
 import re
 import shutil
@@ -28,8 +29,11 @@ from functools import wraps
 from copy import copy
 from datetime import datetime, date, time as dtime, timedelta, timezone
 from math import radians, sin, cos, sqrt, atan2
+from urllib.parse import quote
 
 import openpyxl
+import requests
+import streamlit.components.v1 as components
 from openpyxl.worksheet.properties import PageSetupProperties
 import pandas as pd
 import streamlit as st
@@ -94,6 +98,96 @@ def secret(key, default=None):
 
 
 # ------------------------------------------------------------------
+# SUPABASE STORAGE (foto bukti absensi)
+# ------------------------------------------------------------------
+def storage_konfig():
+    """(url, key, bucket) kalau Supabase Storage sudah diatur di Secrets, selain itu None."""
+    url = str(secret("supabase_url") or "").strip().rstrip("/")
+    key = str(secret("supabase_service_key") or "").strip()
+    bucket = str(secret("supabase_bucket") or "foto-absensi").strip()
+    return (url, key, bucket) if url and key else None
+
+
+def _hdr(key, tambahan=None):
+    h = {"apikey": key}
+    if key.startswith("eyJ"):            # kunci lama (JWT) juga dikirim sebagai Bearer
+        h["Authorization"] = f"Bearer {key}"
+    h.update(tambahan or {})
+    return h
+
+
+@st.cache_resource(show_spinner=False)
+def _pastikan_bucket(url, key, bucket):
+    """Buat bucket privat kalau belum ada. Raise kalau gagal supaya tidak ikut ter-cache."""
+    r = requests.post(
+        f"{url}/storage/v1/bucket", headers=_hdr(key, {"Content-Type": "application/json"}),
+        data=json.dumps({"id": bucket, "name": bucket, "public": False}), timeout=15,
+    )
+    if r.status_code in (200, 201, 409) or "already exists" in r.text.lower() or "duplicate" in r.text.lower():
+        return True
+    raise RuntimeError(f"Bucket gagal disiapkan ({r.status_code}): {r.text[:200]}")
+
+
+def simpan_foto_storage(path, data):
+    """Unggah foto ke Supabase Storage. True kalau berhasil; False kalau belum diatur / gagal."""
+    cfg = storage_konfig()
+    if not cfg:
+        return False
+    url, key, bucket = cfg
+    try:
+        _pastikan_bucket(url, key, bucket)
+        r = requests.post(
+            f"{url}/storage/v1/object/{bucket}/{quote(path)}",
+            headers=_hdr(key, {"Content-Type": "image/jpeg", "x-upsert": "true"}),
+            data=data, timeout=25,
+        )
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
+
+
+@st.cache_data(ttl=600, max_entries=200, show_spinner=False)
+def _unduh_storage(path):
+    cfg = storage_konfig()
+    if not cfg:
+        return None
+    url, key, bucket = cfg
+    try:
+        r = requests.get(f"{url}/storage/v1/object/authenticated/{bucket}/{quote(path)}", headers=_hdr(key), timeout=20)
+        return r.content if r.status_code == 200 else None
+    except Exception:
+        return None
+
+
+def ambil_foto(foto_db, foto_path):
+    """Foto dari Storage (kalau ada path-nya), kalau tidak ada dari kolom foto di database."""
+    if foto_path:
+        data = _unduh_storage(foto_path)
+        if data:
+            return data
+    return bytes(foto_db) if foto_db else None
+
+
+def hapus_foto_storage(daftar_path):
+    cfg = storage_konfig()
+    daftar_path = [p for p in daftar_path if p]
+    if not cfg or not daftar_path:
+        return
+    url, key, bucket = cfg
+    for i in range(0, len(daftar_path), 100):
+        try:
+            requests.delete(
+                f"{url}/storage/v1/object/{bucket}",
+                headers=_hdr(key, {"Content-Type": "application/json"}),
+                data=json.dumps({"prefixes": daftar_path[i:i + 100]}), timeout=20,
+            )
+        except Exception:
+            pass
+    _unduh_storage.clear()
+
+
+
+# ------------------------------------------------------------------
 # DATABASE (SQLAlchemy: jalan di SQLite lokal DAN Postgres cloud)
 # ------------------------------------------------------------------
 metadata = MetaData()
@@ -121,7 +215,17 @@ absensi_t = Table(
     Column("jarak", Float),
     Column("status", String(20), nullable=False),               # berhasil / gagal_lokasi
     Column("uang_makan", Integer, nullable=False, default=0),
-    Column("foto", LargeBinary),
+    Column("foto", LargeBinary),                                # foto di DB (cadangan / data lama)
+    Column("foto_path", String(200)),                           # lokasi foto di Supabase Storage
+)
+
+# Tabel kecil untuk Supabase Realtime: setiap absen baru menambah 1 baris,
+# dashboard admin berlangganan perubahannya. Tidak berisi data sensitif.
+notifikasi_t = Table(
+    "notifikasi", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("jenis", String(20)),
+    Column("dibuat", String(19)),                               # YYYY-MM-DD HH:MM:SS (WITA)
 )
 
 
@@ -145,10 +249,14 @@ def _sqlite_bisa_tulis(path):
 
 def _migrasi(eng):
     """Tambah kolom baru ke database lama (create_all tidak mengubah tabel yang sudah ada)."""
-    kolom = {k["name"] for k in inspect(eng).get_columns("peserta")}
-    if "no_rekening" not in kolom:
-        with eng.begin() as c:
-            c.execute(text("ALTER TABLE peserta ADD COLUMN no_rekening VARCHAR(40)"))
+    perlu = {"peserta": [("no_rekening", "VARCHAR(40)")], "absensi": [("foto_path", "VARCHAR(200)")]}
+    insp = inspect(eng)
+    for tabel, daftar in perlu.items():
+        ada = {k["name"] for k in insp.get_columns(tabel)}
+        for kolom, tipe in daftar:
+            if kolom not in ada:
+                with eng.begin() as c:
+                    c.execute(text(f"ALTER TABLE {tabel} ADD COLUMN {kolom} {tipe}"))
 
 
 @st.cache_resource
@@ -263,10 +371,13 @@ def set_divisi(eng, nama, divisi, gedung):
 @coba_ulang
 def hapus_peserta(eng, nama, dengan_absensi=False):
     """Hapus peserta. Kalau dengan_absensi=True, riwayat absensinya ikut dihapus."""
+    paths = []
     with eng.begin() as c:
         c.execute(delete(peserta_t).where(peserta_t.c.nama == nama))
         if dengan_absensi:
+            paths = [r[0] for r in c.execute(select(absensi_t.c.foto_path).where(absensi_t.c.nama == nama))]
             c.execute(delete(absensi_t).where(absensi_t.c.nama == nama))
+    hapus_foto_storage(paths)
 
 
 def daftar_nama_absensi(eng):
@@ -283,8 +394,14 @@ def hapus_absensi(eng, nama=None):
     stmt = delete(absensi_t)
     if nama is not None:
         stmt = stmt.where(absensi_t.c.nama == nama)
+    sel = select(absensi_t.c.foto_path)
+    if nama is not None:
+        sel = sel.where(absensi_t.c.nama == nama)
     with eng.begin() as c:
-        return c.execute(stmt).rowcount
+        paths = [r[0] for r in c.execute(sel)]
+        jumlah = c.execute(stmt).rowcount
+    hapus_foto_storage(paths)
+    return jumlah
 
 
 def sudah_berhasil(eng, nama, tanggal, jenis):
@@ -298,8 +415,14 @@ def sudah_berhasil(eng, nama, tanggal, jenis):
 
 @coba_ulang
 def simpan_absen(eng, **nilai):
+    sekarang = datetime.now(WITA)
     with eng.begin() as c:
         c.execute(insert(absensi_t).values(**nilai))
+        # pemberitahuan untuk Supabase Realtime (dashboard admin), + bersihkan yang sudah > 7 hari
+        c.execute(insert(notifikasi_t).values(jenis="absen", dibuat=sekarang.strftime("%Y-%m-%d %H:%M:%S")))
+        c.execute(delete(notifikasi_t).where(
+            notifikasi_t.c.dibuat < (sekarang - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+        ))
 
 
 def get_absensi_bulan(eng, tahun, bulan):
@@ -320,7 +443,7 @@ def get_absensi_hari_foto(eng, tanggal):
     q = (
         select(
             absensi_t.c.nama, absensi_t.c.jam, absensi_t.c.jenis, absensi_t.c.status,
-            absensi_t.c.jarak, absensi_t.c.foto,
+            absensi_t.c.jarak, absensi_t.c.foto, absensi_t.c.foto_path,
         )
         .where(absensi_t.c.tanggal == tanggal)
         .order_by(absensi_t.c.jam)
@@ -869,6 +992,7 @@ CSS_ADMIN = """
 .st-key-adminlogout { position: absolute !important; top: 32px; right: 28px; width: 50px; height: 50px; z-index: 10; }
 .st-key-adminlogout [data-testid="stElementContainer"], .st-key-adminlogout [data-testid="stButton"] { height: 50px; width: 50px !important; }
 .st-key-adminlogout button { width: 50px !important; height: 50px !important; opacity: 0; cursor: pointer; padding: 0; }
+.st-key-rt_hidden { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 .st-key-adminbody {
   width: calc(100% - 36px) !important; margin: -44px 18px 0; background: #fff; border-radius: 26px;
   padding: 22px 22px 26px; position: relative; z-index: 2; box-shadow: 0 8px 28px rgba(37,52,140,.12);
@@ -1038,11 +1162,17 @@ def tab_absen(eng, nama, peserta):
             status = "berhasil" if cocok else "gagal_lokasi"
             uang = UANG_MAKAN if cocok else 0
 
+            foto_kecil = kompres_foto(foto.getvalue())
+            nama_berkas = re.sub(r"[^A-Za-z0-9]+", "_", nama).strip("_") or "peserta"
+            path_foto = f"{tanggal}/{nama_berkas}_{jam.replace(':', '')}.jpg"
+            di_storage = simpan_foto_storage(path_foto, foto_kecil)   # False kalau Storage belum diatur / gagal
             try:
                 simpan_absen(
                     eng, nama=nama, tanggal=tanggal, jam=jam, jenis="masuk",
                     lat=lat, lon=lon, akurasi=coords.get("accuracy"), jarak=jarak,
-                    status=status, uang_makan=uang, foto=kompres_foto(foto.getvalue()),
+                    status=status, uang_makan=uang,
+                    foto=None if di_storage else foto_kecil,
+                    foto_path=path_foto if di_storage else None,
                 )
             except SQLAlchemyError:
                 st.error("Absen gagal disimpan karena gangguan database. Coba lagi sebentar lagi atau hubungi admin.")
@@ -1382,8 +1512,10 @@ def halaman_foto(eng):
         ikon = "✅" if r["status"] == "berhasil" else "❌"
         judul = f"{ikon} {r['jam']} • {r['jenis']} • {r['jarak']:.0f} m"
         with st.expander(judul):
-            if r["foto"]:
-                st.image(bytes(r["foto"]), width=170)
+            isi = ambil_foto(r["foto"], r["foto_path"])
+            if isi:
+                st.image(isi, width=170)
+                st.caption("Disimpan di Supabase Storage" if r["foto_path"] else "Disimpan di database")
             else:
                 st.caption("Foto tidak tersedia.")
 
@@ -1453,6 +1585,42 @@ def halaman_login(eng):
     st.markdown('<div class="auth-foot">© Bank Sulselbar • Absensi Peserta PKL</div>', unsafe_allow_html=True)
 
 
+def realtime_admin():
+    """Berlangganan Supabase Realtime di browser admin. Ada absen baru -> dashboard otomatis dimuat ulang."""
+    url = str(secret("supabase_url") or "").strip().rstrip("/")
+    anon = str(secret("supabase_anon_key") or "").strip()
+    if not (url and anon):
+        st.caption("🔕 Realtime belum aktif (isi `supabase_url` dan `supabase_anon_key` di Secrets).")
+        return
+    with st.container(key="rt_hidden"):
+        if st.button("segarkan", key="rt_refresh"):
+            st.toast("Ada absen baru masuk. Data diperbarui.", icon="🔔")
+    st.caption("🔔 Realtime aktif: dashboard diperbarui otomatis saat ada absen baru.")
+    components.html(
+        """<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+let timer = null;
+function segarkan() {
+  clearTimeout(timer);
+  timer = setTimeout(function () {
+    try {
+      var b = window.parent.document.querySelector('.st-key-rt_refresh button');
+      if (b) b.click();
+    } catch (e) { console.error(e); }
+  }, 800);
+}
+window.__segarkan = segarkan;
+try {
+  var sb = supabase.createClient(%s, %s);
+  sb.channel('dashboard-absensi')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifikasi' }, segarkan)
+    .subscribe();
+} catch (e) { console.error(e); }
+</script>""" % (json.dumps(url), json.dumps(anon)),
+        height=0,
+    )
+
+
 def halaman_admin(eng):
     """Area admin dengan gaya visual yang selaras dengan halaman peserta."""
     st.markdown(CSS_ADMIN, unsafe_allow_html=True)
@@ -1476,6 +1644,7 @@ def halaman_admin(eng):
                 "sementara dan akan HILANG saat aplikasi restart/reboot. Isi `database_url` (Supabase/Postgres) "
                 "di Secrets agar data permanen."
             )
+        realtime_admin()
         menu = st.radio(
             "Menu admin",
             ["Kelola Peserta", "Rekap & Export", "Bukti Foto"],
