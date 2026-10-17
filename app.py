@@ -19,6 +19,11 @@ Jalanin lokal:   streamlit run app.py
 import hashlib
 import hmac
 import io
+import os
+import shutil
+import sqlite3
+import tempfile
+from functools import wraps
 from datetime import datetime, date, time as dtime, timedelta, timezone
 from math import radians, sin, cos, sqrt, atan2
 
@@ -29,7 +34,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, LargeBinary, MetaData, Table,
     create_engine, select, insert, update, delete, func, and_,
 )
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from streamlit_js_eval import get_geolocation
 
 # ------------------------------------------------------------------
@@ -115,9 +120,28 @@ absensi_t = Table(
 )
 
 
+def _sqlite_bisa_tulis(path):
+    """True kalau file SQLite (dan foldernya) benar-benar bisa ditulis."""
+    folder = os.path.dirname(os.path.abspath(path))
+    if os.path.exists(path) and not os.access(path, os.W_OK):
+        return False
+    if not os.access(folder, os.W_OK):
+        return False
+    try:
+        con = sqlite3.connect(path, timeout=5)
+        v = con.execute("PRAGMA user_version").fetchone()[0]
+        con.execute(f"PRAGMA user_version={int(v)}")  # tes tulis
+        con.commit()
+        con.close()
+        return True
+    except sqlite3.Error:
+        return False
+
+
 @st.cache_resource
 def get_engine():
     url = secret("database_url")
+    sementara = False
     if url:
         url = url.replace("postgres://", "postgresql://", 1)
         # Paksa driver psycopg2 secara eksplisit, supaya SQLAlchemy tidak
@@ -127,12 +151,43 @@ def get_engine():
         eng = create_engine(url, pool_pre_ping=True, pool_recycle=300)
     else:
         # nama file baru (v2) supaya tidak bentrok dengan database versi lama
+        path = "absensi_pkl_v2.db"
+        if not _sqlite_bisa_tulis(path):
+            # Folder aplikasi di hosting (mis. Streamlit Cloud) bisa bersifat read-only.
+            # Salin ke folder sementara supaya tetap bisa menyimpan data. DATA SEMENTARA!
+            tmp = os.path.join(tempfile.gettempdir(), "absensi_pkl_v2.db")
+            if not os.path.exists(tmp) and os.path.exists(path):
+                shutil.copyfile(path, tmp)
+            path = tmp
+            sementara = True
         eng = create_engine(
-            "sqlite:///absensi_pkl_v2.db",
-            connect_args={"check_same_thread": False},
+            f"sqlite:///{path}",
+            connect_args={"check_same_thread": False, "timeout": 15},
         )
     metadata.create_all(eng)
+    eng.db_sementara = sementara
     return eng
+
+
+def coba_ulang(fn):
+    """Fungsi tulis ke DB: kalau koneksi terputus (OperationalError), reset koneksi lalu coba sekali lagi."""
+    @wraps(fn)
+    def bungkus(eng, *a, **k):
+        try:
+            return fn(eng, *a, **k)
+        except OperationalError:
+            eng.dispose()
+            return fn(eng, *a, **k)
+    return bungkus
+
+
+def pesan_db(e):
+    """Pesan error DB yang bisa dibaca (khusus admin; error asli Streamlit disembunyikan)."""
+    asal = getattr(e, "orig", e)
+    teks = f"{type(asal).__name__}: {asal}"
+    if "readonly" in teks.lower():
+        teks += " -> penyimpanan aplikasi bersifat read-only. Pakai database cloud (isi database_url di Secrets)."
+    return f"Data gagal disimpan ke database. Detail: {teks}"
 
 
 def hash_pin(nama, pin):
@@ -152,6 +207,7 @@ def get_peserta(eng, nama):
         return c.execute(select(peserta_t).where(peserta_t.c.nama == nama)).mappings().first()
 
 
+@coba_ulang
 def add_peserta(eng, nama, gedung, divisi, pin):
     with eng.begin() as c:
         c.execute(insert(peserta_t).values(
@@ -159,16 +215,19 @@ def add_peserta(eng, nama, gedung, divisi, pin):
         ))
 
 
+@coba_ulang
 def reset_pin(eng, nama, pin_baru):
     with eng.begin() as c:
         c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(pin_hash=hash_pin(nama, pin_baru)))
 
 
+@coba_ulang
 def set_divisi(eng, nama, divisi, gedung):
     with eng.begin() as c:
         c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(divisi=divisi.strip(), gedung=gedung))
 
 
+@coba_ulang
 def hapus_peserta(eng, nama, dengan_absensi=False):
     """Hapus peserta. Kalau dengan_absensi=True, riwayat absensinya ikut dihapus."""
     with eng.begin() as c:
@@ -184,6 +243,7 @@ def daftar_nama_absensi(eng):
         return [r[0] for r in c.execute(q).all()]
 
 
+@coba_ulang
 def hapus_absensi(eng, nama=None):
     """Hapus riwayat absensi (beserta fotonya). nama=None berarti SEMUA peserta.
     Mengembalikan jumlah baris yang terhapus."""
@@ -203,6 +263,7 @@ def sudah_berhasil(eng, nama, tanggal, jenis):
         return c.execute(q).scalar() > 0
 
 
+@coba_ulang
 def simpan_absen(eng, **nilai):
     with eng.begin() as c:
         c.execute(insert(absensi_t).values(**nilai))
@@ -436,7 +497,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 /* ---------- tombol transparan di atas tampilan custom ---------- */
 [class*="st-key-ov_"] { position: relative; }
 [class*="st-key-ov_"] [data-testid="stElementContainer"]:has(button) { position: absolute; inset: 0; z-index: 5; }
-[class*="st-key-ov_"] [data-testid="stButton"], [class*="st-key-ov_"] .stButton { height: 100%; }
+[class*="st-key-ov_"] [data-testid="stButton"], [class*="st-key-ov_"] .stButton { height: 100%; width: 100% !important; }
 [class*="st-key-ov_"] button { width: 100% !important; height: 100% !important; opacity: 0; cursor: pointer; min-height: 0; }
 .st-key-ov_keluar { position: absolute !important; top: 30px; right: 22px; width: 52px; height: 52px; z-index: 10; }
 .st-key-ov_keluar > div:first-child { height: 52px; }
@@ -615,7 +676,7 @@ CSS_ADMIN = """
 .admin-out { width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.2);
   display: flex; align-items: center; justify-content: center; color: #fff; }
 .st-key-adminlogout { position: absolute !important; top: 32px; right: 28px; width: 50px; height: 50px; z-index: 10; }
-.st-key-adminlogout [data-testid="stElementContainer"] { height: 50px; }
+.st-key-adminlogout [data-testid="stElementContainer"], .st-key-adminlogout [data-testid="stButton"] { height: 50px; width: 50px !important; }
 .st-key-adminlogout button { width: 50px !important; height: 50px !important; opacity: 0; cursor: pointer; padding: 0; }
 .st-key-adminbody {
   width: calc(100% - 36px) !important; margin: -44px 18px 0; background: #fff; border-radius: 26px;
@@ -741,7 +802,7 @@ def tab_beranda(eng, nama, peserta):
     )
     # tombol keluar transparan di atas ikon logout header
     with st.container(key="ov_keluar"):
-        if st.button("‎", key="ovb_keluar"):
+        if st.button("‎", key="ovb_keluar", width="stretch"):
             keluar()
 
 
@@ -786,11 +847,15 @@ def tab_absen(eng, nama, peserta):
             status = "berhasil" if cocok else "gagal_lokasi"
             uang = UANG_MAKAN if cocok else 0
 
-            simpan_absen(
-                eng, nama=nama, tanggal=tanggal, jam=jam, jenis="masuk",
-                lat=lat, lon=lon, akurasi=coords.get("accuracy"), jarak=jarak,
-                status=status, uang_makan=uang, foto=kompres_foto(foto.getvalue()),
-            )
+            try:
+                simpan_absen(
+                    eng, nama=nama, tanggal=tanggal, jam=jam, jenis="masuk",
+                    lat=lat, lon=lon, akurasi=coords.get("accuracy"), jarak=jarak,
+                    status=status, uang_makan=uang, foto=kompres_foto(foto.getvalue()),
+                )
+            except SQLAlchemyError:
+                st.error("Absen gagal disimpan karena gangguan database. Coba lagi sebentar lagi atau hubungi admin.")
+                return
 
             if cocok:
                 st.success(f"✅ Absen masuk berhasil pukul {jam} WITA.")
@@ -904,6 +969,8 @@ def halaman_kelola_peserta(eng):
                 st.success(f"{nama.strip()} ditambahkan ke Gedung {gedung}. Kasih tahu PIN-nya ke yang bersangkutan.")
             except IntegrityError:
                 st.error("Nama itu sudah terdaftar.")
+            except SQLAlchemyError as e:
+                st.error(pesan_db(e))
 
     pesan = st.session_state.pop("pesan_hapus", None)
     if pesan:
@@ -925,9 +992,13 @@ def halaman_kelola_peserta(eng):
             divisi_baru = st.selectbox("Divisi", opsi_divisi, index=idx_default, key="divisi_baru")
             st.caption(f"Ditempatkan di: Gedung {DIVISI_GEDUNG[divisi_baru]}")
             if st.button("Simpan Divisi"):
-                set_divisi(eng, target, divisi_baru, DIVISI_GEDUNG[divisi_baru])
-                st.success("Divisi & Gedung diperbarui.")
-                st.rerun()
+                try:
+                    set_divisi(eng, target, divisi_baru, DIVISI_GEDUNG[divisi_baru])
+                except SQLAlchemyError as e:
+                    st.error(pesan_db(e))
+                else:
+                    st.success("Divisi & Gedung diperbarui.")
+                    st.rerun()
 
             pin_baru = st.text_input("PIN baru (4-6 angka)", max_chars=6, key="pin_baru")
             hapus_absen_juga = st.checkbox(
@@ -937,20 +1008,27 @@ def halaman_kelola_peserta(eng):
             c1, c2 = st.columns(2)
             if c1.button("Reset PIN"):
                 if pin_baru.isdigit() and 4 <= len(pin_baru) <= 6:
-                    reset_pin(eng, target, pin_baru)
-                    st.success("PIN diperbarui.")
+                    try:
+                        reset_pin(eng, target, pin_baru)
+                        st.success("PIN diperbarui.")
+                    except SQLAlchemyError as e:
+                        st.error(pesan_db(e))
                 else:
                     st.error("PIN harus 4-6 angka.")
             if c2.button("Hapus peserta"):
-                hapus_peserta(eng, target, dengan_absensi=hapus_absen_juga)
-                if hapus_absen_juga:
-                    st.session_state["pesan_hapus"] = f"{target} dihapus beserta seluruh riwayat absensinya."
+                try:
+                    hapus_peserta(eng, target, dengan_absensi=hapus_absen_juga)
+                except SQLAlchemyError as e:
+                    st.error(pesan_db(e))
                 else:
-                    st.session_state["pesan_hapus"] = (
-                        f"{target} dihapus dari daftar peserta. Riwayat absensinya masih tersimpan "
-                        "(hapus lewat bagian 'Hapus data absensi' di bawah kalau perlu)."
-                    )
-                st.rerun()
+                    if hapus_absen_juga:
+                        st.session_state["pesan_hapus"] = f"{target} dihapus beserta seluruh riwayat absensinya."
+                    else:
+                        st.session_state["pesan_hapus"] = (
+                            f"{target} dihapus dari daftar peserta. Riwayat absensinya masih tersimpan "
+                            "(hapus lewat bagian 'Hapus data absensi' di bawah kalau perlu)."
+                        )
+                    st.rerun()
 
     with st.expander("🗑️ Hapus data absensi (tidak bisa dibatalkan)"):
         nama_absen = daftar_nama_absensi(eng)
@@ -964,8 +1042,11 @@ def halaman_kelola_peserta(eng):
                 if konfirmasi.strip() != "HAPUS":
                     st.error("Konfirmasi belum benar. Ketik persis: HAPUS")
                 else:
-                    jumlah = hapus_absensi(eng, None if pilihan == semua else pilihan)
-                    st.success(f"{jumlah} data absensi (beserta fotonya) dihapus.")
+                    try:
+                        jumlah = hapus_absensi(eng, None if pilihan == semua else pilihan)
+                        st.success(f"{jumlah} data absensi (beserta fotonya) dihapus.")
+                    except SQLAlchemyError as e:
+                        st.error(pesan_db(e))
 
 
 # ------------------------------------------------------------------
@@ -1127,10 +1208,16 @@ def halaman_admin(eng):
         unsafe_allow_html=True,
     )
     with st.container(key="adminlogout"):
-        if st.button("‎", key="keluar_admin"):
+        if st.button("‎", key="keluar_admin", width="stretch"):
             keluar()
 
     with st.container(key="adminbody"):
+        if getattr(eng, "db_sementara", False):
+            st.warning(
+                "Database masih bersifat SEMENTARA: penyimpanan aplikasi read-only, jadi data disimpan di folder "
+                "sementara dan akan HILANG saat aplikasi restart/reboot. Isi `database_url` (Supabase/Postgres) "
+                "di Secrets agar data permanen."
+            )
         menu = st.radio(
             "Menu admin",
             ["Kelola Peserta", "Rekap & Export", "Bukti Foto"],
