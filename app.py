@@ -992,6 +992,7 @@ CSS_ADMIN = """
 .st-key-adminlogout { position: absolute !important; top: 32px; right: 28px; width: 50px; height: 50px; z-index: 10; }
 .st-key-adminlogout [data-testid="stElementContainer"], .st-key-adminlogout [data-testid="stButton"] { height: 50px; width: 50px !important; }
 .st-key-adminlogout button { width: 50px !important; height: 50px !important; opacity: 0; cursor: pointer; padding: 0; }
+.st-box { background: #f6f8ff; border: 1px solid #d5def3; border-radius: 14px; padding: 10px 14px; font-size: 13px; line-height: 1.7; color: #1e2a5a; margin-bottom: 8px; }
 .st-key-rt_hidden { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 .st-key-adminbody {
   width: calc(100% - 36px) !important; margin: -44px 18px 0; background: #fff; border-radius: 26px;
@@ -1585,6 +1586,40 @@ def halaman_login(eng):
     st.markdown('<div class="auth-foot">© Bank Sulselbar • Absensi Peserta PKL</div>', unsafe_allow_html=True)
 
 
+def secret_nyasar(kunci):
+    """Cari kunci Secrets yang salah tempat (terselip di dalam bagian [xxx])."""
+    try:
+        for nama, isi in st.secrets.items():
+            if hasattr(isi, "keys") and kunci in isi.keys():
+                return nama
+    except Exception:
+        pass
+    return None
+
+
+def panel_status(eng):
+    """Kotak kecil di panel admin: database & storage yang sedang dipakai."""
+    baris = []
+    if eng.dialect.name == "postgresql":
+        host = eng.url.host or eng.url.query.get("host") or "lokal"
+        baris.append(("ok", f"Database: PostgreSQL / Supabase ({host})"))
+    else:
+        petunjuk = "database_url belum terbaca dari Secrets, data TIDAK masuk ke Supabase."
+        nyasar = secret_nyasar("database_url")
+        if nyasar:
+            petunjuk = f"database_url terselip di dalam bagian [{nyasar}] pada Secrets. Pindahkan ke paling atas."
+        baris.append(("warn", f"Database: SQLite lokal. {petunjuk}"))
+    cfg = storage_konfig()
+    if cfg:
+        baris.append(("ok", f"Foto: Supabase Storage (bucket {cfg[2]})"))
+    else:
+        baris.append(("warn", "Foto: disimpan di database (supabase_url / supabase_service_key belum terbaca)"))
+    html = "".join(
+        f'<div class="st-{k}">{"🟢" if k == "ok" else "🟠"} {t}</div>' for k, t in baris
+    )
+    st.markdown(f'<div class="st-box">{html}</div>', unsafe_allow_html=True)
+
+
 def realtime_admin():
     """Berlangganan Supabase Realtime di browser admin. Ada absen baru -> dashboard otomatis dimuat ulang."""
     url = str(secret("supabase_url") or "").strip().rstrip("/")
@@ -1644,6 +1679,7 @@ def halaman_admin(eng):
                 "sementara dan akan HILANG saat aplikasi restart/reboot. Isi `database_url` (Supabase/Postgres) "
                 "di Secrets agar data permanen."
             )
+        panel_status(eng)
         realtime_admin()
         menu = st.radio(
             "Menu admin",
@@ -1664,7 +1700,16 @@ def halaman_admin(eng):
 def main():
     st.set_page_config(page_title="Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
-    eng = get_engine()
+    try:
+        eng = get_engine()
+    except SQLAlchemyError as e:
+        asal = getattr(e, "orig", e)
+        st.error(
+            "Tidak bisa terhubung ke database. Periksa `database_url` di Secrets "
+            "(pakai alamat Transaction pooler, password sudah diganti, tanpa tanda [ ]).\n\n"
+            f"Detail: {type(asal).__name__}: {str(asal).strip()[:400]}"
+        )
+        st.stop()
 
     peran = st.session_state.get("peran")
     nama = st.session_state.get("nama_login")
