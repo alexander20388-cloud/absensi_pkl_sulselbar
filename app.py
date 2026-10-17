@@ -42,6 +42,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, LargeBinary, MetaData, Table,
     create_engine, select, insert, update, delete, func, and_, inspect, text,
 )
+from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from streamlit_js_eval import get_geolocation
 
@@ -229,6 +230,34 @@ notifikasi_t = Table(
 )
 
 
+def _bersihkan_url(u):
+    """Buang sisa format tautan (mis. [teks](mailto:...)) yang ikut tersalin dari chat/web."""
+    u = str(u or "").strip().strip("<>\"' ")
+    return re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", u)
+
+
+def url_database():
+    """URL database dari Secrets: `database_url`, atau dirakit dari db_host/db_user/db_password/db_port/db_name."""
+    url = _bersihkan_url(secret("database_url"))
+    if url:
+        url = url.replace("postgres://", "postgresql://", 1)
+        # Paksa driver psycopg2 secara eksplisit, supaya SQLAlchemy tidak mencoba driver lain.
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+        return url
+    host = str(secret("db_host") or "").strip()
+    if host:
+        return URL.create(
+            "postgresql+psycopg2",
+            username=str(secret("db_user") or "postgres").strip(),
+            password=str(secret("db_password") or ""),       # simbol apa pun aman, tidak perlu di-encode
+            host=host,
+            port=int(str(secret("db_port") or "6543").strip()),
+            database=str(secret("db_name") or "postgres").strip(),
+        )
+    return None
+
+
 def _sqlite_bisa_tulis(path):
     """True kalau file SQLite (dan foldernya) benar-benar bisa ditulis."""
     folder = os.path.dirname(os.path.abspath(path))
@@ -260,15 +289,10 @@ def _migrasi(eng):
 
 
 @st.cache_resource
-def get_engine(versi_skema=4):
-    url = secret("database_url")
+def get_engine(versi_skema=5):
+    url = url_database()
     sementara = False
     if url:
-        url = url.replace("postgres://", "postgresql://", 1)
-        # Paksa driver psycopg2 secara eksplisit, supaya SQLAlchemy tidak
-        # mencoba driver lain (mis. psycopg v3) yang belum tentu terinstall.
-        if url.startswith("postgresql://"):
-            url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
         eng = create_engine(url, pool_pre_ping=True, pool_recycle=300)
     else:
         # nama file baru (v2) supaya tidak bentrok dengan database versi lama
@@ -1705,8 +1729,9 @@ def main():
     except SQLAlchemyError as e:
         asal = getattr(e, "orig", e)
         st.error(
-            "Tidak bisa terhubung ke database. Periksa `database_url` di Secrets "
-            "(pakai alamat Transaction pooler, password sudah diganti, tanpa tanda [ ]).\n\n"
+            "Tidak bisa terhubung ke database. Periksa pengaturan database di Secrets "
+            "(`database_url`, atau `db_host`, `db_user`, `db_password`). Pakai alamat Transaction pooler; "
+            "nama pengguna harus `postgres.KODE_PROJECT`.\n\n"
             f"Detail: {type(asal).__name__}: {str(asal).strip()[:400]}"
         )
         st.stop()
