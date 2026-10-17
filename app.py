@@ -1098,7 +1098,17 @@ def halaman_rekap(eng):
         "status": "Status", "jarak": "Jarak (m)", "uang_makan": "Uang Makan",
     })
     detail["Jarak (m)"] = detail["Jarak (m)"].round(0)
-    st.dataframe(beri_nomor(detail), width="stretch")
+
+    daftar_nama = sorted(detail["Nama"].unique())
+    pilih = st.selectbox("Pilih nama peserta", daftar_nama)
+    detail_pilih = detail[detail["Nama"] == pilih].reset_index(drop=True)
+    ok = detail_pilih[detail_pilih["Status"] == "berhasil"]
+    st.caption(
+        f"{len(detail_pilih)} catatan • {ok['Tanggal'].nunique()} hari hadir • "
+        f"Uang makan Rp{int(ok['Uang Makan'].sum()):,}".replace(",", ".")
+    )
+    st.dataframe(beri_nomor(detail_pilih), width="stretch")
+    st.caption("File Excel di bawah berisi detail absensi seluruh peserta.")
 
     st.download_button(
         "⬇️ Download Excel", data=excel_bytes(rekap, detail),
@@ -1121,13 +1131,19 @@ def halaman_foto(eng):
         st.info("Tidak ada absensi di tanggal ini.")
         return
 
-    kolom = st.columns(3)
-    for i, r in enumerate(rows):
-        with kolom[i % 3]:
+    daftar_nama = sorted({r["nama"] for r in rows})
+    pilih = st.selectbox("Pilih nama peserta", daftar_nama)
+    milik = [r for r in rows if r["nama"] == pilih]
+    st.caption(f"{len(milik)} catatan absen pada tanggal ini. Klik baris untuk melihat fotonya.")
+
+    for r in milik:
+        ikon = "✅" if r["status"] == "berhasil" else "❌"
+        judul = f"{ikon} {r['jam']} • {r['jenis']} • {r['jarak']:.0f} m"
+        with st.expander(judul):
             if r["foto"]:
-                st.image(bytes(r["foto"]), width="stretch")
-            ikon = "✅" if r["status"] == "berhasil" else "❌"
-            st.caption(f"{ikon} {r['nama']}\n\n{r['jenis']} • {r['jam']} • {r['jarak']:.0f} m")
+                st.image(bytes(r["foto"]), width=170)
+            else:
+                st.caption("Foto tidak tersedia.")
 
 
 # ------------------------------------------------------------------
