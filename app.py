@@ -1469,7 +1469,10 @@ def halaman_kelola_peserta(eng):
         kirim = st.form_submit_button("Tambah Peserta")
 
     if kirim:
-        rek_rapi, rek_err = validasi_rekening(no_rek)
+        if (no_rek or "").strip():
+            rek_rapi, rek_err = validasi_rekening(no_rek)        # kalau diisi, formatnya harus benar
+        else:
+            rek_rapi, rek_err = "", ""                           # kosong = boleh, bisa diisi nanti lewat Edit
         if not nama.strip():
             st.error("Nama wajib diisi.")
         elif rek_err:
@@ -1479,7 +1482,8 @@ def halaman_kelola_peserta(eng):
         else:
             try:
                 add_peserta(eng, nama, gedung, divisi, pin, rek_rapi)
-                st.success(f"{nama.strip()} ditambahkan ke Gedung {gedung}. Kasih tahu PIN-nya ke yang bersangkutan.")
+                catatan = "" if rek_rapi else " Nomor rekening belum diisi, bisa ditambahkan nanti lewat panel Edit di bawah."
+                st.success(f"{nama.strip()} ditambahkan ke Gedung {gedung}. Kasih tahu PIN-nya ke yang bersangkutan.{catatan}")
             except IntegrityError:
                 st.error("Nama itu sudah terdaftar.")
             except SQLAlchemyError as e:
@@ -1496,6 +1500,12 @@ def halaman_kelola_peserta(eng):
         }).fillna({"No. Rekening": "-"})),
         width="stretch",
     )
+    belum = df[df["no_rekening"].isna() | (df["no_rekening"].astype(str).str.strip() == "")]["nama"].tolist()
+    if belum:
+        st.caption(
+            f"⚠️ {len(belum)} peserta belum punya nomor rekening: {', '.join(belum)}. "
+            "Isi lewat panel Edit di bawah (di Excel akan tertulis “-” sampai diisi)."
+        )
 
     if not df.empty:
         with st.expander("Edit Divisi / No. Rekening / Reset PIN / Hapus peserta"):
