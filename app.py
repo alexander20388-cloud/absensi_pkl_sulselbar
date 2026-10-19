@@ -7,7 +7,8 @@ Fitur:
 - Login PIN per peserta (dibuat admin)
 - Cek lokasi: harus di sekitar gedung yang terdaftar untuk peserta (A / B)
 - Setiap peserta juga punya Divisi (dipilih dari daftar, Gedung ikut otomatis)
-- Jam absen: masuk 07:00-09:00, pulang 16:30-18:00 (WITA); izin bisa kapan saja (dengan alasan)
+- Jam absen: masuk 07:00-09:00, pulang 16:30-18:00 (WITA). Uang makan didapat saat absen pulang.
+  Izin (sebentar, tetap bisa absen) dan cuti (sehari penuh, tidak bisa absen masuk): kapan saja, dengan alasan
 - Uang makan Rp15.000 otomatis saat absen masuk berhasil
 - Blokir absen dobel di hari yang sama
 - Admin (pakai password): kelola peserta, rekap + grafik + export Excel, bukti foto
@@ -56,8 +57,8 @@ UANG_MAKAN = 15000
 
 # Koordinat asli Gedung A dan B Bank Sulselbar
 GEDUNG_COORD = {
-    "A": (-5.150070542826675, 119.41568236911743),  # (latitude, longitude)
-    "B": (-5.150163347858429, 119.41329137592547),  # (latitude, longitude)
+    "A": (-5.1164911547868, 119.51684816101282),  # (latitude, longitude)
+    "B": (-5.147453606311076, 119.4293639296109),  # (latitude, longitude)
 }
 
 RADIUS_METER = 150  # area longgar di sekitar gedung (bukan angka ketat)
@@ -86,8 +87,8 @@ DIVISI_GEDUNG = {
 }
 
 # Jendela waktu absen (WITA). Di luar jam ini absen ditolak. Izin bisa kapan saja.
-JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(7, 0), dtime(15, 0)
-JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
+JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(7, 0), dtime(9, 0)
+JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 30), dtime(18, 0)
 
 WITA = timezone(timedelta(hours=8))  # server cloud pakai UTC, jadi jam dipaksa WITA
 
@@ -214,16 +215,16 @@ absensi_t = Table(
     Column("nama", String(100), nullable=False, index=True),
     Column("tanggal", String(10), nullable=False, index=True),  # YYYY-MM-DD
     Column("jam", String(8), nullable=False),                   # HH:MM:SS
-    Column("jenis", String(10), nullable=False, default="masuk"),  # masuk / pulang / izin
+    Column("jenis", String(10), nullable=False, default="masuk"),  # masuk / pulang / izin / cuti
     Column("lat", Float),
     Column("lon", Float),
     Column("akurasi", Float),
     Column("jarak", Float),
-    Column("status", String(20), nullable=False),               # berhasil / gagal_lokasi / izin
+    Column("status", String(20), nullable=False),               # berhasil / gagal_lokasi / izin / cuti
     Column("uang_makan", Integer, nullable=False, default=0),
     Column("foto", LargeBinary),                                # foto di DB (cadangan / data lama)
     Column("foto_path", String(200)),                           # lokasi foto di Supabase Storage
-    Column("alasan", String(300)),                              # alasan izin
+    Column("alasan", String(300)),                              # alasan izin / cuti
 )
 
 # Tabel kecil untuk Supabase Realtime: setiap absen baru menambah 1 baris,
@@ -440,9 +441,10 @@ def dalam_jendela(now, buka, tutup):
     return buka <= t <= tutup
 
 
-def sudah_izin(eng, nama, tanggal):
+def ada_catatan(eng, nama, tanggal, jenis):
+    """True kalau peserta sudah punya catatan izin/cuti (jenis) pada tanggal itu."""
     q = select(func.count()).select_from(absensi_t).where(and_(
-        absensi_t.c.nama == nama, absensi_t.c.tanggal == tanggal, absensi_t.c.jenis == "izin",
+        absensi_t.c.nama == nama, absensi_t.c.tanggal == tanggal, absensi_t.c.jenis == jenis,
     ))
     with eng.connect() as c:
         return c.execute(q).scalar() > 0
@@ -534,9 +536,54 @@ def excel_bytes(rekap, detail):
 # EXCEL FORMAT TEMPLATE (satu sheet per peserta)
 # ------------------------------------------------------------------
 TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template_absen.xlsx")
-# Penandatangan per divisi. Kalau divisi tidak ada di sini, dipakai tulisan bawaan di template_absen.xlsx.
-# Contoh: {"Divisi Kepatuhan": ("Nama Pimpinan", "Pimdept. Kepatuhan")}
-PENANDATANGAN = {}
+# Penandatangan di bagian bawah Excel, tergantung divisi peserta: (nama, jabatan).
+# Divisi yang masih ("", "") akan dikosongkan di Excel (bukan memakai nama divisi lain),
+# dan admin diberi peringatan. Kalau datanya sudah ada, isi di sini, contoh:
+#   "Divisi Kepatuhan": ("Nama Pimpinan", "Pimdept. Kepatuhan"),
+PENANDATANGAN = {
+    "Divisi Manajemen Risiko": ("Faisal Hafiz", "Pimdept. Risiko Operasional, TI & Lainnya"),
+    # --- Gedung A ---
+    "Divisi Korporasi dan Komersial": ("", ""),
+    "Divisi Ritel dan Konsumer": ("", ""),
+    "Divisi Corporate Secretary (CORSEC)": ("", ""),
+    "Divisi Human Capital": ("", ""),
+    "Divisi SIMO": ("", ""),
+    "Divisi Keuangan dan Akuntansi": ("", ""),
+    "Divisi Treasury": ("", ""),
+    "Divisi Teknologi dan Informasi": ("", ""),
+    "Divisi International Banking": ("", ""),
+    "Divisi Digitalisasi dan Layanan": ("", ""),
+    "Divisi Umum": ("", ""),
+    # --- Gedung B ---
+    "Divisi Kepatuhan": ("", ""),
+    "Divisi Dana dan Jasa": ("", ""),
+    "Divisi Syariah": ("", ""),
+    "Divisi SKAI": ("", ""),
+}
+
+
+def cari_penandatangan(divisi):
+    """(nama, jabatan) penandatangan untuk divisi itu; ("", "") kalau belum diisi."""
+    kunci = (divisi or "").strip().lower()
+    for k, v in PENANDATANGAN.items():
+        if k.strip().lower() == kunci:
+            nama, jabatan = (v[0] or "").strip(), (v[1] or "").strip()
+            if nama or jabatan:                      # lewati entri kosong kalau ada entri lain yang berisi
+                return nama, jabatan
+    return "", ""
+
+
+def divisi_tanpa_penandatangan(eng, daftar_nama):
+    """Daftar divisi (dari peserta yang akan diekspor) yang penandatangannya belum diisi."""
+    hasil = []
+    for nama in daftar_nama:
+        info = get_peserta(eng, nama)
+        divisi = (info["divisi"] if info else "") or "(tanpa divisi)"
+        if not any(cari_penandatangan(divisi)) and divisi not in hasil:
+            hasil.append(divisi)
+    return hasil
+
+
 BULAN_TTD = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli",
              "Agustus", "September", "Oktober", "November", "Desember"]
 
@@ -564,9 +611,10 @@ def _salin_gaya(src, dst, nilai=None):
         dst.value = nilai
 
 
-def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, awal, akhir):
-    """Isi satu sheet memakai gaya dari sheet 'Template'.
-    hari = {tanggal_iso: (jam_masuk, uang)}, pulang = {tanggal_iso: jam_pulang}, izin = {tanggal_iso: alasan}."""
+def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir):
+    """Isi satu sheet memakai gaya dari sheet 'Template' (kolom B..G).
+    hari = {tanggal_iso: jam_masuk}, pulang = {tanggal_iso: (jam_pulang, uang_makan)},
+    izin / cuti = {tanggal_iso: alasan}."""
     isi = {
         "{nama}": peserta["nama"],
         "{unit_kerja}": (peserta["divisi"] or "-").upper(),
@@ -586,12 +634,15 @@ def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, awal, akhir):
         nd.width, nd.min, nd.max = dim.width, dim.min, dim.max
 
     def baris(sr, dr, nilai_ganti=True):
-        for col in "BCDEF":
+        for col in "BCDEFG":
             sc = tpl[f"{col}{sr}"]
             _salin_gaya(sc, ws[f"{col}{dr}"], ganti(sc.value) if nilai_ganti else None)
         h = tpl.row_dimensions[sr].height
         if h:
             ws.row_dimensions[dr].height = h
+
+    def tinggi(r, teks, lebar=28):
+        ws.row_dimensions[r].height = 15 * max(1, math.ceil(len(teks) / lebar))
 
     for r in range(3, 8):          # identitas + judul kolom
         baris(r, r)
@@ -600,47 +651,56 @@ def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, awal, akhir):
     tgl = awal
     while tgl <= akhir:
         iso = tgl.isoformat()
+        tanggal_dt = datetime(tgl.year, tgl.month, tgl.day)
         if iso in hari:                                   # hadir (masuk berhasil)
-            jam, uang = hari[iso]
             baris(8, r, nilai_ganti=False)
-            ws[f"B{r}"].value = datetime(tgl.year, tgl.month, tgl.day)
-            ws[f"C{r}"].value = jam
-            ws[f"D{r}"].value = pulang.get(iso, "-")      # "-" kalau belum/tidak absen pulang
+            ws[f"B{r}"].value = tanggal_dt
+            ws[f"C{r}"].value = hari[iso]
+            jam_p, uang = pulang.get(iso, (None, 0))      # uang makan hanya kalau sudah absen pulang
+            ws[f"D{r}"].value = jam_p if jam_p else "-"
             ws[f"E{r}"].value = "Hadir"
-            ws[f"F{r}"].value = uang
-        else:
-            baris(9, r, nilai_ganti=False)
-            ws[f"B{r}"].value = datetime(tgl.year, tgl.month, tgl.day)
-            if iso in izin:                               # izin + alasan
-                teks = f"Izin: {izin[iso]}"
-                ws[f"C{r}"].value = teks
-                ws[f"C{r}"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                ws.row_dimensions[r].height = 15 * max(1, math.ceil(len(teks) / 42))
-                ws[f"B{r}"].alignment = Alignment(horizontal="center", vertical="center")
+            if iso in izin:                               # kolom Izin: alasan izin hari itu, selain itu "-"
+                ws[f"F{r}"].value = izin[iso]
+                ws[f"F{r}"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                tinggi(r, izin[iso])
             else:
-                ws[f"C{r}"].value = "Libur " if tgl.weekday() >= 5 else "Tidak hadir"
-            ws.merge_cells(f"C{r}:F{r}")
+                ws[f"F{r}"].value = "-"
+            ws[f"G{r}"].value = uang
+        else:                                             # satu baris blok: cuti / tidak hadir / libur
+            baris(9, r, nilai_ganti=False)
+            ws[f"B{r}"].value = tanggal_dt
+            if iso in cuti:
+                teks = f"Cuti: {cuti[iso]}"
+            elif iso in izin and tgl.weekday() < 5:
+                teks = f"Tidak hadir (izin: {izin[iso]})"
+            else:
+                teks = "Libur " if tgl.weekday() >= 5 else "Tidak hadir"
+            if teks.startswith(("Cuti", "Tidak hadir (")):
+                ws[f"C{r}"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                ws[f"B{r}"].alignment = Alignment(horizontal="center", vertical="center")
+                tinggi(r, teks, lebar=62)
+            ws[f"C{r}"].value = teks
+            ws.merge_cells(f"C{r}:G{r}")
         r += 1
         tgl += timedelta(days=1)
 
     jumlah = r
     baris(10, jumlah)
-    ws.merge_cells(f"B{jumlah}:E{jumlah}")
-    ws[f"F{jumlah}"].value = f"=SUM(F8:F{jumlah - 1})" if jumlah > 8 else 0
+    ws.merge_cells(f"B{jumlah}:F{jumlah}")
+    ws[f"G{jumlah}"].value = f"=SUM(G8:G{jumlah - 1})" if jumlah > 8 else 0
 
     geser = jumlah - 10             # footer (tanda tangan) ikut turun
-    penanda = PENANDATANGAN.get(peserta["divisi"])
+    penanda_nama, penanda_jabatan = cari_penandatangan(peserta["divisi"])
     for sr in range(11, tpl.max_row + 1):
         baris(sr, sr + geser)
     for rng in tpl.merged_cells.ranges:
         if rng.min_row >= 11:
             ws.merge_cells(start_row=rng.min_row + geser, end_row=rng.max_row + geser,
                            start_column=rng.min_col, end_column=rng.max_col)
-    if penanda:
-        for sr in range(11, tpl.max_row + 1):
-            if tpl[f"E{sr}"].value == "Faisal Hafiz ":
-                ws[f"E{sr + geser}"].value = penanda[0]
-                ws[f"E{sr + geser + 1}"].value = penanda[1]
+    for sr in range(11, tpl.max_row + 1):             # tulisan "Faisal Hafiz" di template selalu diganti sesuai divisi
+        if tpl[f"F{sr}"].value == "Faisal Hafiz ":
+            ws[f"F{sr + geser}"].value = penanda_nama or None
+            ws[f"F{sr + geser + 1}"].value = penanda_jabatan or None
 
     ws.page_margins = copy(tpl.page_margins)
     ws.page_setup.orientation = "portrait"
@@ -670,23 +730,25 @@ def excel_template_bytes(eng, df_bulan, tahun, bulan, daftar_nama):
             "divisi": (info["divisi"] if info else "") or "",
             "no_rekening": info["no_rekening"] if info else None,
         }
-        hari, pulang, izin = {}, {}, {}
+        hari, pulang, izin, cuti = {}, {}, {}, {}
         for _, row in data.iterrows():
             iso = row["tanggal"]
             if row["jenis"] == "izin":
                 izin.setdefault(iso, str(row["alasan"] or "-").strip())
+            elif row["jenis"] == "cuti":
+                cuti.setdefault(iso, str(row["alasan"] or "-").strip())
             elif row["status"] == "berhasil":
                 jam = datetime.strptime(row["jam"], "%H:%M:%S").time().replace(second=0)
                 if row["jenis"] == "masuk":
-                    hari.setdefault(iso, (jam, int(row["uang_makan"])))
+                    hari.setdefault(iso, jam)
                 elif row["jenis"] == "pulang":
-                    pulang[iso] = jam                      # kalau ada beberapa, ambil yang terakhir
+                    pulang[iso] = (jam, int(row["uang_makan"]))   # jam pulang + uang makan (didapat saat pulang)
         pertama = tanggal_pertama_absen(eng, nama) or data["tanggal"].min()
         awal = max(awal_bulan, date.fromisoformat(pertama))
         if awal > akhir:
             continue
         ws = wb.create_sheet(_nama_sheet(nama, dipakai))
-        _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, awal, akhir)
+        _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir)
         jumlah_sheet += 1
 
     if jumlah_sheet == 0:
@@ -898,7 +960,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 .pr-row .d { font-weight: 600; color: #1e2a5a; font-size: 15px; }
 .pr-row .m { font-size: 13px; color: #6b779e; margin-top: 2px; }
 .pr-row .r { margin-left: auto; text-align: right; font-size: 13px; font-weight: 600; }
-.ok { color: #14a068; } .bad { color: #e04a4a; } .izin { color: #c58a05; }
+.ok { color: #14a068; } .bad { color: #e04a4a; } .izin { color: #c58a05; } .cuti { color: #2f5fd0; }
 .pr-kv { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #eef0f5; font-size: 15px; }
 .pr-kv:last-child { border-bottom: 0; }
 .pr-kv span:first-child { color: #6b779e; } .pr-kv span:last-child { font-weight: 600; color: #1e2a5a; }
@@ -1013,7 +1075,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 }
 .st-key-pagebody [data-testid="stRadioOption"] > div { width: 100%; justify-content: center; }
 .st-key-pagebody [data-testid="stRadioOption"] > div > div:first-child { display: none; }
-.st-key-pagebody [data-testid="stRadioOption"] p { font-weight: 600; font-size: 15px; color: var(--biru); text-align: center; white-space: nowrap; }
+.st-key-pagebody [data-testid="stRadioOption"] p { font-weight: 600; font-size: 14px; color: var(--biru); text-align: center; white-space: nowrap; }
 .st-key-pagebody [data-testid="stRadioOption"][data-selected="true"] {
   background: linear-gradient(135deg, var(--biru), var(--ungu)); box-shadow: 0 4px 12px rgba(37,63,216,.3);
 }
@@ -1103,10 +1165,11 @@ def get_status_hari(eng, nama, tanggal):
     )
     with eng.connect() as c:
         rows = c.execute(q).mappings().all()
-    hasil = {"masuk": None, "pulang": None, "izin": None, "gagal_masuk": False, "gagal_pulang": False}
+    hasil = {"masuk": None, "pulang": None, "izin": None, "cuti": None,
+             "gagal_masuk": False, "gagal_pulang": False}
     for r in rows:
-        if r["jenis"] == "izin":
-            hasil["izin"] = r
+        if r["jenis"] in ("izin", "cuti"):
+            hasil[r["jenis"]] = r
         elif r["jenis"] in ("masuk", "pulang"):
             if r["status"] == "berhasil":
                 if hasil[r["jenis"]] is None:
@@ -1126,7 +1189,7 @@ def get_riwayat_peserta(eng, nama, limit=60, tanpa_gagal=False):
         .limit(limit)
     )
     if tanpa_gagal:
-        q = q.where(or_(absensi_t.c.status == "berhasil", absensi_t.c.jenis == "izin"))
+        q = q.where(or_(absensi_t.c.status == "berhasil", absensi_t.c.jenis.in_(["izin", "cuti"])))
     with eng.connect() as c:
         return c.execute(q).mappings().all()
 
@@ -1178,23 +1241,29 @@ def teks_status_hari(now, sh):
     jendela_masuk = f"{f(JAM_MASUK_BUKA)}-{f(JAM_MASUK_TUTUP)}"
     jendela_pulang = f"{f(JAM_PULANG_BUKA)}-{f(JAM_PULANG_TUTUP)}"
     t = now.time().replace(second=0, microsecond=0)
-    if sh["masuk"] is None and sh["izin"] is not None:
-        return "Izin hari ini", esc(str(sh["izin"]["alasan"] or "-"))
+    if sh["masuk"] is None and sh["cuti"] is not None:
+        return "Cuti hari ini", esc(str(sh["cuti"]["alasan"] or "-"))
     if sh["masuk"] is None:
         if t < JAM_MASUK_BUKA:
-            return "Status presensi", f"Absen masuk dibuka pukul {f(JAM_MASUK_BUKA)} WITA"
-        if t <= JAM_MASUK_TUTUP:
+            judul, sub = "Status presensi", f"Absen masuk dibuka pukul {f(JAM_MASUK_BUKA)} WITA"
+        elif t <= JAM_MASUK_TUTUP:
             ekstra = " Percobaan terakhir gagal (di luar area)." if sh["gagal_masuk"] else ""
-            return "Status presensi", f"Absen masuk dibuka sampai {f(JAM_MASUK_TUTUP)} WITA.{ekstra}"
-        return "Status presensi", f"Waktu absen masuk ({jendela_masuk}) sudah lewat"
-    if sh["pulang"] is None:
+            judul, sub = "Status presensi", f"Absen masuk dibuka sampai {f(JAM_MASUK_TUTUP)} WITA.{ekstra}"
+        else:
+            judul, sub = "Status presensi", f"Waktu absen masuk ({jendela_masuk}) sudah lewat"
+    elif sh["pulang"] is None:
         if t < JAM_PULANG_BUKA:
-            return "Status presensi", f"Absen pulang dibuka pukul {f(JAM_PULANG_BUKA)} WITA"
-        if t <= JAM_PULANG_TUTUP:
+            judul, sub = "Status presensi", f"Absen pulang dibuka pukul {f(JAM_PULANG_BUKA)} WITA"
+        elif t <= JAM_PULANG_TUTUP:
             ekstra = " Percobaan terakhir gagal (di luar area)." if sh["gagal_pulang"] else ""
-            return "Status presensi", f"Absen pulang dibuka sampai {f(JAM_PULANG_TUTUP)} WITA.{ekstra}"
-        return "Status presensi", f"Waktu absen pulang ({jendela_pulang}) sudah lewat"
-    return "Status presensi", f"Presensi hari ini lengkap: masuk {sh['masuk']['jam'][:5]}, pulang {sh['pulang']['jam'][:5]}"
+            judul, sub = "Status presensi", f"Absen pulang dibuka sampai {f(JAM_PULANG_TUTUP)} WITA.{ekstra}"
+        else:
+            judul, sub = "Status presensi", f"Waktu absen pulang ({jendela_pulang}) sudah lewat"
+    else:
+        judul, sub = "Status presensi", f"Presensi hari ini lengkap: masuk {sh['masuk']['jam'][:5]}, pulang {sh['pulang']['jam'][:5]}"
+    if sh["izin"] is not None:
+        sub += f" • Izin: {esc(str(sh['izin']['alasan'] or '-'))}"
+    return judul, sub
 
 
 def tab_beranda(eng, nama, peserta):
@@ -1202,7 +1271,7 @@ def tab_beranda(eng, nama, peserta):
     sh = get_status_hari(eng, nama, now.strftime("%Y-%m-%d"))
     jam_masuk = sh["masuk"]["jam"][:5] if sh["masuk"] else "--:--"
     jam_pulang = sh["pulang"]["jam"][:5] if sh["pulang"] else "--:--"
-    uang = rupiah(sh["masuk"]["uang_makan"]) if sh["masuk"] else "-"
+    uang = rupiah(sh["pulang"]["uang_makan"]) if sh["pulang"] else "-"      # uang makan didapat saat absen pulang
     info_judul, info_sub = teks_status_hari(now, sh)
 
     st.markdown(
@@ -1241,6 +1310,9 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
     rentang = f"{buka.strftime('%H:%M')}-{tutup.strftime('%H:%M')}"
     st.caption(f"Jam absen {jenis}: {rentang} WITA")
 
+    if sh["cuti"] is not None and sh["masuk"] is None:
+        st.warning(f"Kamu cuti hari ini ({sh['cuti']['alasan']}), jadi tidak bisa absen {jenis}.")
+        return
     if jenis == "pulang" and sh["masuk"] is None:
         st.warning("Kamu belum absen masuk hari ini, jadi belum bisa absen pulang.")
         return
@@ -1270,6 +1342,9 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
 
         now = datetime.now(WITA)                      # cek ulang: jam bisa saja bergeser saat foto diambil
         tanggal, jam = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+        if ada_catatan(eng, nama, tanggal, "cuti") and not sudah_berhasil(eng, nama, tanggal, "masuk"):
+            st.warning(f"Kamu cuti hari ini, jadi tidak bisa absen {jenis}.")
+            return
         if sudah_berhasil(eng, nama, tanggal, jenis):
             st.warning(f"Kamu sudah absen {jenis} hari ini.")
             return
@@ -1283,7 +1358,7 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
         lat, lon = coords["latitude"], coords["longitude"]
         cocok, jarak = cek_lokasi(lat, lon, gedung)
         status = "berhasil" if cocok else "gagal_lokasi"
-        uang = UANG_MAKAN if (cocok and jenis == "masuk") else 0     # uang makan dihitung dari absen masuk
+        uang = UANG_MAKAN if (cocok and jenis == "pulang") else 0    # uang makan didapat saat absen PULANG
 
         foto_kecil = kompres_foto(foto.getvalue())
         nama_berkas = re.sub(r"[^A-Za-z0-9]+", "_", nama).strip("_") or "peserta"
@@ -1303,8 +1378,10 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
 
         if cocok:
             st.success(f"✅ Absen {jenis} berhasil pukul {jam} WITA.")
-            if jenis == "masuk":
+            if jenis == "pulang":
                 st.info(f"💰 Uang makan hari ini: {rupiah(uang)}")
+            else:
+                st.caption("Uang makan didapat setelah absen pulang.")
         else:
             st.error(
                 f"❌ Absen GAGAL: kamu ~{jarak:.0f} m dari Gedung {gedung}, "
@@ -1312,38 +1389,49 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
             )
 
 
-def _form_izin(eng, nama, now):
-    """Form izin: bisa kapan saja, tanpa lokasi/foto, wajib mengisi alasan."""
-    st.caption("Izin bisa diajukan kapan saja. Alasan akan masuk ke laporan Excel.")
+def _form_tidak_hadir(eng, nama, now, jenis):
+    """Form izin / cuti: bisa kapan saja, tanpa lokasi/foto, wajib mengisi alasan.
+    Izin  = keluar sebentar, TETAP bisa absen masuk/pulang.
+    Cuti  = sehari penuh, TIDAK bisa absen masuk pada tanggal itu."""
+    label = jenis.capitalize()
+    if jenis == "izin":
+        st.caption("Izin untuk keperluan sebentar (misalnya ke kampus beberapa jam). Kamu tetap bisa absen masuk dan pulang. "
+                   "Alasan akan masuk ke laporan Excel.")
+    else:
+        st.caption("Cuti sehari penuh. Pada tanggal cuti kamu tidak bisa absen masuk. Alasan akan masuk ke laporan Excel.")
     tgl = st.date_input(
-        "Tanggal izin", value=now.date(), min_value=now.date(), max_value=now.date() + timedelta(days=30),
-        key="izin_tanggal",
+        f"Tanggal {jenis}", value=now.date(), min_value=now.date(), max_value=now.date() + timedelta(days=30),
+        key=f"{jenis}_tanggal",
     )
     alasan = st.text_area(
-        "Alasan izin", max_chars=300, height=110, key="izin_alasan",
-        placeholder="Contoh: sakit, ada keperluan keluarga, mengikuti kegiatan kampus...",
+        f"Alasan {jenis}", max_chars=300, height=110, key=f"{jenis}_alasan",
+        placeholder="Contoh: ke kampus untuk bimbingan, sakit, keperluan keluarga..." if jenis == "izin"
+        else "Contoh: sakit, acara keluarga, ujian kampus...",
     )
-    if st.button("Kirim Izin", type="primary", width="stretch", key="btn_izin"):
+    if st.button(f"Kirim {label}", type="primary", width="stretch", key=f"btn_{jenis}"):
         teks = " ".join((alasan or "").split())
         tanggal = tgl.strftime("%Y-%m-%d")
         if len(teks) < 5:
-            st.error("Alasan izin wajib diisi (minimal 5 karakter).")
+            st.error(f"Alasan {jenis} wajib diisi (minimal 5 karakter).")
             return
-        if sudah_izin(eng, nama, tanggal):
-            st.warning(f"Kamu sudah mengajukan izin untuk {tgl_indonesia(tgl)}.")
+        if ada_catatan(eng, nama, tanggal, jenis):
+            st.warning(f"Kamu sudah mengajukan {jenis} untuk {tgl_indonesia(tgl)}.")
             return
-        if sudah_berhasil(eng, nama, tanggal, "masuk"):
-            st.warning("Kamu sudah absen masuk pada tanggal itu, jadi tidak bisa mengajukan izin.")
+        if jenis == "cuti" and sudah_berhasil(eng, nama, tanggal, "masuk"):
+            st.warning("Kamu sudah absen masuk pada tanggal itu, jadi tidak bisa mengajukan cuti.")
+            return
+        if jenis == "izin" and ada_catatan(eng, nama, tanggal, "cuti"):
+            st.warning("Kamu cuti pada tanggal itu, jadi tidak perlu mengajukan izin.")
             return
         try:
             simpan_absen(
                 eng, nama=nama, tanggal=tanggal, jam=datetime.now(WITA).strftime("%H:%M:%S"),
-                jenis="izin", status="izin", uang_makan=0, alasan=teks,
+                jenis=jenis, status=jenis, uang_makan=0, alasan=teks,
             )
         except SQLAlchemyError:
-            st.error("Izin gagal disimpan karena gangguan database. Coba lagi sebentar lagi atau hubungi admin.")
+            st.error(f"{label} gagal disimpan karena gangguan database. Coba lagi sebentar lagi atau hubungi admin.")
             return
-        st.success(f"✅ Izin untuk {tgl_indonesia(tgl)} tersimpan.")
+        st.success(f"✅ {label} untuk {tgl_indonesia(tgl)} tersimpan.")
 
 
 def tab_absen(eng, nama, peserta):
@@ -1355,10 +1443,10 @@ def tab_absen(eng, nama, peserta):
         st.session_state.mode_absen = "Pulang" if (sh["masuk"] is not None and sh["pulang"] is None) else "Masuk"
 
     with st.container(key="pagebody"):
-        mode = st.radio("Jenis absen", ["Masuk", "Pulang", "Izin"], horizontal=True,
+        mode = st.radio("Jenis absen", ["Masuk", "Pulang", "Izin", "Cuti"], horizontal=True,
                         key="mode_absen", label_visibility="collapsed")
-        if mode == "Izin":
-            _form_izin(eng, nama, now)
+        if mode in ("Izin", "Cuti"):
+            _form_tidak_hadir(eng, nama, now, mode.lower())
         else:
             _form_absen(eng, nama, peserta, mode.lower(), now, sh)
 
@@ -1373,17 +1461,17 @@ def tab_riwayat(eng, nama):
         html = ""
         for r in rows:
             d = datetime.strptime(r["tanggal"], "%Y-%m-%d").date()
-            if r["jenis"] == "izin":
-                info = f"Izin • {esc(str(r['alasan'] or '-'))}"
-                ket, kelas = "Izin", "izin"
+            if r["jenis"] in ("izin", "cuti"):
+                label = r["jenis"].capitalize()
+                info = f"{label} • {esc(str(r['alasan'] or '-'))}"
+                ket, kelas = label, r["jenis"]
             else:
                 label = "Masuk" if r["jenis"] == "masuk" else "Pulang"
                 info = f"{label} {r['jam'][:5]} WITA • {r['jarak'] or 0:.0f} m"
-                ok = r["status"] == "berhasil"
-                if not ok:
-                    ket, kelas = "Gagal lokasi", "bad"
+                if r["jenis"] == "pulang" and r["uang_makan"]:
+                    ket, kelas = rupiah(r["uang_makan"]), "ok"          # uang makan muncul di baris pulang
                 else:
-                    ket, kelas = (rupiah(r["uang_makan"]) if r["jenis"] == "masuk" else "Berhasil"), "ok"
+                    ket, kelas = "Berhasil", "ok"
             html += (
                 f'<div class="pr-row"><div><div class="d">{tgl_indonesia(d)}</div>'
                 f'<div class="m">{info}</div></div>'
@@ -1398,16 +1486,17 @@ def tab_rekap(eng, nama):
     prefix = now.strftime("%Y-%m-")
     rows = [r for r in get_riwayat_peserta(eng, nama, limit=400) if r["tanggal"].startswith(prefix)]
     masuk_ok = [r for r in rows if r["jenis"] == "masuk" and r["status"] == "berhasil"]
+    pulang_ok = [r for r in rows if r["jenis"] == "pulang" and r["status"] == "berhasil"]
     hadir = len({r["tanggal"] for r in masuk_ok})
-    total = sum(r["uang_makan"] for r in masuk_ok)
+    total = sum(r["uang_makan"] for r in pulang_ok)              # uang makan dihitung dari absen pulang
     izin = len({r["tanggal"] for r in rows if r["jenis"] == "izin"})
-    gagal = sum(1 for r in rows if r["jenis"] != "izin" and r["status"] != "berhasil")
+    cuti = len({r["tanggal"] for r in rows if r["jenis"] == "cuti"})
     with st.container(key="pagebody"):
         st.markdown(
             f'<div class="pr-stat"><div><span>Hari hadir</span><b>{hadir}</b></div>'
             f'<div><span>Total uang makan</span><b>{rupiah(total)}</b></div></div>'
             f'<div class="pr-kv"><span>Izin</span><span>{izin}</span></div>'
-            f'<div class="pr-kv"><span>Percobaan gagal</span><span>{gagal}</span></div>',
+            f'<div class="pr-kv"><span>Cuti</span><span>{cuti}</span></div>',
             unsafe_allow_html=True,
         )
 
@@ -1611,18 +1700,20 @@ def halaman_rekap(eng):
         return
 
     berhasil = df[(df["status"] == "berhasil") & (df["jenis"] == "masuk")]       # hari hadir = absen masuk berhasil
-    pulang_ok = df[(df["status"] == "berhasil") & (df["jenis"] == "pulang")]
+    pulang_ok = df[(df["status"] == "berhasil") & (df["jenis"] == "pulang")]     # uang makan dihitung dari absen pulang
     izin_df = df[df["jenis"] == "izin"]
+    cuti_df = df[df["jenis"] == "cuti"]
     rekap = pd.DataFrame({"Nama": sorted(df["nama"].unique())})
     rekap["Hari Hadir"] = rekap["Nama"].map(berhasil.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
     rekap["Absen Pulang"] = rekap["Nama"].map(pulang_ok.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
     rekap["Izin"] = rekap["Nama"].map(izin_df.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
-    rekap["Total Uang Makan"] = rekap["Nama"].map(berhasil.groupby("nama")["uang_makan"].sum()).fillna(0).astype(int)
+    rekap["Cuti"] = rekap["Nama"].map(cuti_df.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
+    rekap["Total Uang Makan"] = rekap["Nama"].map(pulang_ok.groupby("nama")["uang_makan"].sum()).fillna(0).astype(int)
 
     m1, m2, m3 = st.columns(3)
     m1.metric("Total uang makan bulan ini", f"Rp{int(rekap['Total Uang Makan'].sum()):,}".replace(",", "."))
-    m2.metric("Izin bulan ini", int(izin_df.groupby(["nama", "tanggal"]).ngroups))
-    m3.metric("Percobaan gagal lokasi", int(((df["status"] != "berhasil") & (df["jenis"] != "izin")).sum()))
+    m2.metric("Izin / Cuti bulan ini", f"{int(rekap['Izin'].sum())} / {int(rekap['Cuti'].sum())}")
+    m3.metric("Percobaan gagal lokasi", int(((df["status"] != "berhasil") & (~df["jenis"].isin(["izin", "cuti"]))).sum()))
 
     st.subheader("Total Uang Makan per Peserta")
     st.dataframe(beri_nomor(rekap), width="stretch")
@@ -1648,10 +1739,12 @@ def halaman_rekap(eng):
     pilih = st.selectbox("Pilih nama peserta", daftar_nama)
     detail_pilih = detail[detail["Nama"] == pilih].reset_index(drop=True)
     ok = detail_pilih[(detail_pilih["Status"] == "berhasil") & (detail_pilih["Jenis"] == "masuk")]
+    uang_ok = detail_pilih[(detail_pilih["Status"] == "berhasil") & (detail_pilih["Jenis"] == "pulang")]
     n_izin = detail_pilih[detail_pilih["Jenis"] == "izin"]["Tanggal"].nunique()
+    n_cuti = detail_pilih[detail_pilih["Jenis"] == "cuti"]["Tanggal"].nunique()
     st.caption(
-        f"{len(detail_pilih)} catatan • {ok['Tanggal'].nunique()} hari hadir • {n_izin} izin • "
-        f"Uang makan Rp{int(ok['Uang Makan'].sum()):,}".replace(",", ".")
+        f"{len(detail_pilih)} catatan • {ok['Tanggal'].nunique()} hari hadir • {n_izin} izin • {n_cuti} cuti • "
+        f"Uang makan Rp{int(uang_ok['Uang Makan'].sum()):,}".replace(",", ".")
     )
     tampil = detail_pilih.copy()
     tampil["Jarak (m)"] = tampil["Jarak (m)"].apply(lambda v: "" if pd.isna(v) else str(int(round(v))))  # izin: tanpa jarak
@@ -1673,6 +1766,13 @@ def halaman_rekap(eng):
         st.warning(
             "File **template_absen.xlsx** tidak ditemukan di folder aplikasi. "
             "Unggah file itu ke folder yang sama dengan app.py (GitHub), lalu muat ulang."
+        )
+    kurang = divisi_tanpa_penandatangan(eng, daftar_nama)
+    if kurang:
+        st.warning(
+            "Penandatangan belum diisi untuk: " + ", ".join(kurang) +
+            ". Bagian tanda tangan di Excel untuk divisi itu dikosongkan. "
+            "Isi nama dan jabatannya di `PENANDATANGAN` pada app.py."
         )
     d1, d2 = st.columns(2)
     if data_satu:
@@ -1700,7 +1800,7 @@ def halaman_foto(eng):
         return
 
     tgl = st.date_input("Tanggal", value=datetime.now(WITA).date())
-    rows = [r for r in get_absensi_hari_foto(eng, tgl.strftime("%Y-%m-%d")) if r["jenis"] != "izin"]
+    rows = [r for r in get_absensi_hari_foto(eng, tgl.strftime("%Y-%m-%d")) if r["jenis"] not in ("izin", "cuti")]
     if not rows:
         st.info("Tidak ada absen masuk/pulang di tanggal ini.")
         return
@@ -1831,7 +1931,7 @@ def realtime_admin():
     with st.container(key="rt_hidden"):
         if st.button("segarkan", key="rt_refresh"):
             st.toast("Ada data absensi baru. Dashboard diperbarui.", icon="🔔")
-    st.caption("")
+    st.caption("🔔 Realtime aktif: dashboard diperbarui otomatis saat ada absen/izin baru.")
     components.html(
         """<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
