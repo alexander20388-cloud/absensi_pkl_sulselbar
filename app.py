@@ -1831,7 +1831,7 @@ def realtime_admin():
     with st.container(key="rt_hidden"):
         if st.button("segarkan", key="rt_refresh"):
             st.toast("Ada data absensi baru. Dashboard diperbarui.", icon="🔔")
-    st.caption("🔔 Realtime aktif: dashboard diperbarui otomatis saat ada absen/izin baru.")
+    st.caption("")
     components.html(
         """<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
