@@ -57,8 +57,8 @@ UANG_MAKAN = 15000
 
 # Koordinat asli Gedung A dan B Bank Sulselbar
 GEDUNG_COORD = {
-    "A": (-5.1164911547868, 119.51684816101282),  # (latitude, longitude)
-    "B": (-5.147453606311076, 119.4293639296109),  # (latitude, longitude)
+    "A": (-5.150070542826675, 119.41568236911743),  # (latitude, longitude)
+    "B": (-5.150163347858429, 119.41329137592547),  # (latitude, longitude)
 }
 
 RADIUS_METER = 150  # area longgar di sekitar gedung (bukan angka ketat)
@@ -87,8 +87,8 @@ DIVISI_GEDUNG = {
 }
 
 # Jendela waktu absen (WITA). Di luar jam ini absen ditolak. Izin bisa kapan saja.
-JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(7, 0), dtime(9, 0)
-JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 30), dtime(18, 0)
+JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(7, 0), dtime(12, 0)
+JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
 
 WITA = timezone(timedelta(hours=8))  # server cloud pakai UTC, jadi jam dipaksa WITA
 
