@@ -555,7 +555,7 @@ PENANDATANGAN = {
     "Divisi Digitalisasi dan Layanan": ("", ""),
     "Divisi Umum": ("", ""),
     # --- Gedung B ---
-    "Divisi Kepatuhan": ("", ""),
+    "Divisi Kepatuhan": ("Amri Mahmud", "Pemimpin Divisi Kepatuhan"),
     "Divisi Dana dan Jasa": ("", ""),
     "Divisi Syariah": ("", ""),
     "Divisi SKAI": ("", ""),
