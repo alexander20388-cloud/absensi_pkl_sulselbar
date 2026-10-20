@@ -993,6 +993,11 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 }
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { gap: 0 !important; }
 
+/* ---------- petunjuk bawaan input: hilangkan "Press Enter to submit form", sisakan penghitung (0/6) ---------- */
+[data-testid="InputInstructions"] > span:first-child:not(:last-child),
+[data-testid="stForm"] [data-testid="InputInstructions"] > span:only-child { display: none; }
+[data-testid="InputInstructions"] > span::before { content: none !important; }   /* tanda titik pemisah sebelum 0/6 */
+
 /* ---------- komponen form (login + admin) ---------- */
 .st-key-loginbody, .st-key-adminbody { color: var(--navy); }
 .st-key-loginbody :is(p, label, span, small, li, h1, h2, h3, h4),
@@ -1717,15 +1722,6 @@ def halaman_rekap(eng):
 
     st.subheader("Total Uang Makan per Peserta")
     st.dataframe(beri_nomor(rekap), width="stretch")
-
-    st.subheader("Grafik")
-    if not rekap.empty:
-        st.caption("Hari hadir per peserta")
-        st.bar_chart(rekap.set_index("Nama")["Hari Hadir"], color="#2563eb")
-    harian = berhasil.groupby("tanggal").size()
-    if not harian.empty:
-        st.caption("Jumlah peserta yang hadir per hari")
-        st.bar_chart(harian, color="#2563eb")
 
     st.subheader("Detail Absensi")
     detail = df.rename(columns={
