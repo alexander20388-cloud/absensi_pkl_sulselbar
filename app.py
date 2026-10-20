@@ -57,8 +57,8 @@ UANG_MAKAN = 15000
 
 # Koordinat asli Gedung A dan B Bank Sulselbar
 GEDUNG_COORD = {
-    "A": (-5.150070542826675, 119.41568236911743),  # (latitude, longitude)
-    "B": (-5.150163347858429, 119.41329137592547),  # (latitude, longitude)
+    "A": (-5.1164911547868, 119.51684816101282),  # (latitude, longitude)
+    "B": (-5.147453606311076, 119.4293639296109),  # (latitude, longitude)
 }
 
 RADIUS_METER = 150  # area longgar di sekitar gedung (bukan angka ketat)
@@ -87,8 +87,8 @@ DIVISI_GEDUNG = {
 }
 
 # Jendela waktu absen (WITA). Di luar jam ini absen ditolak. Izin bisa kapan saja.
-JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(7, 0), dtime(12, 0)
-JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
+JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(7, 0), dtime(9, 0)
+JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 30), dtime(18, 0)
 
 WITA = timezone(timedelta(hours=8))  # server cloud pakai UTC, jadi jam dipaksa WITA
 
@@ -555,7 +555,7 @@ PENANDATANGAN = {
     "Divisi Digitalisasi dan Layanan": ("", ""),
     "Divisi Umum": ("", ""),
     # --- Gedung B ---
-    "Divisi Kepatuhan": ("Amri Mahmud", "Pemimpin Divisi Kepatuhan"),
+    "Divisi Kepatuhan": ("", ""),
     "Divisi Dana dan Jasa": ("", ""),
     "Divisi Syariah": ("", ""),
     "Divisi SKAI": ("", ""),
@@ -767,6 +767,105 @@ def kompres_foto(data: bytes) -> bytes:
     out = io.BytesIO()
     img.save(out, format="JPEG", quality=70, optimize=True)
     return out.getvalue()
+
+# ------------------------------------------------------------------
+# VERIFIKASI WAJAH (absen masuk / pulang): wajah harus ada dan pas di dalam bingkai oval di layar kamera
+# ------------------------------------------------------------------
+@st.cache_resource(show_spinner=False)
+def kaskade_wajah():
+    """Pendeteksi wajah Haar bawaan OpenCV (tanpa file model tambahan). None kalau OpenCV belum terpasang."""
+    try:
+        import cv2
+        hasil = []
+        for nama in ("haarcascade_frontalface_default.xml", "haarcascade_frontalface_alt2.xml"):
+            c = cv2.CascadeClassifier(os.path.join(cv2.data.haarcascades, nama))
+            if not c.empty():
+                hasil.append(c)
+        return hasil or None
+    except Exception:
+        return None
+
+
+def versi_opencv():
+    try:
+        import cv2
+        return cv2.__version__
+    except Exception:
+        return None
+
+
+def ukuran_oval(lebar, tinggi):
+    """Ukuran bingkai oval yang digambar di layar kamera (sama dengan CSS): tinggi maks 78% frame,
+    lebar maks 62% frame, rasio lebar:tinggi 0.78."""
+    h = min(0.78 * tinggi, 0.62 * lebar / 0.78)
+    return 0.78 * h, h
+
+
+def _iou(a, b):
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    ix = max(0, min(ax + aw, bx + bw) - max(ax, bx))
+    iy = max(0, min(ay + ah, by + bh) - max(ay, by))
+    irisan = ix * iy
+    gabungan = aw * ah + bw * bh - irisan
+    return irisan / gabungan if gabungan else 0
+
+
+def periksa_wajah(data: bytes):
+    """(ok, pesan). Foto valid kalau ada wajah menghadap depan yang pas di dalam bingkai oval.
+    Wajah dihitung hanya jika dua pendeteksi sepakat (mengurangi deteksi palsu); kemiringan sampai ~24 derajat dicoba."""
+    kaskade = kaskade_wajah()
+    if not kaskade:
+        return False, "Verifikasi wajah belum aktif di server (OpenCV belum terpasang). Hubungi admin."
+    import cv2
+    import numpy as np
+    try:
+        img = Image.open(io.BytesIO(data)).convert("L")
+    except Exception:
+        return False, "Foto tidak bisa dibaca. Ambil foto lagi."
+    if img.width > 640:
+        img = img.resize((640, max(1, int(img.height * 640 / img.width))))
+    gray0 = cv2.equalizeHist(np.array(img))
+    tinggi, lebar = gray0.shape
+    ow, oh = ukuran_oval(lebar, tinggi)
+    min_sisi = max(20, int(min(lebar, tinggi) * 0.15))
+
+    terdekat = None                                  # (jarak_ke_pusat, rasio_lebar) wajah paling dekat bingkai
+    for sudut in (0, -12, 12, -24, 24):
+        if sudut:
+            M = cv2.getRotationMatrix2D((lebar / 2, tinggi / 2), sudut, 1.0)
+            gray = cv2.warpAffine(gray0, M, (lebar, tinggi), borderMode=cv2.BORDER_REPLICATE)
+            Mi = cv2.invertAffineTransform(M)
+        else:
+            gray = gray0
+        per_pendeteksi = [
+            [tuple(int(v) for v in f) for f in c.detectMultiScale(gray, 1.1, 5, minSize=(min_sisi, min_sisi))]
+            for c in kaskade
+        ]
+        if len(per_pendeteksi) > 1:
+            kandidat = [f for f in per_pendeteksi[0] if any(_iou(f, g) > 0.4 for g in per_pendeteksi[1])]
+        else:
+            kandidat = per_pendeteksi[0]
+        for x, y, w, h in kandidat:
+            cx, cy = x + w / 2, y + h / 2
+            if sudut:
+                cx, cy = Mi @ np.array([cx, cy, 1.0])
+            dx, dy = (cx - lebar / 2) / (ow / 2), (cy - tinggi / 2) / (oh / 2)
+            jarak, rasio = dx * dx + dy * dy, w / ow
+            if jarak <= 1.0 and 0.40 <= rasio <= 1.30:
+                return True, "ok"                    # ada wajah yang pas di dalam bingkai
+            if terdekat is None or jarak < terdekat[0]:
+                terdekat = (jarak, rasio)
+
+    if terdekat is None:
+        return False, "Wajah tidak terdeteksi. Pastikan wajahmu terlihat jelas menghadap kamera dan cahaya cukup."
+    if terdekat[0] > 1.0:
+        return False, "Posisikan wajahmu tepat di dalam bingkai oval."
+    if terdekat[1] < 0.40:
+        return False, "Wajah terlalu jauh. Dekatkan wajah ke kamera sampai memenuhi bingkai oval."
+    return False, "Wajah terlalu dekat. Mundurkan sedikit sampai wajah pas di dalam bingkai oval."
+
+
 
 
 # ------------------------------------------------------------------
@@ -1090,6 +1189,13 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 }
 .st-key-pagebody textarea, .st-key-pagebody input { background: transparent !important; color: var(--navy) !important; }
 .st-key-pagebody textarea::placeholder { color: var(--muted) !important; opacity: 1; }
+
+/* ---------- bingkai wajah di layar kamera (sama dengan area yang dicek server) ---------- */
+.st-key-pagebody [data-testid="stCameraInputWebcamStyledBox"] { position: relative; }
+.st-key-pagebody [data-testid="stCameraInputWebcamStyledBox"]::after {
+  content: ""; position: absolute; inset: 11% 19%; pointer-events: none; z-index: 2;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 78 100'%3E%3Cellipse cx='39' cy='50' rx='37' ry='48' fill='none' stroke='black' stroke-opacity='0.35' stroke-width='3.6'/%3E%3Cellipse cx='39' cy='50' rx='37' ry='48' fill='none' stroke='white' stroke-width='1.8' stroke-dasharray='6 4'/%3E%3Ccircle cx='28' cy='42' r='1.8' fill='white' fill-opacity='0.8'/%3E%3Ccircle cx='50' cy='42' r='1.8' fill='white' fill-opacity='0.8'/%3E%3Cpath d='M39 46 L37 56 L41 56' fill='none' stroke='white' stroke-opacity='0.7' stroke-width='1.2'/%3E%3Cpath d='M30 66 Q39 72 48 66' fill='none' stroke='white' stroke-opacity='0.8' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
 </style>
 """
 
@@ -1335,6 +1441,7 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
     else:
         st.info("Menunggu lokasi... klik **Allow/Izinkan** saat browser meminta akses lokasi.")
 
+    st.caption("Posisikan wajahmu di dalam bingkai oval, lalu ambil foto. Foto tanpa wajah tidak diterima.")
     foto = st.camera_input("Foto selfie untuk absen", key=f"foto_{jenis}")
 
     if st.button(f"Absen {jenis.capitalize()} Sekarang", type="primary", width="stretch", key=f"btn_{jenis}"):
@@ -1360,21 +1467,30 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
             st.error(f"❌ Absen ditolak: {jenis} hanya dibuka pukul {rentang} WITA (sekarang {now.strftime('%H:%M')}).")
             return
 
+        foto_bytes = foto.getvalue()
+        wajah_ok, pesan_wajah = periksa_wajah(foto_bytes)        # bukan wajah / posisi salah = tidak dicatat sama sekali
+        if not wajah_ok:
+            st.error(f"📷 {pesan_wajah} Ambil foto lagi.")
+            return
+
         lat, lon = coords["latitude"], coords["longitude"]
         cocok, jarak = cek_lokasi(lat, lon, gedung)
         status = "berhasil" if cocok else "gagal_lokasi"
         uang = UANG_MAKAN if (cocok and jenis == "pulang") else 0    # uang makan didapat saat absen PULANG
 
-        foto_kecil = kompres_foto(foto.getvalue())
-        nama_berkas = re.sub(r"[^A-Za-z0-9]+", "_", nama).strip("_") or "peserta"
-        path_foto = f"{tanggal}/{nama_berkas}_{jenis}_{jam.replace(':', '')}.jpg"
-        di_storage = simpan_foto_storage(path_foto, foto_kecil)   # False kalau Storage belum diatur / gagal
+        foto_simpan, path_foto, di_storage = None, None, False
+        if cocok:                                                    # foto HANYA disimpan kalau absen berhasil
+            foto_kecil = kompres_foto(foto_bytes)
+            nama_berkas = re.sub(r"[^A-Za-z0-9]+", "_", nama).strip("_") or "peserta"
+            path_foto = f"{tanggal}/{nama_berkas}_{jenis}_{jam.replace(':', '')}.jpg"
+            di_storage = simpan_foto_storage(path_foto, foto_kecil)   # False kalau Storage belum diatur / gagal
+            foto_simpan = None if di_storage else foto_kecil
         try:
             simpan_absen(
                 eng, nama=nama, tanggal=tanggal, jam=jam, jenis=jenis,
                 lat=lat, lon=lon, akurasi=coords.get("accuracy"), jarak=jarak,
                 status=status, uang_makan=uang,
-                foto=None if di_storage else foto_kecil,
+                foto=foto_simpan,
                 foto_path=path_foto if di_storage else None,
             )
         except SQLAlchemyError:
@@ -1815,7 +1931,7 @@ def halaman_foto(eng):
                 st.image(isi, width=170)
                 st.caption("Disimpan di Supabase Storage" if r["foto_path"] else "Disimpan di database")
             else:
-                st.caption("Foto tidak tersedia.")
+                st.caption("Absen gagal lokasi: foto tidak disimpan." if r["status"] != "berhasil" else "Foto tidak tersedia.")
 
 
 # ------------------------------------------------------------------
@@ -1911,6 +2027,11 @@ def panel_status(eng):
         baris.append(("ok", f"Foto: Supabase Storage (bucket {cfg[2]})"))
     else:
         baris.append(("warn", "Foto: disimpan di database (supabase_url / supabase_service_key belum terbaca)"))
+    v = versi_opencv()
+    if v and kaskade_wajah():
+        baris.append(("ok", f"Verifikasi wajah: aktif (OpenCV {v})"))
+    else:
+        baris.append(("warn", "Verifikasi wajah: NONAKTIF, OpenCV belum terpasang (absen masuk/pulang akan ditolak)"))
     html = "".join(
         f'<div class="st-{k}">{"🟢" if k == "ok" else "🟠"} {t}</div>' for k, t in baris
     )
