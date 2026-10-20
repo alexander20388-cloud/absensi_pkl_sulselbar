@@ -87,7 +87,7 @@ DIVISI_GEDUNG = {
 }
 
 # Jendela waktu absen (WITA). Di luar jam ini absen ditolak. Izin bisa kapan saja.
-JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(7, 0), dtime(23.30, 0)
+JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(7, 0), dtime(23, 30)
 JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 30), dtime(18, 0)
 
 WITA = timezone(timedelta(hours=8))  # server cloud pakai UTC, jadi jam dipaksa WITA
