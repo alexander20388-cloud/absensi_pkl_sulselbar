@@ -7,7 +7,8 @@ Fitur:
 - Login PIN per peserta (dibuat admin)
 - Cek lokasi: harus di sekitar gedung yang terdaftar untuk peserta (A / B)
 - Setiap peserta juga punya Divisi (dipilih dari daftar, Gedung ikut otomatis)
-- Jam absen: masuk 07:00-09:00, pulang 16:30-18:00 (WITA). Uang makan didapat saat absen pulang.
+- Jam absen: masuk 06:00-12:30 (sampai 08:00 tidak terlambat, lewat itu terlambat), pulang 16:50-18:00 (WITA).
+  Uang makan didapat saat absen pulang, termasuk yang masuknya terlambat.
   Izin (sebentar, tetap bisa absen) dan cuti (sehari penuh, tidak bisa absen masuk): kapan saja, dengan alasan
 - Uang makan Rp15.000 otomatis saat absen masuk berhasil
 - Blokir absen dobel di hari yang sama
@@ -61,7 +62,7 @@ GEDUNG_COORD = {
     "B": (-5.150163347858429, 119.41329137592547),  # (latitude, longitude)
 }
 
-RADIUS_METER = 150  # area longgar di sekitar gedung (bukan angka ketat)
+RADIUS_METER = 200  # toleransi jarak dari titik gedung (meter)
 
 # Daftar Divisi asli beserta gedungnya ("A" atau "B").
 # Peserta tinggal pilih Divisi, Gedung otomatis ikut sesuai daftar ini.
@@ -87,8 +88,11 @@ DIVISI_GEDUNG = {
 }
 
 # Jendela waktu absen (WITA). Di luar jam ini absen ditolak. Izin bisa kapan saja.
-JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(7, 0), dtime(15, 0)
+JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(12, 30)
 JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
+# Masuk sampai jam ini = tidak terlambat; setelahnya (sampai JAM_MASUK_TUTUP) = terlambat, tetap bisa absen pulang & dapat uang makan.
+BATAS_TEPAT_WAKTU = dtime(8, 0)
+KET_TEPAT_WAKTU, KET_TERLAMBAT = "Tidak terlambat", "Terlambat"      # tulisan di aplikasi & kolom Keterangan Excel
 
 WITA = timezone(timedelta(hours=8))  # server cloud pakai UTC, jadi jam dipaksa WITA
 
@@ -441,6 +445,17 @@ def dalam_jendela(now, buka, tutup):
     return buka <= t <= tutup
 
 
+def terlambat(jam):
+    """True kalau jam masuk (str 'HH:MM[:SS]' atau time) lewat BATAS_TEPAT_WAKTU. Dihitung per menit: 08:00 masih tepat waktu."""
+    if isinstance(jam, str):
+        jam = datetime.strptime(jam[:5], "%H:%M").time()
+    return jam.replace(second=0, microsecond=0) > BATAS_TEPAT_WAKTU
+
+
+def ketepatan(jam):
+    return KET_TERLAMBAT if terlambat(jam) else KET_TEPAT_WAKTU
+
+
 def ada_catatan(eng, nama, tanggal, jenis):
     """True kalau peserta sudah punya catatan izin/cuti (jenis) pada tanggal itu."""
     q = select(func.count()).select_from(absensi_t).where(and_(
@@ -555,7 +570,7 @@ PENANDATANGAN = {
     "Divisi Digitalisasi dan Layanan": ("", ""),
     "Divisi Umum": ("", ""),
     # --- Gedung B ---
-    "Divisi Kepatuhan": ("", ""),
+    "Divisi Kepatuhan": ("Amri Mahmud", "Pemimpin Divisi Kepatuhan"),
     "Divisi Dana dan Jasa": ("", ""),
     "Divisi Syariah": ("", ""),
     "Divisi SKAI": ("", ""),
@@ -632,6 +647,7 @@ def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir):
     for k, dim in tpl.column_dimensions.items():
         nd = ws.column_dimensions[k]
         nd.width, nd.min, nd.max = dim.width, dim.min, dim.max
+    ws.column_dimensions["E"].width = max(ws.column_dimensions["E"].width or 0, 16)   # muat "Tidak terlambat"
 
     def baris(sr, dr, nilai_ganti=True):
         for col in "BCDEFG":
@@ -658,7 +674,7 @@ def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir):
             ws[f"C{r}"].value = hari[iso]
             jam_p, uang = pulang.get(iso, (None, 0))      # uang makan hanya kalau sudah absen pulang
             ws[f"D{r}"].value = jam_p if jam_p else "-"
-            ws[f"E{r}"].value = "Hadir"
+            ws[f"E{r}"].value = ketepatan(hari[iso])          # "Tidak terlambat" / "Terlambat"
             if iso in izin:                               # kolom Izin: alasan izin hari itu, selain itu "-"
                 ws[f"F{r}"].value = izin[iso]
                 ws[f"F{r}"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -1373,7 +1389,11 @@ def teks_status_hari(now, sh):
             judul, sub = "Status presensi", f"Absen masuk dibuka pukul {f(JAM_MASUK_BUKA)} WITA"
         elif t <= JAM_MASUK_TUTUP:
             ekstra = " Percobaan terakhir gagal (di luar area)." if sh["gagal_masuk"] else ""
-            judul, sub = "Status presensi", f"Absen masuk dibuka sampai {f(JAM_MASUK_TUTUP)} WITA.{ekstra}"
+            if t <= BATAS_TEPAT_WAKTU:
+                info = f"tidak terlambat sampai {f(BATAS_TEPAT_WAKTU)}, batas absen {f(JAM_MASUK_TUTUP)}"
+            else:
+                info = f"sudah lewat {f(BATAS_TEPAT_WAKTU)}, dihitung terlambat. Batas absen {f(JAM_MASUK_TUTUP)}"
+            judul, sub = "Status presensi", f"Absen masuk dibuka ({info}) WITA.{ekstra}"
         else:
             judul, sub = "Status presensi", f"Waktu absen masuk ({jendela_masuk}) sudah lewat"
     elif sh["pulang"] is None:
@@ -1385,7 +1405,8 @@ def teks_status_hari(now, sh):
         else:
             judul, sub = "Status presensi", f"Waktu absen pulang ({jendela_pulang}) sudah lewat"
     else:
-        judul, sub = "Status presensi", f"Presensi hari ini lengkap: masuk {sh['masuk']['jam'][:5]}, pulang {sh['pulang']['jam'][:5]}"
+        judul, sub = "Status presensi", (f"Presensi hari ini lengkap: masuk {sh['masuk']['jam'][:5]} "
+                                         f"({ketepatan(sh['masuk']['jam']).lower()}), pulang {sh['pulang']['jam'][:5]}")
     if sh["izin"] is not None:
         sub += f" • Izin: {esc(str(sh['izin']['alasan'] or '-'))}"
     return judul, sub
@@ -1433,7 +1454,11 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
     gedung = peserta["gedung"]
     buka, tutup = (JAM_MASUK_BUKA, JAM_MASUK_TUTUP) if jenis == "masuk" else (JAM_PULANG_BUKA, JAM_PULANG_TUTUP)
     rentang = f"{buka.strftime('%H:%M')}-{tutup.strftime('%H:%M')}"
-    st.caption(f"Jam absen {jenis}: {rentang} WITA")
+    if jenis == "masuk":
+        st.caption(f"Jam absen masuk: {rentang} WITA (tidak terlambat sampai {BATAS_TEPAT_WAKTU.strftime('%H:%M')}, "
+                   "lewat itu dihitung terlambat)")
+    else:
+        st.caption(f"Jam absen pulang: {rentang} WITA")
 
     if sh["cuti"] is not None and sh["masuk"] is None:
         st.warning(f"Kamu cuti hari ini ({sh['cuti']['alasan']}), jadi tidak bisa absen {jenis}.")
@@ -1512,7 +1537,8 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
             return
 
         if cocok:
-            st.success(f"✅ Absen {jenis} berhasil pukul {jam} WITA.")
+            tambahan = f" ({ketepatan(jam).lower()})" if jenis == "masuk" else ""
+            st.success(f"✅ Absen {jenis} berhasil pukul {jam} WITA{tambahan}.")
             if jenis == "pulang":
                 st.info(f"💰 Uang makan hari ini: {rupiah(uang)}")
             else:
@@ -1605,6 +1631,9 @@ def tab_riwayat(eng, nama):
                 info = f"{label} {r['jam'][:5]} WITA • {r['jarak'] or 0:.0f} m"
                 if r["jenis"] == "pulang" and r["uang_makan"]:
                     ket, kelas = rupiah(r["uang_makan"]), "ok"          # uang makan muncul di baris pulang
+                elif r["jenis"] == "masuk":
+                    ket = ketepatan(r["jam"])
+                    kelas = "izin" if terlambat(r["jam"]) else "ok"       # terlambat = oranye, tidak terlambat = hijau
                 else:
                     ket, kelas = "Berhasil", "ok"
             html += (
@@ -1626,10 +1655,12 @@ def tab_rekap(eng, nama):
     total = sum(r["uang_makan"] for r in pulang_ok)              # uang makan dihitung dari absen pulang
     izin = len({r["tanggal"] for r in rows if r["jenis"] == "izin"})
     cuti = len({r["tanggal"] for r in rows if r["jenis"] == "cuti"})
+    n_terlambat = len({r["tanggal"] for r in masuk_ok if terlambat(r["jam"])})
     with st.container(key="pagebody"):
         st.markdown(
             f'<div class="pr-stat"><div><span>Hari hadir</span><b>{hadir}</b></div>'
             f'<div><span>Total uang makan</span><b>{rupiah(total)}</b></div></div>'
+            f'<div class="pr-kv"><span>Terlambat</span><span>{n_terlambat}</span></div>'
             f'<div class="pr-kv"><span>Izin</span><span>{izin}</span></div>'
             f'<div class="pr-kv"><span>Cuti</span><span>{cuti}</span></div>',
             unsafe_allow_html=True,
@@ -1841,6 +1872,8 @@ def halaman_rekap(eng):
     rekap = pd.DataFrame({"Nama": sorted(df["nama"].unique())})
     rekap["Hari Hadir"] = rekap["Nama"].map(berhasil.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
     rekap["Absen Pulang"] = rekap["Nama"].map(pulang_ok.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
+    terlambat_df = berhasil[berhasil["jam"].apply(terlambat)]
+    rekap["Terlambat"] = rekap["Nama"].map(terlambat_df.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
     rekap["Izin"] = rekap["Nama"].map(izin_df.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
     rekap["Cuti"] = rekap["Nama"].map(cuti_df.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
     rekap["Total Uang Makan"] = rekap["Nama"].map(pulang_ok.groupby("nama")["uang_makan"].sum()).fillna(0).astype(int)
@@ -1859,6 +1892,8 @@ def halaman_rekap(eng):
         "status": "Status", "jarak": "Jarak (m)", "uang_makan": "Uang Makan", "alasan": "Alasan",
     })
     detail["Alasan"] = detail["Alasan"].fillna("")
+    detail["Keterangan"] = detail.apply(
+        lambda r: ketepatan(r["Jam"]) if (r["Jenis"] == "masuk" and r["Status"] == "berhasil") else "", axis=1)
     detail["Jarak (m)"] = detail["Jarak (m)"].round(0)
 
     daftar_nama = sorted(detail["Nama"].unique())
