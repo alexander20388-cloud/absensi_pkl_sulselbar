@@ -6,4 +6,4 @@ sqlalchemy
 psycopg2-binary
 pillow
 requests
-opencv-python-headless
+opencv-python-headless>=4.8,<5

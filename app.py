@@ -87,7 +87,7 @@ DIVISI_GEDUNG = {
 }
 
 # Jendela waktu absen (WITA). Di luar jam ini absen ditolak. Izin bisa kapan saja.
-JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(7, 0), dtime(23, 30)
+JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(7, 0), dtime(9, 0)
 JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 30), dtime(18, 0)
 
 WITA = timezone(timedelta(hours=8))  # server cloud pakai UTC, jadi jam dipaksa WITA
@@ -772,26 +772,40 @@ def kompres_foto(data: bytes) -> bytes:
 # VERIFIKASI WAJAH (absen masuk / pulang): wajah harus ada dan pas di dalam bingkai oval di layar kamera
 # ------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
+def _muat_kaskade():
+    """Muat pendeteksi wajah Haar bawaan OpenCV 4.x. Raise kalau gagal (supaya kegagalan tidak ikut ter-cache)."""
+    import cv2
+    if not hasattr(cv2, "CascadeClassifier"):
+        raise RuntimeError("tanpa CascadeClassifier")
+    hasil = []
+    for nama in ("haarcascade_frontalface_default.xml", "haarcascade_frontalface_alt2.xml"):
+        c = cv2.CascadeClassifier(os.path.join(cv2.data.haarcascades, nama))
+        if not c.empty():
+            hasil.append(c)
+    if not hasil:
+        raise RuntimeError("file model tidak ditemukan")
+    return hasil
+
+
 def kaskade_wajah():
-    """Pendeteksi wajah Haar bawaan OpenCV (tanpa file model tambahan). None kalau OpenCV belum terpasang."""
     try:
-        import cv2
-        hasil = []
-        for nama in ("haarcascade_frontalface_default.xml", "haarcascade_frontalface_alt2.xml"):
-            c = cv2.CascadeClassifier(os.path.join(cv2.data.haarcascades, nama))
-            if not c.empty():
-                hasil.append(c)
-        return hasil or None
+        return _muat_kaskade()
     except Exception:
         return None
 
 
-def versi_opencv():
+def status_wajah():
+    """(aktif, keterangan) untuk panel admin."""
     try:
         import cv2
-        return cv2.__version__
-    except Exception:
-        return None
+    except Exception as e:
+        return False, f"OpenCV belum terpasang ({type(e).__name__}). Cek requirements.txt dan Reboot app."
+    if not hasattr(cv2, "CascadeClassifier"):
+        return False, (f"OpenCV {cv2.__version__} tidak punya pendeteksi wajah Haar (dihapus di OpenCV 5). "
+                       "Pakai opencv-python-headless versi 4.x di requirements.txt, lalu Reboot app.")
+    if not kaskade_wajah():
+        return False, f"OpenCV {cv2.__version__}: file model wajah tidak ditemukan."
+    return True, f"OpenCV {cv2.__version__}"
 
 
 def ukuran_oval(lebar, tinggi):
@@ -816,7 +830,7 @@ def periksa_wajah(data: bytes):
     Wajah dihitung hanya jika dua pendeteksi sepakat (mengurangi deteksi palsu); kemiringan sampai ~24 derajat dicoba."""
     kaskade = kaskade_wajah()
     if not kaskade:
-        return False, "Verifikasi wajah belum aktif di server (OpenCV belum terpasang). Hubungi admin."
+        return False, "Verifikasi wajah belum aktif di server. Hubungi admin."
     import cv2
     import numpy as np
     try:
@@ -2027,11 +2041,11 @@ def panel_status(eng):
         baris.append(("ok", f"Foto: Supabase Storage (bucket {cfg[2]})"))
     else:
         baris.append(("warn", "Foto: disimpan di database (supabase_url / supabase_service_key belum terbaca)"))
-    v = versi_opencv()
-    if v and kaskade_wajah():
-        baris.append(("ok", f"Verifikasi wajah: aktif (OpenCV {v})"))
+    aktif, ket = status_wajah()
+    if aktif:
+        baris.append(("ok", f"Verifikasi wajah: aktif ({ket})"))
     else:
-        baris.append(("warn", "Verifikasi wajah: NONAKTIF, OpenCV belum terpasang (absen masuk/pulang akan ditolak)"))
+        baris.append(("warn", f"Verifikasi wajah: NONAKTIF, absen masuk/pulang akan ditolak. {ket}"))
     html = "".join(
         f'<div class="st-{k}">{"🟢" if k == "ok" else "🟠"} {t}</div>' for k, t in baris
     )
