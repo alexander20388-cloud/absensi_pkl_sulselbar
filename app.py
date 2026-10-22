@@ -570,7 +570,7 @@ PENANDATANGAN = {
     "Divisi Digitalisasi dan Layanan": ("", ""),
     "Divisi Umum": ("", ""),
     # --- Gedung B ---
-    "Divisi Kepatuhan": ("Amri Mahmud", "Pemimpin Divisi Kepatuhan"),
+    "Divisi Kepatuhan": ("", ""),
     "Divisi Dana dan Jasa": ("", ""),
     "Divisi Syariah": ("", ""),
     "Divisi SKAI": ("", ""),
@@ -1993,23 +1993,35 @@ def keluar():
     st.rerun()
 
 
-def halaman_login(eng):
-    """Layar pertama: pilih peran, lalu login. Desain mengikuti tema Presensi peserta."""
+def mode_pkl():
+    """True kalau dibuka lewat aplikasi PKL (alamat berakhiran ?mode=pkl): hanya login peserta, tanpa admin."""
+    try:
+        return str(st.query_params.get("mode", "")).strip().lower() in ("pkl", "app")
+    except Exception:
+        return False
+
+
+def halaman_login(eng, hanya_peserta=False):
+    """Layar pertama: pilih peran, lalu login. Desain mengikuti tema Presensi peserta.
+    hanya_peserta=True (aplikasi PKL): langsung login peserta, tanpa pilihan Admin."""
     st.markdown(CSS_AUTH_ADMIN, unsafe_allow_html=True)
     st.markdown(
         f"""<div class="auth-head">
 <div class="auth-brand"><div class="auth-logo">{ic("fingerprint", 30)}</div>
-<div><div class="auth-title">Presensi</div><div class="auth-bank">Bank Sulselbar • Absensi PKL</div></div></div>
+<div><div class="auth-title">{"Presensi PKL" if hanya_peserta else "Presensi"}</div><div class="auth-bank">Bank Sulselbar • Absensi PKL</div></div></div>
 <div class="auth-greet">Selamat Datang 👋</div>
 <div class="auth-desc">Silakan masuk untuk melanjutkan</div>
 </div>""",
         unsafe_allow_html=True,
     )
     with st.container(key="loginbody"):
-        peran = st.radio(
-            "Masuk sebagai", ["Peserta PKL", "Admin"], horizontal=True, key="login_peran",
-            label_visibility="collapsed",
-        )
+        if hanya_peserta:
+            peran = "Peserta PKL"
+        else:
+            peran = st.radio(
+                "Masuk sebagai", ["Peserta PKL", "Admin"], horizontal=True, key="login_peran",
+                label_visibility="collapsed",
+            )
 
         if peran == "Peserta PKL":
             df = list_peserta(eng)
@@ -2165,7 +2177,8 @@ def halaman_admin(eng):
 
 
 def main():
-    st.set_page_config(page_title="Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
+    pkl = mode_pkl()
+    st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
     try:
         eng = get_engine()
@@ -2191,10 +2204,10 @@ def main():
     nama = st.session_state.get("nama_login")
     if peran == "user" and nama:
         halaman_peserta(eng, nama)
-    elif peran == "admin" and st.session_state.get("admin_ok"):
+    elif peran == "admin" and st.session_state.get("admin_ok") and not pkl:
         halaman_admin(eng)
     else:
-        halaman_login(eng)
+        halaman_login(eng, hanya_peserta=pkl)
 
 
 if __name__ == "__main__":
