@@ -1734,6 +1734,33 @@ def tab_profil(nama, peserta):
             keluar()
 
 
+# Streamlit Cloud menaruh dua ikon melayang di pojok kanan bawah ("Manage app" dan "Hosted with Streamlit"). Ikon itu
+# dipasang platform DI LUAR aplikasi, jadi tidak bisa disembunyikan lewat CSS. Solusinya: bilah navigasi diangkat
+# sedikit supaya tombol Rekap/Profil tidak tertutup. Diatur otomatis; paksa dengan ?angkat=1 atau matikan dengan ?angkat=0.
+NAV_NAIK_PX = 56
+CSS_NAV_NAIK = f"""
+<style>
+.st-key-bottomnav {{ bottom: {NAV_NAIK_PX}px !important; width: min(414px, calc(100% - 16px)) !important;
+  border-radius: 22px !important; box-shadow: 0 6px 24px rgba(37,52,140,.18) !important; }}
+.pr-spacer {{ height: {150 + NAV_NAIK_PX}px !important; }}
+</style>
+"""
+
+
+def nav_perlu_naik():
+    try:
+        pilihan = str(st.query_params.get("angkat", "")).strip()
+    except Exception:
+        pilihan = ""
+    if pilihan in ("0", "1"):
+        return pilihan == "1"
+    try:
+        host = (st.context.headers.get("host") or "").lower().split(":")[0]
+        return host.endswith(".streamlit.app")
+    except Exception:
+        return False
+
+
 def halaman_peserta(eng, nama):
     """Tampilan peserta setelah login: Beranda (Presensi) + Absen / Riwayat / Rekap / Profil."""
     peserta = get_peserta(eng, nama)
@@ -1744,6 +1771,8 @@ def halaman_peserta(eng, nama):
         return
 
     st.markdown(CSS_PRESENSI, unsafe_allow_html=True)
+    if nav_perlu_naik():
+        st.markdown(CSS_NAV_NAIK, unsafe_allow_html=True)
     tab = st.session_state.get("tab", "beranda")
     if tab == "absen":
         tab_absen(eng, nama, peserta)
