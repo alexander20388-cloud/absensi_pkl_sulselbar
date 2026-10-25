@@ -42,7 +42,7 @@ from openpyxl.styles import Alignment
 from openpyxl.worksheet.properties import PageSetupProperties
 import pandas as pd
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageOps
 from sqlalchemy import (
     Column, Integer, String, Float, LargeBinary, MetaData, Table,
     create_engine, select, insert, update, delete, func, and_, or_, inspect, text,
@@ -90,6 +90,8 @@ DIVISI_GEDUNG = {
 # Jendela waktu absen (WITA). Di luar jam ini absen ditolak. Izin bisa kapan saja.
 JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(12, 30)
 JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
+# Hari libur PKL (0=Senin ... 5=Sabtu, 6=Minggu). Pada hari ini TIDAK bisa absen masuk, pulang, izin, maupun cuti.
+HARI_LIBUR = (5, 6)
 # Masuk sampai jam ini = tidak terlambat; setelahnya (sampai JAM_MASUK_TUTUP) = terlambat, tetap bisa absen pulang & dapat uang makan.
 BATAS_TEPAT_WAKTU = dtime(8, 0)
 KET_TEPAT_WAKTU, KET_TERLAMBAT = "Tidak terlambat", "Terlambat"      # tulisan di aplikasi & kolom Keterangan Excel
@@ -101,11 +103,15 @@ WITA = timezone(timedelta(hours=8))  # server cloud pakai UTC, jadi jam dipaksa 
 # HELPER: SECRETS
 # ------------------------------------------------------------------
 def secret(key, default=None):
-    """Ambil nilai dari Streamlit Secrets; aman kalau file secrets belum ada."""
+    """Nilai dari Streamlit Secrets; kalau tidak ada, dari environment variable (nama huruf besar, mis. DB_HOST).
+    Aman kalau file secrets belum ada."""
     try:
-        return st.secrets.get(key, default)
+        v = st.secrets.get(key, None)
     except Exception:
-        return default
+        v = None
+    if v is None:
+        v = os.environ.get(key.upper())
+    return default if v is None else v
 
 
 # ------------------------------------------------------------------
@@ -445,6 +451,16 @@ def dalam_jendela(now, buka, tutup):
     return buka <= t <= tutup
 
 
+def hari_libur(tgl):
+    """True kalau tanggal (date/datetime) jatuh di hari libur PKL (Sabtu/Minggu)."""
+    return tgl.weekday() in HARI_LIBUR
+
+
+def pesan_libur(tgl):
+    return (f"Hari {HARI_ID[tgl.weekday()]} adalah hari libur PKL. Absen masuk, pulang, izin, dan cuti "
+            "tidak bisa dilakukan pada hari Sabtu dan Minggu.")
+
+
 def terlambat(jam):
     """True kalau jam masuk (str 'HH:MM[:SS]' atau time) lewat BATAS_TEPAT_WAKTU. Dihitung per menit: 08:00 masih tepat waktu."""
     if isinstance(jam, str):
@@ -778,7 +794,7 @@ def excel_template_bytes(eng, df_bulan, tahun, bulan, daftar_nama):
 
 def kompres_foto(data: bytes) -> bytes:
     """Kecilkan foto (maks 640px, JPEG q70) supaya database tidak cepat penuh."""
-    img = Image.open(io.BytesIO(data)).convert("RGB")
+    img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
     img.thumbnail((640, 640))
     out = io.BytesIO()
     img.save(out, format="JPEG", quality=70, optimize=True)
@@ -850,7 +866,7 @@ def periksa_wajah(data: bytes):
     import cv2
     import numpy as np
     try:
-        img = Image.open(io.BytesIO(data)).convert("L")
+        img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("L")
     except Exception:
         return False, "Foto tidak bisa dibaca. Ambil foto lagi."
     if img.width > 640:
@@ -1376,12 +1392,16 @@ def header_halaman(judul, sub=""):
     st.markdown(f'<div class="pr-page-head">{judul}{sub_html}</div>', unsafe_allow_html=True)
 
 
-def teks_status_hari(now, sh):
-    """(judul, keterangan) untuk kotak status di Beranda, sesuai kondisi & jam sekarang."""
+def teks_status_hari(now, sh, html=True):
+    """(judul, keterangan) untuk kotak status di Beranda, sesuai kondisi & jam sekarang.
+    html=False: teks polos (untuk API / aplikasi native), alasan tidak di-escape."""
+    esc = globals()["esc"] if html else (lambda x: x)
     f = lambda t: t.strftime("%H:%M")
     jendela_masuk = f"{f(JAM_MASUK_BUKA)}-{f(JAM_MASUK_TUTUP)}"
     jendela_pulang = f"{f(JAM_PULANG_BUKA)}-{f(JAM_PULANG_TUTUP)}"
     t = now.time().replace(second=0, microsecond=0)
+    if hari_libur(now):
+        return "Hari libur", f"{HARI_ID[now.weekday()]} libur PKL. Absen masuk, pulang, izin, dan cuti tidak tersedia."
     if sh["masuk"] is None and sh["cuti"] is not None:
         return "Cuti hari ini", esc(str(sh["cuti"]["alasan"] or "-"))
     if sh["masuk"] is None:
@@ -1449,6 +1469,110 @@ def tab_beranda(eng, nama, peserta):
             keluar()
 
 
+def _hasil(level, pesan, **ekstra):
+    return {"level": level, "pesan": pesan, "ok": level == "success", **ekstra}
+
+
+def proses_absen(eng, nama, peserta, jenis, foto_bytes, lat, lon, akurasi=None, now=None):
+    """Satu-satunya tempat aturan absen masuk/pulang (dipakai website Streamlit DAN API aplikasi native).
+    Mengembalikan dict: level (success/warning/error), pesan, ok, dan info tambahan."""
+    gedung = peserta["gedung"]
+    buka, tutup = (JAM_MASUK_BUKA, JAM_MASUK_TUTUP) if jenis == "masuk" else (JAM_PULANG_BUKA, JAM_PULANG_TUTUP)
+    rentang = f"{buka.strftime('%H:%M')}-{tutup.strftime('%H:%M')}"
+    now = now or datetime.now(WITA)
+    tanggal, jam = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+
+    if hari_libur(now):
+        return _hasil("warning", pesan_libur(now), alasan="libur")
+    if ada_catatan(eng, nama, tanggal, "cuti") and not sudah_berhasil(eng, nama, tanggal, "masuk"):
+        return _hasil("warning", f"Kamu cuti hari ini, jadi tidak bisa absen {jenis}.")
+    if sudah_berhasil(eng, nama, tanggal, jenis):
+        return _hasil("warning", f"Kamu sudah absen {jenis} hari ini.")
+    if jenis == "pulang" and not sudah_berhasil(eng, nama, tanggal, "masuk"):
+        return _hasil("warning", "Kamu belum absen masuk hari ini, jadi belum bisa absen pulang.")
+    if not dalam_jendela(now, buka, tutup):
+        return _hasil("error", f"❌ Absen ditolak: {jenis} hanya dibuka pukul {rentang} WITA (sekarang {now.strftime('%H:%M')}).")
+
+    wajah_ok, pesan_wajah = periksa_wajah(foto_bytes)        # bukan wajah / posisi salah = tidak dicatat sama sekali
+    if not wajah_ok:
+        return _hasil("error", f"📷 {pesan_wajah} Ambil foto lagi.", alasan="wajah")
+
+    cocok, jarak = cek_lokasi(lat, lon, gedung)
+    status = "berhasil" if cocok else "gagal_lokasi"
+    uang = UANG_MAKAN if (cocok and jenis == "pulang") else 0    # uang makan didapat saat absen PULANG
+
+    foto_simpan, path_foto, di_storage = None, None, False
+    if cocok:                                                    # foto HANYA disimpan kalau absen berhasil
+        foto_kecil = kompres_foto(foto_bytes)
+        nama_berkas = re.sub(r"[^A-Za-z0-9]+", "_", nama).strip("_") or "peserta"
+        path_foto = f"{tanggal}/{nama_berkas}_{jenis}_{jam.replace(':', '')}.jpg"
+        di_storage = simpan_foto_storage(path_foto, foto_kecil)   # False kalau Storage belum diatur / gagal
+        foto_simpan = None if di_storage else foto_kecil
+    try:
+        simpan_absen(
+            eng, nama=nama, tanggal=tanggal, jam=jam, jenis=jenis,
+            lat=lat, lon=lon, akurasi=akurasi, jarak=jarak,
+            status=status, uang_makan=uang,
+            foto=foto_simpan,
+            foto_path=path_foto if di_storage else None,
+        )
+    except SQLAlchemyError:
+        return _hasil("error", "Absen gagal disimpan karena gangguan database. Coba lagi sebentar lagi atau hubungi admin.")
+
+    if not cocok:
+        return _hasil(
+            "error",
+            f"❌ Absen GAGAL: kamu ~{jarak:.0f} m dari Gedung {gedung}, "
+            "di luar area yang diizinkan. Pastikan kamu sudah di gedung lalu coba lagi.",
+            status=status, jarak=round(jarak),
+        )
+    ket = ketepatan(jam) if jenis == "masuk" else None
+    tambahan = f" ({ket.lower()})" if ket else ""
+    if jenis == "pulang":
+        info, gaya = f"💰 Uang makan hari ini: {rupiah(uang)}", "info"
+    else:
+        info, gaya = "Uang makan didapat setelah absen pulang.", "caption"
+    return _hasil("success", f"✅ Absen {jenis} berhasil pukul {jam} WITA{tambahan}.",
+                  status=status, jarak=round(jarak), jam=jam, uang=uang, ketepatan=ket, info=info, info_gaya=gaya)
+
+
+def proses_tidak_hadir(eng, nama, jenis, tgl, alasan, now=None):
+    """Izin / cuti (tgl = date). Aturan bersama untuk website dan aplikasi native."""
+    label = jenis.capitalize()
+    now = now or datetime.now(WITA)
+    teks = " ".join((alasan or "").split())
+    tanggal = tgl.strftime("%Y-%m-%d")
+    if hari_libur(now):
+        return _hasil("warning", pesan_libur(now), alasan="libur")
+    if hari_libur(tgl):
+        return _hasil("error", f"{tgl_indonesia(tgl)} jatuh pada hari libur (Sabtu/Minggu), jadi tidak perlu "
+                               f"mengajukan {jenis}. Pilih hari kerja (Senin sampai Jumat).")
+    if len(teks) < 5:
+        return _hasil("error", f"Alasan {jenis} wajib diisi (minimal 5 karakter).")
+    if tgl < now.date() or tgl > now.date() + timedelta(days=30):
+        return _hasil("error", f"Tanggal {jenis} harus antara hari ini dan 30 hari ke depan.")
+    if ada_catatan(eng, nama, tanggal, jenis):
+        return _hasil("warning", f"Kamu sudah mengajukan {jenis} untuk {tgl_indonesia(tgl)}.")
+    if jenis == "cuti" and sudah_berhasil(eng, nama, tanggal, "masuk"):
+        return _hasil("warning", "Kamu sudah absen masuk pada tanggal itu, jadi tidak bisa mengajukan cuti.")
+    if jenis == "izin" and ada_catatan(eng, nama, tanggal, "cuti"):
+        return _hasil("warning", "Kamu cuti pada tanggal itu, jadi tidak perlu mengajukan izin.")
+    try:
+        simpan_absen(
+            eng, nama=nama, tanggal=tanggal, jam=now.strftime("%H:%M:%S"),
+            jenis=jenis, status=jenis, uang_makan=0, alasan=teks,
+        )
+    except SQLAlchemyError:
+        return _hasil("error", f"{label} gagal disimpan karena gangguan database. Coba lagi sebentar lagi atau hubungi admin.")
+    return _hasil("success", f"✅ {label} untuk {tgl_indonesia(tgl)} tersimpan.")
+
+
+def _tampilkan_hasil(hasil):
+    {"success": st.success, "warning": st.warning, "error": st.error}[hasil["level"]](hasil["pesan"])
+    if hasil.get("info"):
+        (st.info if hasil.get("info_gaya") == "info" else st.caption)(hasil["info"])
+
+
 def _form_absen(eng, nama, peserta, jenis, now, sh):
     """Form absen masuk / pulang: hanya di jendela waktunya, wajib di area gedung + selfie."""
     gedung = peserta["gedung"]
@@ -1491,63 +1615,9 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
             st.error("Foto belum diambil.")
             return
 
-        now = datetime.now(WITA)                      # cek ulang: jam bisa saja bergeser saat foto diambil
-        tanggal, jam = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
-        if ada_catatan(eng, nama, tanggal, "cuti") and not sudah_berhasil(eng, nama, tanggal, "masuk"):
-            st.warning(f"Kamu cuti hari ini, jadi tidak bisa absen {jenis}.")
-            return
-        if sudah_berhasil(eng, nama, tanggal, jenis):
-            st.warning(f"Kamu sudah absen {jenis} hari ini.")
-            return
-        if jenis == "pulang" and not sudah_berhasil(eng, nama, tanggal, "masuk"):
-            st.warning("Kamu belum absen masuk hari ini, jadi belum bisa absen pulang.")
-            return
-        if not dalam_jendela(now, buka, tutup):
-            st.error(f"❌ Absen ditolak: {jenis} hanya dibuka pukul {rentang} WITA (sekarang {now.strftime('%H:%M')}).")
-            return
-
-        foto_bytes = foto.getvalue()
-        wajah_ok, pesan_wajah = periksa_wajah(foto_bytes)        # bukan wajah / posisi salah = tidak dicatat sama sekali
-        if not wajah_ok:
-            st.error(f"📷 {pesan_wajah} Ambil foto lagi.")
-            return
-
         lat, lon = coords["latitude"], coords["longitude"]
-        cocok, jarak = cek_lokasi(lat, lon, gedung)
-        status = "berhasil" if cocok else "gagal_lokasi"
-        uang = UANG_MAKAN if (cocok and jenis == "pulang") else 0    # uang makan didapat saat absen PULANG
-
-        foto_simpan, path_foto, di_storage = None, None, False
-        if cocok:                                                    # foto HANYA disimpan kalau absen berhasil
-            foto_kecil = kompres_foto(foto_bytes)
-            nama_berkas = re.sub(r"[^A-Za-z0-9]+", "_", nama).strip("_") or "peserta"
-            path_foto = f"{tanggal}/{nama_berkas}_{jenis}_{jam.replace(':', '')}.jpg"
-            di_storage = simpan_foto_storage(path_foto, foto_kecil)   # False kalau Storage belum diatur / gagal
-            foto_simpan = None if di_storage else foto_kecil
-        try:
-            simpan_absen(
-                eng, nama=nama, tanggal=tanggal, jam=jam, jenis=jenis,
-                lat=lat, lon=lon, akurasi=coords.get("accuracy"), jarak=jarak,
-                status=status, uang_makan=uang,
-                foto=foto_simpan,
-                foto_path=path_foto if di_storage else None,
-            )
-        except SQLAlchemyError:
-            st.error("Absen gagal disimpan karena gangguan database. Coba lagi sebentar lagi atau hubungi admin.")
-            return
-
-        if cocok:
-            tambahan = f" ({ketepatan(jam).lower()})" if jenis == "masuk" else ""
-            st.success(f"✅ Absen {jenis} berhasil pukul {jam} WITA{tambahan}.")
-            if jenis == "pulang":
-                st.info(f"💰 Uang makan hari ini: {rupiah(uang)}")
-            else:
-                st.caption("Uang makan didapat setelah absen pulang.")
-        else:
-            st.error(
-                f"❌ Absen GAGAL: kamu ~{jarak:.0f} m dari Gedung {gedung}, "
-                "di luar area yang diizinkan. Pastikan kamu sudah di gedung lalu coba lagi."
-            )
+        hasil = proses_absen(eng, nama, peserta, jenis, foto.getvalue(), lat, lon, coords.get("accuracy"))
+        _tampilkan_hasil(hasil)
 
 
 def _form_tidak_hadir(eng, nama, now, jenis):
@@ -1570,35 +1640,18 @@ def _form_tidak_hadir(eng, nama, now, jenis):
         else "Contoh: sakit, acara keluarga, ujian kampus...",
     )
     if st.button(f"Kirim {label}", type="primary", width="stretch", key=f"btn_{jenis}"):
-        teks = " ".join((alasan or "").split())
-        tanggal = tgl.strftime("%Y-%m-%d")
-        if len(teks) < 5:
-            st.error(f"Alasan {jenis} wajib diisi (minimal 5 karakter).")
-            return
-        if ada_catatan(eng, nama, tanggal, jenis):
-            st.warning(f"Kamu sudah mengajukan {jenis} untuk {tgl_indonesia(tgl)}.")
-            return
-        if jenis == "cuti" and sudah_berhasil(eng, nama, tanggal, "masuk"):
-            st.warning("Kamu sudah absen masuk pada tanggal itu, jadi tidak bisa mengajukan cuti.")
-            return
-        if jenis == "izin" and ada_catatan(eng, nama, tanggal, "cuti"):
-            st.warning("Kamu cuti pada tanggal itu, jadi tidak perlu mengajukan izin.")
-            return
-        try:
-            simpan_absen(
-                eng, nama=nama, tanggal=tanggal, jam=datetime.now(WITA).strftime("%H:%M:%S"),
-                jenis=jenis, status=jenis, uang_makan=0, alasan=teks,
-            )
-        except SQLAlchemyError:
-            st.error(f"{label} gagal disimpan karena gangguan database. Coba lagi sebentar lagi atau hubungi admin.")
-            return
-        st.success(f"✅ {label} untuk {tgl_indonesia(tgl)} tersimpan.")
+        _tampilkan_hasil(proses_tidak_hadir(eng, nama, jenis, tgl, alasan))
 
 
 def tab_absen(eng, nama, peserta):
     header_halaman("Absen", f"{nama} • Gedung {peserta['gedung']} • {peserta['divisi']}")
     now = datetime.now(WITA)
     sh = get_status_hari(eng, nama, now.strftime("%Y-%m-%d"))
+
+    if hari_libur(now):
+        with st.container(key="pagebody"):
+            st.info(f"🗓️ {pesan_libur(now)}")
+        return
 
     if "mode_absen" not in st.session_state:         # pilihan awal mengikuti kondisi hari ini
         st.session_state.mode_absen = "Pulang" if (sh["masuk"] is not None and sh["pulang"] is None) else "Masuk"
