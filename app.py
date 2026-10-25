@@ -1735,13 +1735,15 @@ def tab_profil(nama, peserta):
 
 
 # Streamlit Cloud menaruh dua ikon melayang di pojok kanan bawah ("Manage app" dan "Hosted with Streamlit"). Ikon itu
-# dipasang platform DI LUAR aplikasi, jadi tidak bisa disembunyikan lewat CSS. Solusinya: bilah navigasi diangkat
-# sedikit supaya tombol Rekap/Profil tidak tertutup. Diatur otomatis; paksa dengan ?angkat=1 atau matikan dengan ?angkat=0.
+# dipasang platform di halaman induk, DI ATAS bingkai aplikasi, jadi tidak bisa disembunyikan atau ditimpa dari dalam
+# aplikasi. Solusinya: bilah navigasi diperpanjang ke bawah (jalur putih kosong setinggi NAV_NAIK_PX) supaya ikon
+# duduk di jalur itu dan tidak menutupi tombol. Otomatis aktif di alamat .streamlit.app; di aplikasi Android
+# "Presensi PKL" tidak dipakai karena aplikasi itu menghilangkan ikonnya sendiri.
+# Paksa dengan ?angkat=1, matikan dengan ?angkat=0.
 NAV_NAIK_PX = 56
 CSS_NAV_NAIK = f"""
 <style>
-.st-key-bottomnav {{ bottom: {NAV_NAIK_PX}px !important; width: min(414px, calc(100% - 16px)) !important;
-  border-radius: 22px !important; box-shadow: 0 6px 24px rgba(37,52,140,.18) !important; }}
+.st-key-bottomnav {{ padding-bottom: {12 + NAV_NAIK_PX}px !important; }}
 .pr-spacer {{ height: {150 + NAV_NAIK_PX}px !important; }}
 </style>
 """
@@ -1755,6 +1757,8 @@ def nav_perlu_naik():
     if pilihan in ("0", "1"):
         return pilihan == "1"
     try:
+        if "PresensiPKLApp" in (st.context.headers.get("user-agent") or ""):
+            return False                                   # aplikasi Android: ikon sudah dihilangkan oleh aplikasinya
         host = (st.context.headers.get("host") or "").lower().split(":")[0]
         return host.endswith(".streamlit.app")
     except Exception:
