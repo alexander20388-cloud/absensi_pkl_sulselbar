@@ -64,8 +64,8 @@ UANG_MAKAN = 15000
 
 # Koordinat asli Gedung A dan B Bank Sulselbar
 GEDUNG_COORD = {
-    "A": (-5.150070542826675, 119.41568236911743),  # (latitude, longitude)
-    "B": (-5.150163347858429, 119.41329137592547),  # (latitude, longitude)
+    "A": (-5.141212852751143, 119.4876821806188),  # (latitude, longitude)
+    "B": (-5.141212852751143, 119.4876821806188),  # (latitude, longitude)
 }
 
 RADIUS_METER = 200  # toleransi jarak dari titik gedung (meter)
@@ -94,8 +94,8 @@ DIVISI_GEDUNG = {
 }
 
 # Jendela waktu absen (WITA). Di luar jam ini absen ditolak. Izin bisa kapan saja.
-JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(12, 30)
-JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
+JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(23, 30)
+JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(23, 30)
 # Hari libur PKL (0=Senin ... 5=Sabtu, 6=Minggu). Pada hari ini TIDAK bisa absen masuk, pulang, izin, maupun cuti.
 HARI_LIBUR = (5, 6)
 # Masuk sampai jam ini = tidak terlambat; setelahnya (sampai JAM_MASUK_TUTUP) = terlambat, tetap bisa absen pulang & dapat uang makan.
