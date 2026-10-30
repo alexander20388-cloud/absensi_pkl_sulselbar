@@ -58,8 +58,8 @@ UANG_MAKAN = 15000
 
 # Koordinat asli Gedung A dan B Bank Sulselbar
 GEDUNG_COORD = {
-    "A": (-5.150070542826675, 119.41568236911743),  # (latitude, longitude)
-    "B": (-5.150163347858429, 119.41329137592547),  # (latitude, longitude)
+    "A": (-5.1635049454681825, 119.42393534081793),  # (latitude, longitude)
+    "B": (-5.1635049454681825, 119.42393534081793),  # (latitude, longitude)
 }
 
 RADIUS_METER = 200  # toleransi jarak dari titik gedung (meter)
