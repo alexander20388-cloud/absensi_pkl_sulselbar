@@ -17,3 +17,9 @@ pillow
 requests
 
 opencv-python-headless>=4.8,<5
+
+scikit-learn>=1.4
+
+fastapi>=0.110
+
+uvicorn>=0.29
