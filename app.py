@@ -12,7 +12,7 @@ Fitur:
   Izin (sebentar, tetap bisa absen) dan cuti (sehari penuh, tidak bisa absen masuk): kapan saja, dengan alasan
 - Uang makan Rp15.000 otomatis saat absen masuk berhasil
 - Blokir absen dobel di hari yang sama
-- Admin (pakai password): kelola peserta, rekap + grafik + export Excel, bukti foto
+- Admin (pakai password): kelola peserta, rekap + export Excel, analitik EDA (grafik), model ML (deteksi absen mencurigakan, prediksi terlambat, monitoring), bukti foto
 - Database: SQLite (lokal) atau Postgres/Supabase (cloud) - otomatis
 
 Jalanin lokal:   streamlit run app.py
@@ -44,19 +44,13 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageOps
 from sqlalchemy import (
-    Column, Integer, String, Float, LargeBinary, MetaData, Table,
+    Column, ForeignKey, Index, Integer, String, Float, LargeBinary, MetaData, Table, Text,
     create_engine, select, insert, update, delete, func, and_, or_, inspect, text,
 )
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from streamlit_js_eval import get_geolocation
-# --- [CPMK Sains Data] Pustaka Machine Learning ---
-try:
-    from sklearn.tree import DecisionTreeClassifier
-    from sklearn.preprocessing import LabelEncoder
-    SKLEARN_AVAILABLE = True
-except ImportError:
-    SKLEARN_AVAILABLE = False
+
 # ------------------------------------------------------------------
 # KONFIGURASI - SESUAIKAN BAGIAN INI
 # ------------------------------------------------------------------
@@ -64,8 +58,8 @@ UANG_MAKAN = 15000
 
 # Koordinat asli Gedung A dan B Bank Sulselbar
 GEDUNG_COORD = {
-    "A": (-5.141212852751143, 119.4876821806188),  # (latitude, longitude)
-    "B": (-5.141212852751143, 119.4876821806188),  # (latitude, longitude)
+    "A": (-5.150070542826675, 119.41568236911743),  # (latitude, longitude)
+    "B": (-5.150163347858429, 119.41329137592547),  # (latitude, longitude)
 }
 
 RADIUS_METER = 200  # toleransi jarak dari titik gedung (meter)
@@ -94,8 +88,8 @@ DIVISI_GEDUNG = {
 }
 
 # Jendela waktu absen (WITA). Di luar jam ini absen ditolak. Izin bisa kapan saja.
-JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(23, 30)
-JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(23, 30)
+JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(12, 30)
+JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
 # Hari libur PKL (0=Senin ... 5=Sabtu, 6=Minggu). Pada hari ini TIDAK bisa absen masuk, pulang, izin, maupun cuti.
 HARI_LIBUR = (5, 6)
 # Masuk sampai jam ini = tidak terlambat; setelahnya (sampai JAM_MASUK_TUTUP) = terlambat, tetap bisa absen pulang & dapat uang makan.
@@ -228,6 +222,7 @@ peserta_t = Table(
 absensi_t = Table(
     "absensi", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("peserta_id", Integer, ForeignKey("peserta.id", ondelete="SET NULL")),  # penghubung resmi ke peserta
     Column("nama", String(100), nullable=False, index=True),
     Column("tanggal", String(10), nullable=False, index=True),  # YYYY-MM-DD
     Column("jam", String(8), nullable=False),                   # HH:MM:SS
@@ -243,6 +238,15 @@ absensi_t = Table(
     Column("alasan", String(300)),                              # alasan izin / cuti
 )
 
+# Anti absen ganda DI TINGKAT DATABASE: satu catatan per (nama, tanggal, jenis) untuk masuk/pulang yang berhasil
+# dan izin/cuti. Percobaan "gagal_lokasi" boleh berkali-kali. Ini menutup celah balapan (dua klik/dua perangkat
+# bersamaan) yang tidak bisa dicegah oleh pengecekan sudah_berhasil() saja.
+NAMA_INDEKS_UNIK = "uq_absensi_sekali"
+NAMA_INDEKS_GABUNGAN = "ix_absensi_nama_tanggal"
+Index(NAMA_INDEKS_UNIK, absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.jenis, unique=True,
+      sqlite_where=text("status <> 'gagal_lokasi'"), postgresql_where=text("status <> 'gagal_lokasi'"))
+Index(NAMA_INDEKS_GABUNGAN, absensi_t.c.nama, absensi_t.c.tanggal)
+
 # Tabel kecil untuk Supabase Realtime: setiap absen baru menambah 1 baris,
 # dashboard admin berlangganan perubahannya. Tidak berisi data sensitif.
 notifikasi_t = Table(
@@ -251,15 +255,23 @@ notifikasi_t = Table(
     Column("jenis", String(20)),
     Column("dibuat", String(19)),                               # YYYY-MM-DD HH:MM:SS (WITA)
 )
-# --- [CPMK UI/UX] Tabel Feedback ---
-feedback_t = Table(
-    "feedback", metadata,
+
+
+# Versi model ML (prediksi risiko terlambat). Artefak = model terlatih (joblib); metrik & baseline = JSON.
+# Hanya satu versi per jenis yang aktif. Model anomali tidak disimpan: tanpa label, dilatih ulang tiap analisis.
+model_versi_t = Table(
+    "model_versi", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("nama", String(100), nullable=False),
-    Column("tanggal", String(10), nullable=False),
-    Column("rating", Integer),
-    Column("komentar", String(300)),
+    Column("jenis", String(30), nullable=False, index=True),
+    Column("dilatih", String(19), nullable=False),               # YYYY-MM-DD HH:MM:SS (WITA)
+    Column("n_data", Integer, nullable=False, default=0),
+    Column("tanggal_akhir", String(10)),                         # tanggal data terakhir yang ikut dilatih
+    Column("metrik", Text),
+    Column("baseline", Text),
+    Column("artefak", LargeBinary),
+    Column("aktif", Integer, nullable=False, default=0),
 )
+
 
 def _bersihkan_url(u):
     """Buang sisa format tautan (mis. [teks](mailto:...)) yang ikut tersalin dari chat/web."""
@@ -307,9 +319,39 @@ def _sqlite_bisa_tulis(path):
         return False
 
 
+def _pasang_indeks(eng):
+    """Pasang indeks gabungan dan indeks unik anti-absen-ganda pada database yang sudah ada (create_all tidak
+    menambah indeks ke tabel lama). Mengembalikan True kalau indeks unik terpasang; False kalau gagal
+    (biasanya karena sudah ada data ganda lama; lihat cari_duplikat / rapikan_duplikat)."""
+    ada = {i["name"] for i in inspect(eng).get_indexes("absensi")}
+    if NAMA_INDEKS_GABUNGAN not in ada:
+        try:
+            with eng.begin() as c:
+                c.execute(text(f"CREATE INDEX IF NOT EXISTS {NAMA_INDEKS_GABUNGAN} ON absensi (nama, tanggal)"))
+        except SQLAlchemyError:
+            pass
+    if NAMA_INDEKS_UNIK in ada:
+        return True
+    try:
+        with eng.begin() as c:
+            c.execute(text(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS {NAMA_INDEKS_UNIK} "
+                "ON absensi (nama, tanggal, jenis) WHERE status <> 'gagal_lokasi'"
+            ))
+        return True
+    except SQLAlchemyError:
+        return False
+
+
 def _migrasi(eng):
-    """Tambah kolom baru ke database lama (create_all tidak mengubah tabel yang sudah ada)."""
-    perlu = {"peserta": [("no_rekening", "VARCHAR(40)")], "absensi": [("foto_path", "VARCHAR(200)"), ("alasan", "VARCHAR(300)")]}
+    """Tambah kolom/indeks baru ke database lama (create_all tidak mengubah tabel yang sudah ada). Aman diulang."""
+    perlu = {
+        "peserta": [("no_rekening", "VARCHAR(40)")],
+        "absensi": [
+            ("foto_path", "VARCHAR(200)"), ("alasan", "VARCHAR(300)"),
+            ("peserta_id", "INTEGER REFERENCES peserta(id) ON DELETE SET NULL"),
+        ],
+    }
     insp = inspect(eng)
     for tabel, daftar in perlu.items():
         ada = {k["name"] for k in insp.get_columns(tabel)}
@@ -317,10 +359,16 @@ def _migrasi(eng):
             if kolom not in ada:
                 with eng.begin() as c:
                     c.execute(text(f"ALTER TABLE {tabel} ADD COLUMN {kolom} {tipe}"))
+    with eng.begin() as c:    # isi peserta_id untuk riwayat lama (hanya yang namanya masih terdaftar)
+        c.execute(text(
+            "UPDATE absensi SET peserta_id = (SELECT p.id FROM peserta p WHERE p.nama = absensi.nama) "
+            "WHERE peserta_id IS NULL AND EXISTS (SELECT 1 FROM peserta p WHERE p.nama = absensi.nama)"
+        ))
+    eng.indeks_unik_ok = _pasang_indeks(eng)
 
 
 @st.cache_resource
-def get_engine(versi_skema=6):
+def get_engine(versi_skema=7):
     url = url_database()
     sementara = False
     if url:
@@ -365,6 +413,50 @@ def pesan_db(e):
     if "readonly" in teks.lower():
         teks += " -> penyimpanan aplikasi bersifat read-only. Pakai database cloud (isi database_url di Secrets)."
     return f"Data gagal disimpan ke database. Detail: {teks}"
+
+
+def cari_duplikat(eng):
+    """Kelompok absensi ganda (nama, tanggal, jenis, jumlah) yang menghalangi pemasangan indeks unik."""
+    q = (
+        select(absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.jenis, func.count().label("jumlah"))
+        .where(absensi_t.c.status != "gagal_lokasi")
+        .group_by(absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.jenis)
+        .having(func.count() > 1)
+        .order_by(absensi_t.c.tanggal, absensi_t.c.nama)
+    )
+    with eng.connect() as c:
+        return [tuple(r) for r in c.execute(q).all()]
+
+
+@coba_ulang
+def rapikan_duplikat(eng):
+    """Hapus absensi ganda, sisakan catatan PALING AWAL di tiap kelompok (jadi uang makan tidak terhitung dobel),
+    lalu pasang indeks unik. Mengembalikan jumlah baris yang dihapus."""
+    paths_hapus, paths_simpan, hapus = [], set(), 0
+    with eng.begin() as c:
+        grup = c.execute(
+            select(absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.jenis, func.min(absensi_t.c.id).label("simpan"))
+            .where(absensi_t.c.status != "gagal_lokasi")
+            .group_by(absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.jenis)
+            .having(func.count() > 1)
+        ).all()
+        for nama, tanggal, jenis, simpan in grup:
+            kembar = and_(
+                absensi_t.c.nama == nama, absensi_t.c.tanggal == tanggal, absensi_t.c.jenis == jenis,
+                absensi_t.c.status != "gagal_lokasi",
+            )
+            paths_simpan.update(r[0] for r in c.execute(select(absensi_t.c.foto_path).where(absensi_t.c.id == simpan)))
+            paths_hapus += [r[0] for r in c.execute(select(absensi_t.c.foto_path).where(and_(kembar, absensi_t.c.id != simpan)))]
+            hapus += c.execute(delete(absensi_t).where(and_(kembar, absensi_t.c.id != simpan))).rowcount
+    hapus_foto_storage([p for p in paths_hapus if p and p not in paths_simpan])   # jangan hapus foto milik catatan yang dipertahankan
+    eng.indeks_unik_ok = _pasang_indeks(eng)
+    return hapus
+
+
+def foto_dipakai(eng, path):
+    """True kalau ada baris absensi yang memakai path foto itu."""
+    with eng.connect() as c:
+        return c.execute(select(func.count()).select_from(absensi_t).where(absensi_t.c.foto_path == path)).scalar() > 0
 
 
 def hash_pin(nama, pin):
@@ -428,6 +520,8 @@ def hapus_peserta(eng, nama, dengan_absensi=False):
     """Hapus peserta. Kalau dengan_absensi=True, riwayat absensinya ikut dihapus."""
     paths = []
     with eng.begin() as c:
+        # riwayat yang dipertahankan dilepas dari peserta (SQLite tidak menjalankan ON DELETE SET NULL)
+        c.execute(update(absensi_t).where(absensi_t.c.nama == nama).values(peserta_id=None))
         c.execute(delete(peserta_t).where(peserta_t.c.nama == nama))
         if dengan_absensi:
             paths = [r[0] for r in c.execute(select(absensi_t.c.foto_path).where(absensi_t.c.nama == nama))]
@@ -508,6 +602,8 @@ def sudah_berhasil(eng, nama, tanggal, jenis):
 def simpan_absen(eng, **nilai):
     sekarang = datetime.now(WITA)
     with eng.begin() as c:
+        if nilai.get("peserta_id") is None:
+            nilai["peserta_id"] = c.execute(select(peserta_t.c.id).where(peserta_t.c.nama == nilai.get("nama"))).scalar()
         c.execute(insert(absensi_t).values(**nilai))
         # pemberitahuan untuk Supabase Realtime (dashboard admin), + bersihkan yang sudah > 7 hari
         c.execute(insert(notifikasi_t).values(jenis="absen", dibuat=sekarang.strftime("%Y-%m-%d %H:%M:%S")))
@@ -542,16 +638,7 @@ def get_absensi_hari_foto(eng, tanggal):
     with eng.connect() as c:
         return c.execute(q).mappings().all()
 
-# --- [CPMK UI/UX] Operasi Database Feedback ---
-@coba_ulang
-def simpan_feedback(eng, nama, tanggal, rating, komentar):
-    with eng.begin() as c:
-        c.execute(insert(feedback_t).values(nama=nama, tanggal=tanggal, rating=rating, komentar=komentar))
 
-def sudah_feedback(eng, nama, tanggal):
-    q = select(func.count()).select_from(feedback_t).where(and_(feedback_t.c.nama == nama, feedback_t.c.tanggal == tanggal))
-    with eng.connect() as c:
-        return c.execute(q).scalar() > 0
 # ------------------------------------------------------------------
 # LOGIKA: LOKASI & FOTO
 # ------------------------------------------------------------------
@@ -1539,6 +1626,10 @@ def proses_absen(eng, nama, peserta, jenis, foto_bytes, lat, lon, akurasi=None, 
             foto=foto_simpan,
             foto_path=path_foto if di_storage else None,
         )
+    except IntegrityError:                                       # kalah balapan: absen yang sama sudah tersimpan
+        if di_storage and path_foto and not foto_dipakai(eng, path_foto):
+            hapus_foto_storage([path_foto])                      # buang foto yatim (kecuali dipakai catatan pemenang)
+        return _hasil("warning", f"Kamu sudah absen {jenis} hari ini.")
     except SQLAlchemyError:
         return _hasil("error", "Absen gagal disimpan karena gangguan database. Coba lagi sebentar lagi atau hubungi admin.")
 
@@ -1585,6 +1676,8 @@ def proses_tidak_hadir(eng, nama, jenis, tgl, alasan, now=None):
             eng, nama=nama, tanggal=tanggal, jam=now.strftime("%H:%M:%S"),
             jenis=jenis, status=jenis, uang_makan=0, alasan=teks,
         )
+    except IntegrityError:
+        return _hasil("warning", f"Kamu sudah mengajukan {jenis} untuk {tgl_indonesia(tgl)}.")
     except SQLAlchemyError:
         return _hasil("error", f"{label} gagal disimpan karena gangguan database. Coba lagi sebentar lagi atau hubungi admin.")
     return _hasil("success", f"✅ {label} untuk {tgl_indonesia(tgl)} tersimpan.")
@@ -1615,25 +1708,6 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
         return
     if sh[jenis] is not None:
         st.success(f"Kamu sudah absen {jenis} hari ini pukul {sh[jenis]['jam'][:5]} WITA.")
-        
-        # --- [CPMK UI/UX] Memicu Evaluasi setelah absen pulang selesai ---
-        if jenis == "pulang":
-            st.markdown("---")
-            st.subheader("📝 Evaluasi Pengalaman Pengguna (UI/UX)")
-            tgl_hari_ini = now.strftime("%Y-%m-%d")
-            if not sudah_feedback(eng, nama, tgl_hari_ini):
-                with st.form("feedback_form"):
-                    st.write("Seberapa mudah Anda menggunakan aplikasi presensi ini hari ini?")
-                    rating = st.radio("Rating", ["⭐⭐⭐⭐⭐ (Sangat Mudah)", "⭐⭐⭐⭐ (Mudah)", "⭐⭐⭐ (Cukup)", "⭐⭐ (Sulit)", "⭐ (Sangat Sulit)"], horizontal=False)
-                    komentar = st.text_area("Masukan atau Kendala Teknis (Opsional)")
-                    
-                    if st.form_submit_button("Kirim Evaluasi"):
-                        angka_rating = 5 - ["⭐⭐⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐", "⭐⭐", "⭐"].index(rating.split()[0])
-                        simpan_feedback(eng, nama, tgl_hari_ini, angka_rating, komentar)
-                        st.success("Terima kasih atas evaluasi UI/UX Anda!")
-                        st.rerun()
-            else:
-                st.info("Anda sudah mengisi evaluasi UI/UX hari ini. Terima kasih!")
         return
     if not dalam_jendela(now, buka, tutup):
         st.warning(f"Absen {jenis} hanya dibuka pukul {rentang} WITA. Sekarang pukul {now.strftime('%H:%M')}.")
@@ -1956,6 +2030,29 @@ def halaman_kelola_peserta(eng):
                         )
                     st.rerun()
 
+    duplikat = [] if getattr(eng, "indeks_unik_ok", True) else cari_duplikat(eng)
+    if duplikat:
+        with st.expander(f"🧹 Rapikan absensi ganda ({len(duplikat)} kelompok)"):
+            st.caption(
+                "Ada catatan ganda (nama + tanggal + jenis sama) dari sebelum aturan anti-ganda dipasang. "
+                "Yang dipertahankan adalah catatan paling awal; sisanya dihapus beserta fotonya. "
+                "Setelah itu indeks anti-ganda dipasang otomatis."
+            )
+            st.dataframe(beri_nomor(pd.DataFrame(duplikat, columns=["Nama", "Tanggal", "Jenis", "Jumlah"])), width="stretch")
+            ok_rapikan = st.text_input("Ketik RAPIKAN (huruf besar) untuk konfirmasi", key="rapikan_konfirmasi")
+            if st.button("Rapikan absensi ganda", key="tombol_rapikan"):
+                if ok_rapikan.strip() != "RAPIKAN":
+                    st.error("Konfirmasi belum benar. Ketik persis: RAPIKAN")
+                else:
+                    try:
+                        n = rapikan_duplikat(eng)
+                    except SQLAlchemyError as e:
+                        st.error(pesan_db(e))
+                    else:
+                        st.success(f"{n} catatan ganda dihapus. Indeks anti-ganda "
+                                   + ("terpasang." if eng.indeks_unik_ok else "BELUM terpasang, cek lagi data."))
+                        st.rerun()
+
     with st.expander("🗑️ Hapus data absensi (tidak bisa dibatalkan)"):
         nama_absen = daftar_nama_absensi(eng)
         if not nama_absen:
@@ -2078,6 +2175,667 @@ def halaman_rekap(eng):
         "⬇️ Rekap ringkas (tabel)", data=excel_bytes(rekap, detail),
         file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx", mime=mime_xlsx,
     )
+
+
+# ------------------------------------------------------------------
+# HALAMAN ADMIN: ANALITIK (EDA - Exploratory Data Analysis)
+# ------------------------------------------------------------------
+def get_absensi_rentang(eng, awal, akhir):
+    """Semua catatan absensi antara dua tanggal (date), untuk analitik."""
+    q = (
+        select(
+            absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.jam, absensi_t.c.jenis, absensi_t.c.status,
+            absensi_t.c.jarak, absensi_t.c.akurasi, absensi_t.c.uang_makan,
+        )
+        .where(and_(absensi_t.c.tanggal >= awal.isoformat(), absensi_t.c.tanggal <= akhir.isoformat()))
+        .order_by(absensi_t.c.tanggal, absensi_t.c.jam)
+    )
+    with eng.connect() as c:
+        return pd.read_sql(q, c)
+
+
+def menit_hari(jam):
+    """'HH:MM[:SS]' -> menit sejak tengah malam."""
+    return int(jam[0:2]) * 60 + int(jam[3:5])
+
+
+def label_menit(m):
+    m = max(0, int(round(m)))
+    return f"{m // 60:02d}:{m % 60:02d}"
+
+
+def label_slot(menit, lebar):
+    return label_menit((menit // lebar) * lebar)
+
+
+def daftar_slot(lebar):
+    """Semua blok waktu dari jam buka sampai tutup absen masuk (supaya blok kosong tetap tampil sebagai 0)."""
+    awal, akhir = JAM_MASUK_BUKA.hour * 60 + JAM_MASUK_BUKA.minute, JAM_MASUK_TUTUP.hour * 60 + JAM_MASUK_TUTUP.minute
+    return [label_menit(m) for m in range((awal // lebar) * lebar, akhir + 1, lebar)]
+
+
+def batas_iqr(seri):
+    """(q1, q3, batas_bawah, batas_atas) aturan 1,5 x IQR; None kalau data terlalu sedikit (< 4)."""
+    x = pd.Series(seri).dropna().astype(float)
+    if len(x) < 4:
+        return None
+    q1, q3 = float(x.quantile(0.25)), float(x.quantile(0.75))
+    iqr = q3 - q1
+    return q1, q3, q1 - 1.5 * iqr, q3 + 1.5 * iqr
+
+
+def siapkan_eda(df, peserta_df):
+    """Ubah catatan absensi mentah jadi tabel-tabel siap grafik + ringkasan angka. Fungsi murni (tanpa Streamlit/DB).
+    df: kolom nama, tanggal, jam, jenis, status, jarak. peserta_df: kolom nama, gedung, divisi."""
+    d = df.copy()
+    ref = peserta_df.drop_duplicates("nama").set_index("nama") if len(peserta_df) else pd.DataFrame(columns=["gedung", "divisi"])
+    d["gedung"] = d["nama"].map(ref["gedung"]).fillna("?") if len(ref) else "?"
+    d["divisi"] = d["nama"].map(ref["divisi"]).fillna("(tidak terdaftar)") if len(ref) else "(tidak terdaftar)"
+    d["hari_idx"] = pd.to_datetime(d["tanggal"]).dt.weekday
+    d["hari"] = d["hari_idx"].map(lambda i: HARI_ID[i])
+
+    masuk = d[(d["jenis"] == "masuk") & (d["status"] == "berhasil")].copy()
+    masuk["menit"] = masuk["jam"].map(menit_hari)
+    masuk["terlambat"] = masuk["jam"].map(terlambat).astype(bool)
+    masuk["ketepatan"] = masuk["terlambat"].map({True: KET_TERLAMBAT, False: KET_TEPAT_WAKTU})
+    masuk["slot15"] = masuk["menit"].map(lambda m: label_slot(m, 15))
+    masuk["slot30"] = masuk["menit"].map(lambda m: label_slot(m, 30))
+
+    # tren harian
+    tanggal = sorted(d["tanggal"].unique())
+    harian = pd.DataFrame({"tanggal": tanggal})
+    def per_tgl(sub):
+        return harian["tanggal"].map(sub.groupby("tanggal")["nama"].nunique()).fillna(0).astype(int)
+    harian["Hadir"] = per_tgl(masuk)
+    harian["Terlambat"] = per_tgl(masuk[masuk["terlambat"]])
+    harian["Izin"] = per_tgl(d[d["jenis"] == "izin"])
+    harian["Cuti"] = per_tgl(d[d["jenis"] == "cuti"])
+
+    # histogram jam masuk (grid lengkap: blok x ketepatan, isi 0 kalau kosong)
+    slot15 = daftar_slot(15)
+    grid = pd.MultiIndex.from_product([slot15, [KET_TEPAT_WAKTU, KET_TERLAMBAT]], names=["slot", "ketepatan"])
+    hist = (masuk.groupby(["slot15", "ketepatan"]).size().rename_axis(["slot", "ketepatan"])
+            .reindex(grid, fill_value=0).reset_index(name="jumlah"))
+    # slot di luar jam buka (data lama/koreksi) tidak boleh hilang diam-diam
+    luar = masuk[~masuk["slot15"].isin(slot15)]
+    if len(luar):
+        tambahan = luar.groupby(["slot15", "ketepatan"]).size().rename_axis(["slot", "ketepatan"]).reset_index(name="jumlah")
+        hist = pd.concat([hist, tambahan], ignore_index=True).sort_values("slot", kind="stable").reset_index(drop=True)
+
+    # heatmap hari x blok 30 menit
+    heat = masuk.groupby(["hari", "hari_idx", "slot30"]).size().reset_index(name="jumlah")
+
+    # % terlambat per hari dalam seminggu
+    per_hari = (masuk.groupby(["hari_idx", "hari"]).agg(total=("nama", "size"), terlambat=("terlambat", "sum"))
+                .reset_index().sort_values("hari_idx"))
+    per_hari["terlambat"] = per_hari["terlambat"].astype(int)
+    per_hari["persen"] = (per_hari["terlambat"] / per_hari["total"] * 100) if len(per_hari) else []
+
+    per_peserta = (masuk.groupby("nama").agg(hari_hadir=("tanggal", "nunique"), terlambat=("terlambat", "sum"))
+                   .reset_index().sort_values(["terlambat", "hari_hadir"], ascending=[False, False]).reset_index(drop=True))
+    per_peserta["terlambat"] = per_peserta["terlambat"].astype(int)
+
+    # jarak ke titik gedung (semua percobaan masuk/pulang, termasuk yang gagal lokasi)
+    jarak = d[d["jenis"].isin(["masuk", "pulang"]) & d["jarak"].notna()][
+        ["nama", "tanggal", "jam", "jenis", "status", "jarak", "gedung"]].copy()
+    jarak["hasil"] = jarak["status"].map({"berhasil": "Berhasil", "gagal_lokasi": "Gagal lokasi"}).fillna(jarak["status"])
+    jarak["jarak"] = jarak["jarak"].astype(float).round(1)
+
+    hari_aktif = harian[harian["Hadir"] > 0]
+    return {
+        "kosong": d.empty, "harian": harian, "masuk": masuk, "hist": hist, "heat": heat, "slot30": daftar_slot(30),
+        "per_hari": per_hari, "per_peserta": per_peserta, "jarak": jarak,
+        "rata_hadir": float(hari_aktif["Hadir"].mean()) if len(hari_aktif) else 0.0,
+        "pct_telat": float(masuk["terlambat"].mean() * 100) if len(masuk) else 0.0,
+        "median_menit": float(masuk["menit"].median()) if len(masuk) else None,
+        "n_masuk": int(len(masuk)),
+        "n_gagal": int((jarak["status"] == "gagal_lokasi").sum()),
+        "n_percobaan": int(len(jarak)),
+    }
+
+
+def buat_insight(eda):
+    """Temuan otomatis dalam kalimat, dari hasil siapkan_eda."""
+    out, m = [], eda["masuk"]
+    if len(m):
+        out.append(f"Rata-rata {eda['rata_hadir']:.1f} peserta hadir per hari; {eda['pct_telat']:.0f}% absen masuk terlambat "
+                   f"(batas {BATAS_TEPAT_WAKTU.strftime('%H:%M')}).")
+        ph = eda["per_hari"][eda["per_hari"]["total"] >= 5]                       # hindari kesimpulan dari data terlalu sedikit
+        if len(ph):
+            r = ph.sort_values("persen", ascending=False).iloc[0]
+            if r["persen"] > 0:
+                out.append(f"Hari dengan keterlambatan tertinggi: {r['hari']} ({r['persen']:.0f}% dari {int(r['total'])} absen masuk).")
+        iqr = batas_iqr(m["menit"])
+        txt = f"Median jam masuk {label_menit(eda['median_menit'])}."
+        if iqr:
+            q1, q3, lo, hi = iqr
+            n_out = int(((m["menit"] < lo) | (m["menit"] > hi)).sum())
+            txt += f" Rentang tengah (IQR) {label_menit(q1)} sampai {label_menit(q3)}; {n_out} absen termasuk outlier."
+        out.append(txt)
+        pp = eda["per_peserta"]
+        if len(pp) and pp.iloc[0]["terlambat"] > 0:
+            r = pp.iloc[0]
+            out.append(f"Peserta paling sering terlambat: {r['nama']} ({int(r['terlambat'])} dari {int(r['hari_hadir'])} hari hadir).")
+        sibuk = m.groupby("slot15").size()
+        out.append(f"Blok tersibuk absen masuk: {sibuk.idxmax()} (+15 menit), {int(sibuk.max())} absen.")
+    if eda["n_percobaan"]:
+        gedung_gagal = eda["jarak"][eda["jarak"]["status"] == "gagal_lokasi"]["gedung"].value_counts()
+        txt = f"{eda['n_gagal']} dari {eda['n_percobaan']} percobaan absen ({eda['n_gagal'] / eda['n_percobaan'] * 100:.1f}%) gagal lokasi"
+        if len(gedung_gagal):
+            txt += f"; terbanyak di Gedung {gedung_gagal.index[0]} ({int(gedung_gagal.iloc[0])})"
+        out.append(txt + ".")
+        ok = eda["jarak"][eda["jarak"]["status"] == "berhasil"]["jarak"]        # outlier hanya bermakna di antara absen yang berhasil
+        iqr = batas_iqr(ok)
+        if iqr:
+            n_out = int(((ok > iqr[3]) | (ok < iqr[2])).sum())
+            txt = f"Jarak absen berhasil: median {ok.median():.0f} m; {n_out} absen berjarak ekstrem (outlier)"
+            if n_out:
+                txt += f", mis. absen di pinggir batas {RADIUS_METER} m"
+            out.append(txt + ".")
+    return out
+
+
+def grafik_eda(eda):
+    """Kumpulan grafik Altair dari hasil siapkan_eda."""
+    import altair as alt
+    biru, oranye = "#2563eb", "#f59e0b"
+    skala_ket = alt.Scale(domain=[KET_TEPAT_WAKTU, KET_TERLAMBAT], range=[biru, oranye])
+    g = {}
+
+    panjang = eda["harian"].melt(id_vars="tanggal", value_vars=["Hadir", "Terlambat", "Izin", "Cuti"],
+                                 var_name="Kategori", value_name="Jumlah")
+    g["tren"] = alt.Chart(panjang).mark_line(point=True).encode(
+        x=alt.X("tanggal:T", title="Tanggal"),
+        y=alt.Y("Jumlah:Q", title="Jumlah peserta", axis=alt.Axis(tickMinStep=1)),
+        color=alt.Color("Kategori:N", legend=alt.Legend(orient="bottom", title=None)),
+        tooltip=["tanggal:T", "Kategori:N", "Jumlah:Q"],
+    ).properties(height=260)
+
+    urut = list(dict.fromkeys(eda["hist"]["slot"]))
+    g["hist"] = alt.Chart(eda["hist"]).mark_bar().encode(
+        x=alt.X("slot:N", sort=urut, title="Jam masuk (blok 15 menit)", axis=alt.Axis(labelAngle=-60)),
+        y=alt.Y("jumlah:Q", title="Jumlah absen masuk", axis=alt.Axis(tickMinStep=1)),
+        color=alt.Color("ketepatan:N", scale=skala_ket, legend=alt.Legend(orient="bottom", title=None)),
+        tooltip=["slot:N", "ketepatan:N", "jumlah:Q"],
+    ).properties(height=260)
+
+    if len(eda["heat"]):
+        g["heat"] = alt.Chart(eda["heat"]).mark_rect(cornerRadius=3).encode(
+            x=alt.X("slot30:N", sort=eda["slot30"], title="Jam masuk (blok 30 menit)", axis=alt.Axis(labelAngle=-45)),
+            y=alt.Y("hari:N", sort=HARI_ID[:5], title=None),
+            color=alt.Color("jumlah:Q", scale=alt.Scale(scheme="blues"), title="Absen"),
+            tooltip=["hari:N", "slot30:N", "jumlah:Q"],
+        ).properties(height=200)
+
+    dasar = alt.Chart(eda["per_hari"]).encode(
+        x=alt.X("hari:N", sort=HARI_ID[:5], title=None),
+        y=alt.Y("persen:Q", title="% absen masuk terlambat", scale=alt.Scale(domain=[0, 100])),
+    )
+    g["per_hari"] = (
+        dasar.mark_bar(color=oranye, cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+            tooltip=["hari:N", "total:Q", "terlambat:Q", alt.Tooltip("persen:Q", format=".1f")])
+        + dasar.mark_text(dy=-8, color="#1e2a5a").encode(text=alt.Text("persen:Q", format=".0f"))
+    ).properties(height=240)
+
+    if len(eda["jarak"]):
+        g["jarak"] = alt.Chart(eda["jarak"]).mark_boxplot(extent=1.5, size=40).encode(
+            x=alt.X("gedung:N", title="Gedung"),
+            y=alt.Y("jarak:Q", title="Jarak ke titik gedung (m)"),
+            color=alt.Color("gedung:N", legend=None),
+            column=alt.Column("hasil:N", title=None),
+        ).properties(width=140, height=260)
+    return g
+
+
+def halaman_analitik(eng):
+    st.header("📈 Analitik Absensi (EDA)")
+    if not admin_login():
+        return
+
+    hari_ini = datetime.now(WITA).date()
+    c1, c2 = st.columns(2)
+    awal = c1.date_input("Dari tanggal", value=hari_ini - timedelta(days=29), key="eda_awal")
+    akhir = c2.date_input("Sampai tanggal", value=hari_ini, key="eda_akhir")
+    if awal > akhir:
+        st.error("Tanggal awal tidak boleh setelah tanggal akhir.")
+        return
+    peserta_df = list_peserta(eng)
+    opsi = ["(Semua divisi)"] + sorted(d for d in peserta_df["divisi"].dropna().unique() if d)
+    divisi = st.selectbox("Divisi", opsi, key="eda_divisi")
+
+    df = get_absensi_rentang(eng, awal, akhir)
+    if divisi != "(Semua divisi)":
+        df = df[df["nama"].isin(peserta_df.loc[peserta_df["divisi"] == divisi, "nama"])]
+    if df.empty:
+        st.info("Belum ada data absensi pada filter ini.")
+        return
+
+    eda = siapkan_eda(df, peserta_df)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Absen masuk berhasil", eda["n_masuk"])
+    m2.metric("Rata-rata hadir/hari", f"{eda['rata_hadir']:.1f}")
+    m3.metric("% terlambat", f"{eda['pct_telat']:.0f}%")
+    m4.metric("Median jam masuk", label_menit(eda["median_menit"]) if eda["median_menit"] is not None else "-")
+
+    st.subheader("Temuan otomatis")
+    insight = buat_insight(eda)
+    if insight:
+        st.markdown("\n".join(f"- {t}" for t in insight))
+    else:
+        st.caption("Belum cukup data untuk membuat temuan.")
+
+    grafik = grafik_eda(eda)
+    st.subheader("Tren kehadiran harian")
+    st.caption("Jumlah peserta per hari: hadir, terlambat, izin, dan cuti.")
+    st.altair_chart(grafik["tren"], width="stretch")
+
+    st.subheader("Distribusi jam masuk")
+    st.caption("Histogram absen masuk berhasil per blok 15 menit. Biru = tidak terlambat, oranye = terlambat.")
+    st.altair_chart(grafik["hist"], width="stretch")
+
+    if "heat" in grafik:
+        st.subheader("Peta kepadatan absen masuk")
+        st.caption("Heatmap hari x jam masuk. Warna lebih gelap = lebih banyak absen di blok itu.")
+        st.altair_chart(grafik["heat"], width="stretch")
+
+    st.subheader("Keterlambatan per hari")
+    st.caption("Persentase absen masuk yang terlambat pada tiap hari dalam seminggu.")
+    st.altair_chart(grafik["per_hari"], width="stretch")
+
+    if "jarak" in grafik:
+        st.subheader("Sebaran jarak absen ke titik gedung")
+        st.caption("Box plot (kotak = 50% data tengah, garis = median, titik = outlier). "
+                   "Percobaan 'Gagal lokasi' selalu berjarak lebih dari radius yang diizinkan.")
+        st.altair_chart(grafik["jarak"], width="stretch")
+        j = eda["jarak"][eda["jarak"]["status"] == "berhasil"]
+        iqr = batas_iqr(j["jarak"])
+        if iqr:
+            ekstrem = j[(j["jarak"] > iqr[3]) | (j["jarak"] < iqr[2])].sort_values("jarak", ascending=False).head(10)
+            if len(ekstrem):
+                st.caption("Absen berhasil dengan jarak ekstrem (10 teratas), layak dicek bila berulang pada peserta yang sama:")
+                st.dataframe(beri_nomor(ekstrem[["nama", "tanggal", "jam", "jenis", "hasil", "jarak", "gedung"]].rename(columns={
+                    "nama": "Nama", "tanggal": "Tanggal", "jam": "Jam", "jenis": "Jenis",
+                    "hasil": "Hasil", "jarak": "Jarak (m)", "gedung": "Gedung"})), width="stretch")
+
+    st.subheader("Ringkasan per peserta")
+    st.dataframe(beri_nomor(eda["per_peserta"].rename(columns={
+        "nama": "Nama", "hari_hadir": "Hari hadir", "terlambat": "Terlambat"})), width="stretch")
+
+    st.subheader("Dataset untuk analisis lanjutan")
+    st.caption("Unduh data mentah pada filter ini (CSV) untuk dianalisis di Jupyter/Google Colab.")
+    st.download_button(
+        "⬇️ Dataset absensi (CSV)", data=df.to_csv(index=False).encode("utf-8"),
+        file_name=f"dataset_absensi_{awal.isoformat()}_{akhir.isoformat()}.csv", mime="text/csv",
+    )
+
+
+# ------------------------------------------------------------------
+# MODEL ML: penyimpanan versi, pelatihan, prediksi, monitoring (logikanya ada di ml_absensi.py)
+# ------------------------------------------------------------------
+JENIS_MODEL = "terlambat"
+KEBIJAKAN_AKTIF = ("jika_lebih_baik", "selalu", "tidak")
+
+
+def get_absensi_lengkap(eng, awal, akhir):
+    """Catatan absensi lengkap dengan koordinat (untuk deteksi anomali)."""
+    q = (
+        select(
+            absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.jam, absensi_t.c.jenis, absensi_t.c.status,
+            absensi_t.c.lat, absensi_t.c.lon, absensi_t.c.akurasi, absensi_t.c.jarak,
+        )
+        .where(and_(absensi_t.c.tanggal >= awal.isoformat(), absensi_t.c.tanggal <= akhir.isoformat()))
+        .order_by(absensi_t.c.tanggal, absensi_t.c.jam)
+    )
+    with eng.connect() as c:
+        return pd.read_sql(q, c)
+
+
+def data_masuk_semua(eng):
+    """Semua absen masuk yang berhasil (bahan dataset model keterlambatan)."""
+    q = (
+        select(absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.jam)
+        .where(and_(absensi_t.c.jenis == "masuk", absensi_t.c.status == "berhasil"))
+        .order_by(absensi_t.c.tanggal, absensi_t.c.jam)
+    )
+    with eng.connect() as c:
+        return pd.read_sql(q, c)
+
+
+@coba_ulang
+def simpan_model(eng, hasil, aktif=False, jenis=JENIS_MODEL):
+    """Simpan hasil ml.latih_terlambat sebagai versi baru. aktif=True menonaktifkan versi lain. Mengembalikan id."""
+    with eng.begin() as c:
+        if aktif:
+            c.execute(update(model_versi_t).where(model_versi_t.c.jenis == jenis).values(aktif=0))
+        r = c.execute(insert(model_versi_t).values(
+            jenis=jenis, dilatih=datetime.now(WITA).strftime("%Y-%m-%d %H:%M:%S"), n_data=hasil["n_data"],
+            tanggal_akhir=hasil["tanggal_akhir"], metrik=json.dumps(hasil["metrik"]),
+            baseline=json.dumps(hasil["baseline"]), artefak=hasil["artefak"], aktif=1 if aktif else 0,
+        ))
+        return int(r.inserted_primary_key[0])
+
+
+def daftar_model(eng, jenis=JENIS_MODEL):
+    """Riwayat versi model (tanpa artefak), terbaru dulu."""
+    q = (
+        select(model_versi_t.c.id, model_versi_t.c.dilatih, model_versi_t.c.n_data, model_versi_t.c.tanggal_akhir,
+               model_versi_t.c.metrik, model_versi_t.c.aktif)
+        .where(model_versi_t.c.jenis == jenis).order_by(model_versi_t.c.id.desc())
+    )
+    with eng.connect() as c:
+        return [dict(r, metrik=json.loads(r["metrik"] or "{}")) for r in c.execute(q).mappings().all()]
+
+
+def ambil_model(eng, jenis=JENIS_MODEL, model_id=None):
+    """Versi model aktif (atau model_id tertentu) lengkap dengan artefak; None kalau belum ada."""
+    q = select(model_versi_t).where(model_versi_t.c.jenis == jenis)
+    q = q.where(model_versi_t.c.id == model_id) if model_id is not None else q.where(model_versi_t.c.aktif == 1)
+    with eng.connect() as c:
+        r = c.execute(q.order_by(model_versi_t.c.id.desc()).limit(1)).mappings().first()
+    if r is None:
+        return None
+    return dict(r, metrik=json.loads(r["metrik"] or "{}"), baseline=json.loads(r["baseline"] or "{}"))
+
+
+@coba_ulang
+def aktifkan_model(eng, model_id, jenis=JENIS_MODEL):
+    with eng.begin() as c:
+        if c.execute(select(model_versi_t.c.id).where(and_(model_versi_t.c.id == model_id, model_versi_t.c.jenis == jenis))).first() is None:
+            return False
+        c.execute(update(model_versi_t).where(model_versi_t.c.jenis == jenis).values(aktif=0))
+        c.execute(update(model_versi_t).where(model_versi_t.c.id == model_id).values(aktif=1))
+        return True
+
+
+def latih_dan_simpan(eng, aktifkan="jika_lebih_baik"):
+    """Latih model baru dari seluruh data, simpan sebagai versi baru.
+    aktifkan: 'jika_lebih_baik' (aktif bila F1 uji tidak lebih buruk dari model aktif, toleransi 0,02), 'selalu', 'tidak'.
+    Dipakai bersama oleh halaman admin, API, dan skrip jalankan_latih.py. Raise ml_absensi.DataKurang kalau data belum cukup."""
+    import ml_absensi as ml
+    if aktifkan not in KEBIJAKAN_AKTIF:
+        raise ValueError(f"aktifkan harus salah satu dari {KEBIJAKAN_AKTIF}")
+    hasil = ml.latih_terlambat(ml.bangun_dataset(data_masuk_semua(eng), list_peserta(eng)))
+    lama = ambil_model(eng)
+    if aktifkan == "selalu" or lama is None:
+        aktif = True
+    elif aktifkan == "jika_lebih_baik":
+        aktif = hasil["metrik"]["uji"]["f1"] >= (lama["metrik"].get("uji") or {}).get("f1", 0.0) - 0.02
+    else:
+        aktif = False
+    mid = simpan_model(eng, hasil, aktif)
+    return {"id": mid, "aktif": bool(aktif), "metrik": hasil["metrik"], "ada_model_sebelumnya": lama is not None}
+
+
+def prediksi_semua(eng, tanggal, hanya_nama=None):
+    """Probabilitas terlambat pada `tanggal` (date) untuk semua peserta (atau satu nama), dari riwayat SEBELUM tanggal itu.
+    Mengembalikan (DataFrame, baris_model). Raise ml_absensi.DataKurang kalau belum ada model aktif."""
+    import ml_absensi as ml
+    m = ambil_model(eng)
+    if m is None:
+        raise ml.DataKurang("Belum ada model aktif. Latih model terlebih dulu di menu Model.")
+    paket = ml.dari_bytes(m["artefak"])
+    peserta = list_peserta(eng)
+    if hanya_nama is not None:
+        peserta = peserta[peserta["nama"] == hanya_nama]
+    masuk = data_masuk_semua(eng)
+    baris = []
+    for _, p in peserta.iterrows():
+        f = ml.fitur_prediksi(masuk[masuk["nama"] == p["nama"]][["tanggal", "jam"]], tanggal, p["gedung"])
+        baris.append({"nama": p["nama"], "divisi": p["divisi"], **f})
+    kolom = ["nama", "divisi", *ml.FITUR_TERLAMBAT, "probabilitas", "risiko", "faktor"]
+    if not baris:
+        return pd.DataFrame(columns=kolom), m
+    df = pd.DataFrame(baris)
+    df["probabilitas"] = ml.prediksi_proba(paket, df)
+    df["risiko"] = df["probabilitas"].map(ml.tingkat_risiko)
+    df["faktor"] = ["; ".join(ml.faktor_risiko(r)) for r in df[ml.FITUR_TERLAMBAT].to_dict("records")]
+    return df[kolom].sort_values("probabilitas", ascending=False).reset_index(drop=True), m
+
+
+def ringkasan_pantau(eng, jendela_hari=14):
+    """Kesehatan model aktif: drift fitur (PSI), kinerja pada data SESUDAH tanggal latih, dan rekomendasi retrain."""
+    import ml_absensi as ml
+    m = ambil_model(eng)
+    if m is None:
+        return None
+    paket = ml.dari_bytes(m["artefak"])
+    ds = ml.bangun_dataset(data_masuk_semua(eng), list_peserta(eng))
+    baru = ds[ds["tanggal"] > (m["tanggal_akhir"] or "")]           # data yang belum pernah dilihat model
+    if len(ds):
+        batas = (date.fromisoformat(ds["tanggal"].max()) - timedelta(days=jendela_hari)).isoformat()
+        terbaru = ds[ds["tanggal"] > batas]
+    else:
+        terbaru = ds
+    drift = ml.pantau_drift(m["baseline"], terbaru)
+    ev = ml.evaluasi(paket, baru)
+    umur = (datetime.now(WITA).replace(tzinfo=None) - datetime.strptime(m["dilatih"], "%Y-%m-%d %H:%M:%S")).days
+    perlu, alasan = ml.rekomendasi_retrain(m["metrik"], drift, ev, umur, len(baru), m["n_data"])
+    info = {k: v for k, v in m.items() if k not in ("artefak", "baseline")}
+    return {"model": info, "drift": drift, "eval_baru": ev, "n_baru": int(len(baru)), "n_terbaru": int(len(terbaru)),
+            "umur_hari": int(umur), "perlu_retrain": perlu, "alasan": alasan}
+
+
+# ------------------------------------------------------------------
+# HALAMAN ADMIN: MODEL (deteksi absen mencurigakan, prediksi terlambat, monitoring)
+# ------------------------------------------------------------------
+def _hari_kerja_berikut(d):
+    while hari_libur(d):
+        d += timedelta(days=1)
+    return d
+
+
+def _ringkas_model(m):
+    """Kartu ringkas satu versi model: metrik uji, pembanding baseline, confusion matrix, fitur penting."""
+    k = m["metrik"]
+    uji = k.get("uji", {})
+    st.caption(f"Versi {m['id']} • {k.get('model', '-')} • dilatih {m['dilatih']} WITA • {m['n_data']} data "
+               f"({k.get('tanggal_awal', '?')} sampai {k.get('tanggal_akhir', '?')})")
+    c = st.columns(5)
+    c[0].metric("Accuracy", f"{uji.get('accuracy', 0):.2f}")
+    c[1].metric("Precision", f"{uji.get('precision', 0):.2f}")
+    c[2].metric("Recall", f"{uji.get('recall', 0):.2f}")
+    c[3].metric("F1", f"{uji.get('f1', 0):.2f}")
+    c[4].metric("ROC-AUC", "-" if uji.get("roc_auc") is None else f"{uji['roc_auc']:.2f}")
+    base = k.get("baseline", {})
+    st.caption(
+        f"Diuji pada {uji.get('n', 0)} data terakhir (mulai {uji.get('tanggal_mulai', '?')}), yang tidak dipakai saat tuning. "
+        f"Baseline ({base.get('strategi', '-')}): accuracy {base.get('accuracy', 0):.2f}, F1 {base.get('f1', 0):.2f}. "
+        + ("Model LEBIH BAIK dari baseline." if k.get("lebih_baik_dari_baseline") else "Model BELUM lebih baik dari baseline: jangan diandalkan.")
+    )
+    cm = uji.get("confusion_matrix")
+    if cm:
+        st.dataframe(pd.DataFrame(cm, index=["Aktual: tidak terlambat", "Aktual: terlambat"],
+                                  columns=["Prediksi: tidak terlambat", "Prediksi: terlambat"]), width="stretch")
+    import ml_absensi as ml
+    penting = pd.DataFrame({"Kepentingan": k.get("kepentingan", {})})
+    if len(penting):
+        penting.index = [ml.LABEL_FITUR.get(i, i) for i in penting.index]
+        st.caption("Fitur yang paling berpengaruh pada model (dinormalkan, total = 1):")
+        st.bar_chart(penting, horizontal=True)
+
+
+def _tab_anomali(eng, ml):
+    hari_ini = datetime.now(WITA).date()
+    c1, c2 = st.columns(2)
+    awal = c1.date_input("Dari tanggal", value=hari_ini - timedelta(days=29), key="an_awal")
+    akhir = c2.date_input("Sampai tanggal", value=hari_ini, key="an_akhir")
+    persen = st.slider("Sensitivitas: persentase absen yang ditandai", 1, 15, 5, key="an_persen",
+                       help="Isolation Forest selalu menandai sebagian kecil data yang paling tidak lazim. "
+                            "Naikkan untuk menjaring lebih luas, turunkan agar hanya yang paling janggal.")
+    if awal > akhir:
+        st.error("Tanggal awal tidak boleh setelah tanggal akhir.")
+        return
+    try:
+        hasil = ml.deteksi_anomali(get_absensi_lengkap(eng, awal, akhir), list_peserta(eng), GEDUNG_COORD, persen=persen)
+    except ml.DataKurang as e:
+        st.info(str(e))
+        return
+    tanda = hasil[hasil["ditandai"]]
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Catatan dianalisis", len(hasil))
+    m2.metric("Ditandai", len(tanda))
+    m3.metric("Peserta terkait", tanda["nama"].nunique())
+    st.caption("Ini sinyal untuk ditinjau manusia, bukan bukti kecurangan. Koordinat yang sama bisa muncul alami "
+               "(mis. posisi dari Wi-Fi kantor), dan absen janggal bisa punya alasan sah. Cek bukti foto sebelum menyimpulkan.")
+    if tanda.empty:
+        st.success("Tidak ada absen yang ditandai pada rentang ini.")
+    else:
+        tampil = tanda.assign(hasil=tanda["status"].map({"berhasil": "Berhasil", "gagal_lokasi": "Gagal lokasi"}))
+        tampil = tampil[["nama", "tanggal", "jam", "jenis", "hasil", "jarak", "akurasi", "skor", "alasan"]].rename(columns={
+            "nama": "Nama", "tanggal": "Tanggal", "jam": "Jam", "jenis": "Jenis", "hasil": "Hasil",
+            "jarak": "Jarak (m)", "akurasi": "Akurasi (m)", "skor": "Skor", "alasan": "Alasan"})
+        tampil[["Jarak (m)", "Akurasi (m)", "Skor"]] = tampil[["Jarak (m)", "Akurasi (m)", "Skor"]].round(0)
+        st.dataframe(beri_nomor(tampil), width="stretch")
+
+    import altair as alt
+    import numpy as np
+    st.subheader("Peta posisi absen terhadap gedung")
+    st.caption(f"Titik (0, 0) = titik gedung peserta. Lingkaran putus-putus = batas {RADIUS_METER} m. Merah = ditandai.")
+    ang = np.linspace(0, 2 * np.pi, 121)
+    ring = pd.DataFrame({"dx": RADIUS_METER * np.cos(ang), "dy": RADIUS_METER * np.sin(ang), "u": range(121)})
+    titik = hasil.assign(Penanda=np.where(hasil["ditandai"], "Ditandai", "Normal"))
+    batas = float(max(titik["dx"].abs().max(), titik["dy"].abs().max(), RADIUS_METER) * 1.1)
+    skala = alt.Scale(domain=[-batas, batas])
+    garis = alt.Chart(ring).mark_line(strokeDash=[5, 4], color="#6b779e").encode(
+        x=alt.X("dx:Q", scale=skala, title="Timur-barat (m)"), y=alt.Y("dy:Q", scale=skala, title="Utara-selatan (m)"), order="u:Q")
+    pts = alt.Chart(titik).mark_circle(size=55).encode(
+        x=alt.X("dx:Q", scale=skala), y=alt.Y("dy:Q", scale=skala),
+        color=alt.Color("Penanda:N", scale=alt.Scale(domain=["Normal", "Ditandai"], range=["#9db8f2", "#e04a4a"]),
+                        legend=alt.Legend(orient="bottom", title=None)),
+        opacity=alt.condition(alt.datum.Penanda == "Ditandai", alt.value(0.95), alt.value(0.4)),
+        tooltip=["nama:N", "tanggal:N", "jam:N", alt.Tooltip("skor:Q", format=".0f"), "alasan:N"])
+    st.altair_chart((garis + pts).properties(width=380, height=380), width="content")   # persegi: lingkaran tetap bulat
+
+
+def _tab_prediksi(eng, ml):
+    pesan = st.session_state.pop("pesan_model", None)
+    if pesan:
+        {"success": st.success, "warning": st.warning}[pesan[0]](pesan[1])
+    aktif = ambil_model(eng)
+    st.subheader("Model aktif")
+    if aktif is None:
+        st.info("Belum ada model. Latih model pertama pada bagian di bawah (butuh data absensi beberapa minggu).")
+    else:
+        _ringkas_model(aktif)
+
+    with st.expander("Latih model baru"):
+        st.caption("Dua kandidat (Logistic Regression dan Random Forest) di-tuning dengan GridSearchCV + cross-validation, "
+                   "diuji pada hari-hari terakhir, lalu dibandingkan dengan baseline. Versi baru disimpan, versi lama tidak dihapus.")
+        pilihan = {"jika_lebih_baik": "Aktifkan otomatis jika tidak lebih buruk dari model aktif",
+                   "selalu": "Selalu aktifkan versi baru", "tidak": "Simpan saja (aktifkan manual)"}
+        pol = st.selectbox("Kebijakan aktivasi", list(pilihan), format_func=pilihan.get, key="model_kebijakan")
+        if st.button("Latih sekarang", key="model_latih", type="primary"):
+            try:
+                with st.spinner("Melatih model, mohon tunggu..."):
+                    r = latih_dan_simpan(eng, pol)
+            except ml.DataKurang as e:
+                st.warning(str(e))
+            except SQLAlchemyError as e:
+                st.error(pesan_db(e))
+            else:
+                f1 = r["metrik"]["uji"]["f1"]
+                st.session_state["pesan_model"] = ("success", f"Versi {r['id']} tersimpan (F1 uji {f1:.2f}). "
+                                                   + ("Versi ini sekarang AKTIF." if r["aktif"] else "Belum diaktifkan: tidak lebih baik dari model aktif."))
+                st.rerun()
+
+    versi = daftar_model(eng)
+    if versi:
+        st.subheader("Riwayat versi")
+        tabel = pd.DataFrame([{
+            "ID": v["id"], "Dilatih": v["dilatih"], "Data": v["n_data"], "Model": v["metrik"].get("model", "-"),
+            "F1 uji": round((v["metrik"].get("uji") or {}).get("f1", 0), 2),
+            "ROC-AUC": (v["metrik"].get("uji") or {}).get("roc_auc"), "Aktif": "✅" if v["aktif"] else "",
+        } for v in versi])
+        st.dataframe(tabel, width="stretch", hide_index=True)
+        c1, c2 = st.columns([2, 1])
+        pilih = c1.selectbox("Aktifkan versi", [v["id"] for v in versi], format_func=lambda i: f"Versi {i}", key="model_pilih")
+        if c2.button("Aktifkan", key="model_aktifkan"):
+            try:
+                aktifkan_model(eng, pilih)
+            except SQLAlchemyError as e:
+                st.error(pesan_db(e))
+            else:
+                st.rerun()
+
+    if aktif is None:
+        return
+    st.subheader("Prediksi risiko terlambat")
+    sekarang = datetime.now(WITA)
+    tgl = st.date_input("Prediksi untuk tanggal", value=_hari_kerja_berikut(sekarang.date()), key="pr_tgl")
+    if hari_libur(tgl):
+        st.info(pesan_libur(tgl))
+        return
+    df, _ = prediksi_semua(eng, tgl)
+    if df.empty:
+        st.info("Belum ada peserta terdaftar.")
+        return
+    st.caption("Probabilitas dihitung dari riwayat kehadiran SEBELUM tanggal itu. Gunakan untuk pengingat dan pendampingan, "
+               "bukan untuk menghukum.")
+    tinggi = int((df["risiko"] == "Tinggi").sum())
+    st.metric("Peserta berisiko tinggi", tinggi)
+    st.dataframe(beri_nomor(pd.DataFrame({
+        "Nama": df["nama"], "Divisi": df["divisi"], "Probabilitas terlambat (%)": (df["probabilitas"] * 100).round(0).astype(int),
+        "Risiko": df["risiko"], "Faktor": df["faktor"],
+    })), width="stretch")
+
+
+def _tab_monitoring(eng, ml):
+    r = ringkasan_pantau(eng)
+    if r is None:
+        st.info("Belum ada model aktif untuk dipantau. Latih model di tab Prediksi.")
+        return
+    m = r["model"]
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Umur model", f"{r['umur_hari']} hari")
+    c2.metric("Data baru sejak dilatih", r["n_baru"])
+    ev = r["eval_baru"]
+    c3.metric("F1 pada data baru", "-" if ev is None else f"{ev['f1']:.2f}",
+              delta=None if ev is None else f"{ev['f1'] - (m['metrik'].get('uji') or {}).get('f1', 0):+.2f} vs uji")
+    if r["perlu_retrain"]:
+        st.warning("Disarankan melatih ulang model:\n\n" + "\n".join(f"- {a}" for a in r["alasan"]))
+    else:
+        st.success("Model masih sehat: tidak ada tanda drift atau penurunan kinerja.")
+
+    st.subheader(f"Drift fitur (PSI), {r['n_terbaru']} data terbaru vs data latih")
+    ikon = {"Stabil": "🟢", "Waspada": "🟠", "Drift": "🔴", "-": "⚪"}
+    d = r["drift"]
+    st.dataframe(pd.DataFrame({
+        "Fitur": d["label"], "PSI": d["psi"].round(3), "Status": [f"{ikon[s]} {s}" for s in d["status"]],
+    }), width="stretch", hide_index=True)
+    st.caption("PSI < 0,1 stabil, 0,1 sampai 0,25 waspada, >= 0,25 drift (pola data sudah berbeda dari saat model dilatih).")
+
+    st.subheader("Kinerja pada data baru")
+    if ev is None:
+        st.info("Belum cukup data sesudah tanggal latih (butuh minimal 10 baris yang mencakup hari terlambat dan tidak terlambat).")
+    else:
+        e = st.columns(5)
+        for kolom, nama in zip(e, ["accuracy", "precision", "recall", "f1", "roc_auc"]):
+            kolom.metric(nama.upper() if nama == "roc_auc" else nama.capitalize(), "-" if ev[nama] is None else f"{ev[nama]:.2f}")
+
+    st.subheader("Jadwal pelatihan ulang")
+    st.caption("Aplikasi ini tidak menjalankan jadwal sendiri. Latih ulang berkala dengan `python jalankan_latih.py` "
+               "(cron/GitHub Actions) atau panggil endpoint `POST /v1/model/latih` pada API. "
+               "Kebijakan 'aktifkan jika tidak lebih buruk' mencegah model yang lebih jelek menggantikan yang sehat.")
+
+
+def halaman_model(eng):
+    st.header("🤖 Model Prediksi & Deteksi")
+    if not admin_login():
+        return
+    try:
+        import ml_absensi as ml
+    except ImportError as e:
+        st.error("Modul ML belum bisa dimuat. Pastikan `scikit-learn` ada di requirements.txt dan file `ml_absensi.py` "
+                 f"berada satu folder dengan app.py, lalu Reboot app. Detail: {e}")
+        return
+    sub = st.radio("Bagian", ["Mencurigakan", "Prediksi", "Monitoring"], horizontal=True,
+                   key="menu_model", label_visibility="collapsed")
+    if sub == "Mencurigakan":
+        _tab_anomali(eng, ml)
+    elif sub == "Prediksi":
+        _tab_prediksi(eng, ml)
+    else:
+        _tab_monitoring(eng, ml)
 
 
 # ------------------------------------------------------------------
@@ -2216,6 +2974,15 @@ def panel_status(eng):
         baris.append(("ok", f"Foto: Supabase Storage (bucket {cfg[2]})"))
     else:
         baris.append(("warn", "Foto: disimpan di database (supabase_url / supabase_service_key belum terbaca)"))
+    if getattr(eng, "indeks_unik_ok", False):
+        baris.append(("ok", "Integritas: absen ganda dicegah langsung oleh database (unique index)"))
+    else:
+        n = len(cari_duplikat(eng))
+        if n:
+            baris.append(("warn", f"Integritas: indeks anti-absen-ganda belum terpasang karena {n} kelompok data ganda lama. "
+                                  "Buka Kelola Peserta, lalu bagian Rapikan absensi ganda."))
+        else:
+            baris.append(("warn", "Integritas: indeks anti-absen-ganda gagal dipasang (cek hak akses database)."))
     aktif, ket = status_wajah()
     if aktif:
         baris.append(("ok", f"Verifikasi wajah: aktif ({ket})"))
@@ -2262,66 +3029,6 @@ try {
         height=0,
     )
 
-# ------------------------------------------------------------------
-# [CPMK Sains Data] HALAMAN ML ADMIN 
-# ------------------------------------------------------------------
-def halaman_sains_data(eng):
-    st.header("📈 Predictive Analytics (Machine Learning)")
-    if not SKLEARN_AVAILABLE:
-        st.error("Pustaka `scikit-learn` belum terinstal di requirements.txt.")
-        return
-        
-    with eng.connect() as c:
-        q = select(absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.jam, absensi_t.c.jarak).where(and_(absensi_t.c.jenis == "masuk", absensi_t.c.status == "berhasil"))
-        df = pd.read_sql(q, c)
-        
-    if df.empty or len(df) < 10:
-        st.info("Data belum cukup untuk melatih model Machine Learning (Butuh minimal 10 data hadir).")
-        return
-        
-    df['jam_dt'] = pd.to_datetime(df['jam'], format='%H:%M:%S').dt.time
-    df['is_late'] = df['jam_dt'].apply(lambda x: 1 if x > BATAS_TEPAT_WAKTU else 0)
-    df['hari_dalam_minggu'] = pd.to_datetime(df['tanggal']).dt.dayofweek
-    df['jarak'] = df['jarak'].fillna(0)
-    
-    le = LabelEncoder()
-    df['nama_encoded'] = le.fit_transform(df['nama'])
-    
-    X = df[['nama_encoded', 'hari_dalam_minggu', 'jarak']]
-    y = df['is_late']
-    
-    clf = DecisionTreeClassifier(max_depth=5, random_state=42)
-    clf.fit(X, y)
-    
-    st.subheader("Prediksi Keterlambatan Peserta Hari Berikutnya")
-    besok = (datetime.now(WITA) + timedelta(days=1)).weekday()
-    if besok in HARI_LIBUR: besok = 0 
-        
-    prediksi_data = []
-    for p in df['nama'].unique():
-        p_encoded = le.transform([p])[0]
-        jarak_avg = df[df['nama'] == p]['jarak'].mean()
-        prob_late = clf.predict_proba([[p_encoded, besok, jarak_avg]])[0][1]
-        prediksi_data.append({"Nama Peserta": p, "Probabilitas Terlambat": f"{prob_late*100:.1f}%"})
-        
-    st.dataframe(pd.DataFrame(prediksi_data).sort_values(by="Probabilitas Terlambat", ascending=False), use_container_width=True)
-
-# ------------------------------------------------------------------
-# [CPMK Manajemen Proyek TI] & [CPMK Cloud] HALAMAN MPTI ADMIN 
-# ------------------------------------------------------------------
-def halaman_mpti_cloud():
-    st.header("🗂️ Manajemen Proyek & Infrastruktur Cloud")
-    tab1, tab2, tab3 = st.tabs(["Project Tracking (MPTI)", "Project Charter / WBS (MPTI)", "Arsitektur Cloud"])
-    with tab1:
-        st.dataframe(pd.DataFrame({
-            "Versi": ["v1.0", "v1.1", "v2.0"],
-            "Sprint / Bug Fixes": ["Inisiasi Fitur Utama", "Perbaikan bug", "Integrasi CPMK"],
-            "Status Proyek": ["Selesai", "Selesai", "Tahap Pengujian"]
-        }), use_container_width=True)
-    with tab2:
-        st.markdown("* **1.0 Inisiasi Proyek**\n* **2.0 Desain (UI/UX)**\n* **3.0 Implementasi (Pengkodean)**\n* **4.0 Data Science**\n* **5.0 Deployment (Cloud)**")
-    with tab3:
-        st.markdown("**Konfigurasi CI/CD & Reverse Proxy (NGINX) telah aktif.** (Dokumentasi diarsipkan di server)")
 
 def halaman_admin(eng):
     """Area admin dengan gaya visual yang selaras dengan halaman peserta."""
@@ -2350,22 +3057,22 @@ def halaman_admin(eng):
         realtime_admin()
         menu = st.radio(
             "Menu admin",
-            ["Kelola Peserta", "Rekap & Export", "Bukti Foto", "Prediksi (Data Science)", "Manajemen Proyek & Cloud"],
+            ["Peserta", "Rekap", "Analitik", "Model", "Foto"],
             horizontal=True,
             key="menu_admin",
             label_visibility="collapsed",
         )
         st.markdown("---")
-        if menu == "Kelola Peserta":
+        if menu == "Peserta":
             halaman_kelola_peserta(eng)
-        elif menu == "Rekap & Export":
+        elif menu == "Rekap":
             halaman_rekap(eng)
-        elif menu == "Bukti Foto":
+        elif menu == "Analitik":
+            halaman_analitik(eng)
+        elif menu == "Model":
+            halaman_model(eng)
+        else:
             halaman_foto(eng)
-        elif menu == "Prediksi (Data Science)":
-            halaman_sains_data(eng)
-        elif menu == "Manajemen Proyek & Cloud":
-            halaman_mpti_cloud()
 
 
 def main():
