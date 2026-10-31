@@ -58,8 +58,8 @@ UANG_MAKAN = 15000
 
 # Koordinat asli Gedung A dan B Bank Sulselbar
 GEDUNG_COORD = {
-    "A": (-5.1635049454681825, 119.42393534081793),  # (latitude, longitude)
-    "B": (-5.1635049454681825, 119.42393534081793),  # (latitude, longitude)
+    "A": (-5.150070542826675, 119.41568236911743),  # (latitude, longitude)
+    "B": (-5.150163347858429, 119.41329137592547),  # (latitude, longitude)
 }
 
 RADIUS_METER = 200  # toleransi jarak dari titik gedung (meter)
@@ -88,12 +88,12 @@ DIVISI_GEDUNG = {
 }
 
 # Jendela waktu absen (WITA). Di luar jam ini absen ditolak. Izin bisa kapan saja.
-JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(23, 30)
-JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(23, 45)
+JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(12, 30)
+JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
 # Hari libur PKL (0=Senin ... 5=Sabtu, 6=Minggu). Pada hari ini TIDAK bisa absen masuk, pulang, izin, maupun cuti.
 HARI_LIBUR = (5, 6)
 # Masuk sampai jam ini = tidak terlambat; setelahnya (sampai JAM_MASUK_TUTUP) = terlambat, tetap bisa absen pulang & dapat uang makan.
-BATAS_TEPAT_WAKTU = dtime(21, 0)
+BATAS_TEPAT_WAKTU = dtime(8, 0)
 KET_TEPAT_WAKTU, KET_TERLAMBAT = "Tidak terlambat", "Terlambat"      # tulisan di aplikasi & kolom Keterangan Excel
 
 WITA = timezone(timedelta(hours=8))  # server cloud pakai UTC, jadi jam dipaksa WITA
@@ -1691,7 +1691,6 @@ def _tampilkan_hasil(hasil):
 
 def _form_absen(eng, nama, peserta, jenis, now, sh):
     """Form absen masuk / pulang: hanya di jendela waktunya, wajib di area gedung + selfie."""
-    gedung = peserta["gedung"]
     buka, tutup = (JAM_MASUK_BUKA, JAM_MASUK_TUTUP) if jenis == "masuk" else (JAM_PULANG_BUKA, JAM_PULANG_TUTUP)
     rentang = f"{buka.strftime('%H:%M')}-{tutup.strftime('%H:%M')}"
     if jenis == "masuk":
@@ -2231,7 +2230,7 @@ def siapkan_eda(df, peserta_df):
     ref = peserta_df.drop_duplicates("nama").set_index("nama") if len(peserta_df) else pd.DataFrame(columns=["gedung", "divisi"])
     d["gedung"] = d["nama"].map(ref["gedung"]).fillna("?") if len(ref) else "?"
     d["divisi"] = d["nama"].map(ref["divisi"]).fillna("(tidak terdaftar)") if len(ref) else "(tidak terdaftar)"
-    d["hari_idx"] = pd.to_datetime(d["tanggal"]).dt.weekday
+    d["hari_idx"] = pd.to_datetime(d["tanggal"]).dt.day_of_week
     d["hari"] = d["hari_idx"].map(lambda i: HARI_ID[i])
 
     masuk = d[(d["jenis"] == "masuk") & (d["status"] == "berhasil")].copy()
