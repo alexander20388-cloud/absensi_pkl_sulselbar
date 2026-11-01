@@ -2624,7 +2624,31 @@ def halaman_kelola_peserta(eng):
 # ------------------------------------------------------------------
 CSS_REKAP = """
 <style>
+.st-key-rekap_tabel, .st-key-rekap_tabel > [data-testid="stVerticalBlock"] { overflow: auto !important; gap: 0 !important; row-gap: 0 !important; }
+.st-key-rekap_tabel { border: 1px solid var(--garis); border-radius: 12px; padding: 0 4px; }
+.st-key-rekap_tabel > * { border-bottom: 1px solid var(--garis); }
+.st-key-rekap_tabel > :has(.rk-h) { position: sticky; top: 0; z-index: 3; background: #eef2ff; }
+.st-key-rekap_tabel > :not(:has(.rk-h)):hover { background: #f6f8ff; }
+.st-key-rekap_tabel [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; min-width: 520px; gap: 4px !important; align-items: center; padding: 2px 6px; margin: 0; }
+.st-key-rekap_tabel [data-testid="stElementContainer"] { margin: 0 !important; }
+.st-key-rekap_tabel [data-testid="stMarkdownContainer"] { min-width: 0; overflow: hidden; }
+.st-key-rekap_tabel [data-testid="stMarkdownContainer"] p { margin: 0 !important; }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]) { width: auto !important; min-width: 0 !important; flex: 1 1 0 !important; }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):first-child { flex: 3 1 0 !important; }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(7) { flex: 2 1 0 !important; }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):last-child { flex: 0 0 32px !important; }
+/* menimpa aturan tombol global panel admin (min-height 44px, border biru, !important) */
+.st-key-adminbody .st-key-rekap_tabel button[kind="secondary"] {
+  min-height: 26px !important; height: 26px !important; padding: 0 !important; width: 100% !important;
+  border-radius: 8px !important; border: 1px solid var(--garis) !important; background: var(--tint) !important; box-shadow: none !important;
+}
+.st-key-adminbody .st-key-rekap_tabel button[kind="secondary"] p { font-size: 16px !important; font-weight: 700; line-height: 1; margin: 0 !important; }
+.rk-h { font-size: 11px; font-weight: 700; color: var(--muted); text-align: center; white-space: nowrap; }
+.rk-h.kiri { text-align: left; }
+.rk-n { font-size: 13px; font-weight: 600; color: var(--navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rk-v { font-size: 13px; color: var(--navy); text-align: center; white-space: nowrap; }
 .rk-sub { font-size: 12px; color: var(--muted); }
+.rk-n .rk-sub { font-size: 10px; font-weight: 400; }
 .rk-kartu { display: flex; align-items: center; gap: 14px; background: var(--tint); border-radius: 18px; padding: 14px 16px; margin-bottom: 12px; }
 .rk-avatar { width: 54px; height: 54px; border-radius: 50%; background: #fff; color: var(--biru); font-size: 24px; font-weight: 700;
   display: flex; align-items: center; justify-content: center; flex: 0 0 54px; }
@@ -2785,23 +2809,25 @@ def _html_kartu_rekap(aktif, r, label_periode):
 
 
 def _tabel_rekap_peserta(rekap, tahun, bulan):
-    """Tabel ringkas peserta. Pilih satu baris (kotak di kiri baris) untuk membuka halaman detail peserta itu."""
-    tampil = pd.DataFrame({
-        "Nama": [n if t else f"{n} (tidak terdaftar)" for n, t in zip(rekap["Nama"], rekap["Terdaftar"])],
-        "Hadir": rekap["Hari Hadir"], "Telat": rekap["Terlambat"], "Izin": rekap["Izin"], "Cuti": rekap["Cuti"],
-        "Tdk hadir": rekap["Tidak Hadir"], "Uang makan": rekap["Total Uang Makan"].map(_rp),
-    })
-    cfg = {k: st.column_config.NumberColumn(k, width="small") for k in ("Hadir", "Telat", "Izin", "Cuti", "Tdk hadir")}
-    cfg["Nama"] = st.column_config.TextColumn("Nama", width="medium")
-    cfg["Uang makan"] = st.column_config.TextColumn("Uang makan", width="small")
-    event = st.dataframe(
-        tampil, hide_index=True, width="stretch", height=min(350, 40 + 35 * len(tampil)), column_config=cfg,
-        on_select="rerun", selection_mode="single-row", key=f"rk_tabel_{tahun}_{bulan}",
-    )
-    baris = event.selection.rows if event and event.selection else []
-    if baris:
-        st.session_state["rekap_detail"] = {"nama": rekap["Nama"].iloc[baris[0]], "tahun": tahun, "bulan": bulan}
-        st.rerun()
+    """Tabel ringkas peserta dengan kolom terakhir tombol ›. Klik membuka halaman detail peserta itu."""
+    lebar = [3, 1, 1, 1, 1, 1, 2, 1]
+    judul = ["Nama", "Hadir", "Telat", "Izin", "Cuti", "Absen", "Uang makan", ""]
+    # Tabel punya scroll sendiri (atas-bawah dan kiri-kanan) dengan tinggi dibatasi; halaman tidak ikut memanjang.
+    with st.container(key="rekap_tabel", height=min(340, 40 + 35 * len(rekap))):
+        for i, (kol, t) in enumerate(zip(st.columns(lebar), judul)):
+            kelas = "rk-h kiri" if i == 0 else "rk-h"
+            bantu = ' title="Tidak hadir"' if t == "Absen" else (' title="Terlambat"' if t == "Telat" else "")
+            kol.markdown(f'<div class="{kelas}"{bantu}>{t}</div>', unsafe_allow_html=True)
+        for i, r in enumerate(rekap.to_dict("records"), 1):
+            kol = st.columns(lebar, vertical_alignment="center")
+            sisa = "" if r["Terdaftar"] else ' <span class="rk-sub">(tidak terdaftar)</span>'
+            kol[0].markdown(f'<div class="rk-n" title="{esc(r["Nama"])}">{esc(r["Nama"])}{sisa}</div>', unsafe_allow_html=True)
+            for k, nilai in zip(kol[1:6], (r["Hari Hadir"], r["Terlambat"], r["Izin"], r["Cuti"], r["Tidak Hadir"])):
+                k.markdown(f'<div class="rk-v">{nilai}</div>', unsafe_allow_html=True)
+            kol[6].markdown(f'<div class="rk-v">{_rp(r["Total Uang Makan"])}</div>', unsafe_allow_html=True)
+            if kol[7].button("›", key=f"rk_buka_{i}", help=f"Detail absensi {r['Nama']}"):
+                st.session_state["rekap_detail"] = {"nama": r["Nama"], "tahun": tahun, "bulan": bulan}
+                st.rerun()
 
 
 def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
@@ -2891,7 +2917,7 @@ def halaman_rekap(eng):
     aktif = int(rekap_p["Terdaftar"].sum())
     st.markdown(_html_kartu_rekap(aktif, rekap_p, f"{BULAN_ID[bulan_i - 1]} {tahun_i}"), unsafe_allow_html=True)
     st.markdown('<div class="db-judul"><div class="db-judul-t">Rekap Absensi Peserta</div></div>', unsafe_allow_html=True)
-    st.caption("Centang kotak di kiri baris untuk membuka detail absensi peserta itu.")
+    st.caption("Klik › di ujung baris untuk membuka detail absensi peserta itu.")
     _tabel_rekap_peserta(rekap_p, tahun_i, bulan_i)
 
     daftar_nama = sorted(df["nama"].unique())
@@ -2908,7 +2934,7 @@ def halaman_rekap(eng):
     if kurang:
         st.warning("Penandatangan belum diisi untuk: " + ", ".join(kurang) +
                    ". Bagian tanda tangan di Excel untuk divisi itu dikosongkan. Isi nama dan jabatannya di `PENANDATANGAN` pada app.py.")
-    st.caption("Excel per peserta ada di halaman detail.")
+    st.caption("Excel per peserta ada di halaman detail (klik › pada barisnya).")
 
 
 # ------------------------------------------------------------------
