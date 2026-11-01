@@ -172,7 +172,7 @@ def test_admin_proyek_semua_bagian_tampil(ui, sub):
     tanpa_error(jalan(peran="admin", admin_ok=True, menu_admin="Proyek", menu_proyek=sub))
 
 
-@pytest.mark.parametrize("menu", ["Peserta", "Rekap", "Analitik", "Model", "Foto"])
+@pytest.mark.parametrize("menu", ["Peserta", "Rekap", "Analitik", "Model", "Umpan balik", "Foto"])
 def test_admin_halaman_lama_tidak_regresi(ui, menu):
     tanpa_error(jalan(peran="admin", admin_ok=True, menu_admin=menu))
 
