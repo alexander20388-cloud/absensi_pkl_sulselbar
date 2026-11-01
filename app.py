@@ -462,7 +462,10 @@ def _pasang_indeks(eng):
 
 
 def _migrasi(eng):
-    """Tambah kolom/indeks baru ke database lama (create_all tidak mengubah tabel yang sudah ada). Aman diulang."""
+    """Buat tabel yang belum ada, lalu tambah kolom/indeks baru ke database lama (create_all tidak mengubah tabel yang
+    sudah ada). Aman diulang. create_all ikut dipanggil di sini karena get_engine di-cache: tanpa ini, tabel baru dari
+    pembaruan kode tidak terbentuk selama proses aplikasi belum restart."""
+    metadata.create_all(eng)
     perlu = {
         "peserta": [("no_rekening", "VARCHAR(40)"), ("setuju_versi", "VARCHAR(20)"), ("setuju_pada", "VARCHAR(19)")],
         "absensi": [
@@ -497,7 +500,7 @@ def _migrasi(eng):
 
 
 @st.cache_resource
-def get_engine(versi_skema=8):
+def get_engine(versi_skema=9):
     url = url_database()
     sementara = False
     if url:
