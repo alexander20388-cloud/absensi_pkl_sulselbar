@@ -101,6 +101,7 @@ JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(12, 30)
 JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
 # Hari libur PKL (0=Senin ... 5=Sabtu, 6=Minggu). Pada hari ini TIDAK bisa absen masuk, pulang, izin, maupun cuti.
 HARI_LIBUR = (5, 6)
+HARI_LIBUR_KHUSUS = ()       # tanggal 'YYYY-MM-DD' libur nasional/cuti bersama; hanya dipakai rekap agar tidak dihitung 'tidak hadir'
 # Masuk sampai jam ini = tidak terlambat; setelahnya (sampai JAM_MASUK_TUTUP) = terlambat, tetap bisa absen pulang & dapat uang makan.
 BATAS_TEPAT_WAKTU = dtime(8, 0)
 KET_TEPAT_WAKTU, KET_TERLAMBAT = "Tidak terlambat", "Terlambat"      # tulisan di aplikasi & kolom Keterangan Excel
@@ -2618,21 +2619,46 @@ def halaman_kelola_peserta(eng):
 # ------------------------------------------------------------------
 # HALAMAN ADMIN: REKAP, GRAFIK, EXPORT
 # ------------------------------------------------------------------
-def halaman_rekap(eng):
-    st.header("📊 Rekap Absensi & Uang Makan")
-    if not admin_login():
-        return
+CSS_REKAP = """
+<style>
+.st-key-rekap_tabel { overflow-x: auto; padding-bottom: 4px; }
+.st-key-rekap_tabel [data-testid="stHorizontalBlock"] {
+  flex-wrap: nowrap !important; min-width: 700px; gap: 6px !important; align-items: center;
+  border-bottom: 1px solid var(--garis); padding: 6px 4px;
+}
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]) { width: auto !important; min-width: 0 !important; flex: 1 1 0 !important; }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):first-child { flex: 3 1 0 !important; }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(7) { flex: 2 1 0 !important; }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):last-child { flex: 0 0 46px !important; }
+.st-key-rekap_tabel button { min-height: 34px; padding: 0 !important; border-radius: 11px; background: var(--tint); border: 1px solid var(--garis); width: 100%; }
+.st-key-rekap_tabel button p { color: var(--biru) !important; font-size: 20px; font-weight: 700; line-height: 1; }
+.rk-h { font-size: 12px; font-weight: 700; color: var(--muted); }
+.rk-n { font-size: 14px; font-weight: 700; color: var(--navy); }
+.rk-v { font-size: 14px; color: var(--navy); }
+.rk-sub { font-size: 12px; color: var(--muted); }
+.rk-kartu { display: flex; align-items: center; gap: 14px; background: var(--tint); border-radius: 18px; padding: 14px 16px; margin-bottom: 12px; }
+.rk-avatar { width: 54px; height: 54px; border-radius: 50%; background: #fff; color: var(--biru); font-size: 24px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; flex: 0 0 54px; }
+.rk-nama { font-size: 17px; font-weight: 700; color: var(--navy); }
+.rk-chip { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 600; padding: 3px 12px; border-radius: 999px; background: #d9f7e8; color: #12a15f; }
+.rk-chip.abu { background: #eef1f7; color: #4a5788; }
+.rk-periode { background: #f6f8ff; border: 1px solid var(--garis); border-radius: 16px; padding: 12px 14px; margin-bottom: 4px; }
+.rk-periode-t { font-size: 14px; font-weight: 700; color: var(--navy); margin-bottom: 8px; }
+.rk-periode-g { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
+.rk-periode-g div { background: var(--tint); border-radius: 12px; padding: 9px 12px; font-size: 14px; color: var(--navy); }
+</style>
+"""
 
-    hari_ini = datetime.now(WITA).date()
-    c1, c2 = st.columns(2)
-    bulan = c1.selectbox("Bulan", list(range(1, 13)), index=hari_ini.month - 1)
-    tahun = c2.number_input("Tahun", value=hari_ini.year, step=1)
+HARI_LIBUR_KHUSUS_NOTE = "Hari libur nasional/cuti bersama dihitung sebagai hari kerja kecuali diisi di HARI_LIBUR_KHUSUS (app.py)."
+MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-    df = get_absensi_bulan(eng, int(tahun), int(bulan))
-    if df.empty:
-        st.info("Belum ada data absensi di bulan ini.")
-        return
 
+def _rp(n):
+    return "Rp" + f"{int(n):,}".replace(",", ".")
+
+
+def _susun_rekap_detail(df):
+    """Tabel 'rekap' dan 'detail' bentuk lama (dipakai ekspor Excel ringkas): hanya nama yang punya data di bulan itu."""
     berhasil = df[(df["status"] == "berhasil") & (df["jenis"] == "masuk")]       # hari hadir = absen masuk berhasil
     pulang_ok = df[(df["status"] == "berhasil") & (df["jenis"] == "pulang")]     # uang makan dihitung dari absen pulang
     izin_df = df[df["jenis"] == "izin"]
@@ -2645,16 +2671,6 @@ def halaman_rekap(eng):
     rekap["Izin"] = rekap["Nama"].map(izin_df.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
     rekap["Cuti"] = rekap["Nama"].map(cuti_df.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
     rekap["Total Uang Makan"] = rekap["Nama"].map(pulang_ok.groupby("nama")["uang_makan"].sum()).fillna(0).astype(int)
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total uang makan bulan ini", f"Rp{int(rekap['Total Uang Makan'].sum()):,}".replace(",", "."))
-    m2.metric("Izin / Cuti bulan ini", f"{int(rekap['Izin'].sum())} / {int(rekap['Cuti'].sum())}")
-    m3.metric("Percobaan gagal lokasi", int(((df["status"] != "berhasil") & (~df["jenis"].isin(["izin", "cuti"]))).sum()))
-
-    st.subheader("Total Uang Makan per Peserta")
-    st.dataframe(beri_nomor(rekap), width="stretch")
-
-    st.subheader("Detail Absensi")
     detail = df.rename(columns={
         "nama": "Nama", "tanggal": "Tanggal", "jam": "Jam", "jenis": "Jenis",
         "status": "Status", "jarak": "Jarak (m)", "uang_makan": "Uang Makan", "alasan": "Alasan",
@@ -2663,61 +2679,257 @@ def halaman_rekap(eng):
     detail["Keterangan"] = detail.apply(
         lambda r: ketepatan(r["Jam"]) if (r["Jenis"] == "masuk" and r["Status"] == "berhasil") else "", axis=1)
     detail["Jarak (m)"] = detail["Jarak (m)"].round(0)
+    return rekap, detail
 
-    daftar_nama = sorted(detail["Nama"].unique())
-    pilih = st.selectbox("Pilih nama peserta", daftar_nama)
-    detail_pilih = detail[detail["Nama"] == pilih].reset_index(drop=True)
-    ok = detail_pilih[(detail_pilih["Status"] == "berhasil") & (detail_pilih["Jenis"] == "masuk")]
-    uang_ok = detail_pilih[(detail_pilih["Status"] == "berhasil") & (detail_pilih["Jenis"] == "pulang")]
-    n_izin = detail_pilih[detail_pilih["Jenis"] == "izin"]["Tanggal"].nunique()
-    n_cuti = detail_pilih[detail_pilih["Jenis"] == "cuti"]["Tanggal"].nunique()
-    st.caption(
-        f"{len(detail_pilih)} catatan • {ok['Tanggal'].nunique()} hari hadir • {n_izin} izin • {n_cuti} cuti • "
-        f"Uang makan Rp{int(uang_ok['Uang Makan'].sum()):,}".replace(",", ".")
-    )
-    tampil = detail_pilih.copy()
-    tampil["Jarak (m)"] = tampil["Jarak (m)"].apply(lambda v: "" if pd.isna(v) else str(int(round(v))))  # izin: tanpa jarak
-    st.dataframe(beri_nomor(tampil), width="stretch")
 
-    st.subheader("Download Excel")
-    st.caption(
-        "Format template absensi magang (Nama, Unit Kerja, No. Rekening, tabel kehadiran, tanda tangan) "
-        "terisi otomatis dari data peserta."
+def hari_kerja_periode(tahun, bulan, sekarang=None):
+    """Hari kerja (bukan Sabtu/Minggu/HARI_LIBUR_KHUSUS) dalam satu bulan yang SUDAH LEWAT. Hari ini baru dihitung
+    setelah jendela absen masuk tutup, karena sebelum itu peserta masih boleh absen."""
+    sekarang = sekarang or datetime.now(WITA)
+    awal = date(tahun, bulan, 1)
+    akhir_bulan = date(tahun + (bulan == 12), bulan % 12 + 1, 1) - timedelta(days=1)
+    tutup = sekarang.time().replace(second=0, microsecond=0) > JAM_MASUK_TUTUP
+    batas = sekarang.date() if tutup else sekarang.date() - timedelta(days=1)
+    akhir = min(akhir_bulan, batas)
+    if akhir < awal:
+        return []
+    semua = (awal + timedelta(days=i) for i in range((akhir - awal).days + 1))
+    return [d for d in semua if not hari_libur(d) and d.isoformat() not in HARI_LIBUR_KHUSUS]
+
+
+def absen_pertama(eng):
+    """{nama: tanggal absen pertama} (percobaan gagal lokasi tidak dihitung); patokan awal hitungan 'tidak hadir'."""
+    q = select(absensi_t.c.nama, func.min(absensi_t.c.tanggal)).where(absensi_t.c.status != "gagal_lokasi").group_by(absensi_t.c.nama)
+    with eng.connect() as c:
+        return {n: t for n, t in c.execute(q).all()}
+
+
+def rekap_peserta_bulan(eng, df, tahun, bulan, sekarang=None):
+    """Satu baris per peserta (terdaftar, ditambah nama yang hanya tersisa di riwayat). 'Tidak Hadir' = hari kerja tanpa
+    absen masuk, izin, atau cuti, dihitung sejak absen pertama peserta (bukan sejak didaftarkan, karena tanggal daftar
+    tidak disimpan); peserta yang belum pernah absen sama sekali tidak dihitung tidak hadir."""
+    terdaftar = set(list_peserta(eng)["nama"])
+    nama_semua = sorted(terdaftar | set(df["nama"].unique()))
+    masuk = df[(df["status"] == "berhasil") & (df["jenis"] == "masuk")]
+    masuk = masuk.assign(telat=masuk["jam"].map(terlambat).astype(bool))
+    pulang = df[(df["status"] == "berhasil") & (df["jenis"] == "pulang")]
+    izin, cuti = df[df["jenis"] == "izin"], df[df["jenis"] == "cuti"]
+    tgl = lambda d, n: set(d.loc[d["nama"] == n, "tanggal"])
+    hari_kerja = [d.isoformat() for d in hari_kerja_periode(tahun, bulan, sekarang)]
+    pertama = absen_pertama(eng)
+    baris = []
+    for nama in nama_semua:
+        t_hadir, t_izin, t_cuti = tgl(masuk, nama), tgl(izin, nama), tgl(cuti, nama)
+        diabsen = t_hadir | t_izin | t_cuti
+        mulai = pertama.get(nama)
+        baris.append({
+            "Nama": nama, "Hari Hadir": len(t_hadir), "Terlambat": len(tgl(masuk[masuk["telat"]], nama)),
+            "Izin": len(t_izin), "Cuti": len(t_cuti),
+            "Tidak Hadir": sum(1 for d in hari_kerja if mulai and d >= mulai and d not in diabsen),
+            "Absen Pulang": len(tgl(pulang, nama)), "Total Uang Makan": int(pulang.loc[pulang["nama"] == nama, "uang_makan"].sum()),
+            "Terdaftar": nama in terdaftar,
+        })
+    return pd.DataFrame(baris)
+
+
+def detail_absensi_peserta(df, nama):
+    """(tabel per tanggal, ringkasan) untuk halaman detail satu peserta. Hari yang hanya berisi percobaan gagal lokasi
+    tidak ditampilkan. Bila ada absen masuk dan izin di hari yang sama, absen masuk yang menentukan."""
+    d = df[df["nama"] == nama]
+    baris, hadir, telat, izin, cuti, uang = [], 0, 0, 0, 0, 0
+    for tgl_iso, g in d.groupby("tanggal", sort=True):
+        masuk = g[(g["jenis"] == "masuk") & (g["status"] == "berhasil")]
+        pulang = g[(g["jenis"] == "pulang") & (g["status"] == "berhasil")]
+        izin_g, cuti_g = g[g["jenis"] == "izin"], g[g["jenis"] == "cuti"]
+        if not masuk.empty:
+            jam = masuk["jam"].iloc[0]
+            status = "Terlambat" if terlambat(jam) else "Hadir"
+            hadir += 1
+            telat += status == "Terlambat"
+            jarak = masuk["jarak"].iloc[0]
+            ket = "-"
+        elif not izin_g.empty or not cuti_g.empty:
+            ada_izin = not izin_g.empty
+            status = "Izin" if ada_izin else "Cuti"
+            izin += ada_izin
+            cuti += not ada_izin
+            jam, jarak = "", None
+            alasan = (izin_g if ada_izin else cuti_g)["alasan"].iloc[0]
+            ket = alasan if isinstance(alasan, str) and alasan.strip() else "-"
+        else:
+            continue
+        uang_hari = int(pulang["uang_makan"].sum()) if not pulang.empty else 0
+        uang += uang_hari
+        baris.append({
+            "_tgl": tgl_iso, "Tanggal": date.fromisoformat(tgl_iso).strftime("%d/%m/%Y"),
+            "Absen masuk": jam[:5] if jam else "-", "Status": status,
+            "Jarak (m)": "-" if jarak is None or pd.isna(jarak) else str(int(round(jarak))), "Keterangan": ket,
+            "Absen pulang": pulang["jam"].iloc[0][:5] if not pulang.empty else "-", "Uang makan": _rp(uang_hari),
+        })
+    kolom = ["_tgl", "Tanggal", "Absen masuk", "Status", "Jarak (m)", "Keterangan", "Absen pulang", "Uang makan"]
+    return pd.DataFrame(baris, columns=kolom), {"hadir": hadir, "terlambat": telat, "izin": izin, "cuti": cuti, "uang": uang}
+
+
+def foto_absen_peserta(eng, nama, tanggal):
+    """{'masuk': (jam, bytes|None), 'pulang': (...)} untuk satu peserta di satu tanggal (hanya absen yang berhasil).
+    Foto diambil saat dibutuhkan, bukan ikut dimuat di tabel."""
+    q = select(absensi_t.c.jenis, absensi_t.c.jam, absensi_t.c.foto, absensi_t.c.foto_path).where(and_(
+        absensi_t.c.nama == nama, absensi_t.c.tanggal == tanggal, absensi_t.c.status == "berhasil",
+        absensi_t.c.jenis.in_(("masuk", "pulang"))))
+    with eng.connect() as c:
+        baris = c.execute(q).mappings().all()
+    return {r["jenis"]: (r["jam"], ambil_foto(r["foto"], r["foto_path"])) for r in baris}
+
+
+def _html_kartu_rekap(aktif, r, label_periode):
+    kartu = [
+        ("db-hadir", aktif, "Peserta Aktif"), ("db-izin", int(r["Hari Hadir"].sum()), "Hari Hadir"),
+        ("db-telat", int(r["Terlambat"].sum()), "Terlambat"), ("db-izin", int(r["Izin"].sum()), "Izin"),
+        ("db-cuti", int(r["Cuti"].sum()), "Cuti"), ("db-belum", int(r["Tidak Hadir"].sum()), "Tidak Hadir"),
+    ]
+    return (
+        f'<div class="db-judul"><div class="db-judul-t">Rekap Total Peserta</div><div class="db-judul-s">{esc(label_periode)}</div></div>'
+        '<div class="db-grid">' + "".join(
+            f'<div class="db-k {kelas}"><div class="db-k-n">{n}</div><div class="db-k-t">{esc(label)}</div></div>'
+            for kelas, n, label in kartu) + "</div>"
     )
-    tahun_i, bulan_i = int(tahun), int(bulan)
-    aman = lambda t: re.sub(r"[^A-Za-z0-9]+", "_", t).strip("_")
-    mime_xlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _tabel_rekap_peserta(rekap, tahun, bulan):
+    """Tabel peserta dengan kolom terakhir tombol ›. Klik membuka halaman detail peserta itu."""
+    lebar = [3, 1, 1, 1, 1, 1, 2, 1]
+    judul = ["Nama", "Hadir", "Terlambat", "Izin", "Cuti", "Tidak hadir", "Uang makan", ""]
+    with st.container(key="rekap_tabel"):
+        for kol, t in zip(st.columns(lebar), judul):
+            kol.markdown(f'<div class="rk-h">{t}</div>', unsafe_allow_html=True)
+        for i, r in enumerate(rekap.to_dict("records"), 1):
+            kol = st.columns(lebar, vertical_alignment="center")
+            sisa = "" if r["Terdaftar"] else '<div class="rk-sub">tidak terdaftar</div>'
+            kol[0].markdown(f'<div class="rk-n">{esc(r["Nama"])}</div>{sisa}', unsafe_allow_html=True)
+            for k, nilai in zip(kol[1:6], (r["Hari Hadir"], r["Terlambat"], r["Izin"], r["Cuti"], r["Tidak Hadir"])):
+                k.markdown(f'<div class="rk-v">{nilai}</div>', unsafe_allow_html=True)
+            kol[6].markdown(f'<div class="rk-v">{_rp(r["Total Uang Makan"])}</div>', unsafe_allow_html=True)
+            if kol[7].button("›", key=f"rk_buka_{i}", help=f"Detail absensi {r['Nama']}"):
+                st.session_state["rekap_detail"] = {"nama": r["Nama"], "tahun": tahun, "bulan": bulan}
+                st.rerun()
+
+
+def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
+    """Halaman detail absensi satu peserta untuk satu bulan: ringkasan, tabel per tanggal, bukti foto, dan Excel peserta."""
+    if st.button("‹ Kembali ke rekap", key="rk_kembali"):
+        st.session_state.pop("rekap_detail", None)
+        st.rerun()
+    info = get_peserta(eng, nama)
+    divisi = (info["divisi"] if info else "") or "-"
+    gedung = f"Gedung {info['gedung']}" if info else "-"
+    chip = '<span class="rk-chip">Aktif</span>' if info else '<span class="rk-chip abu">Tidak terdaftar</span>'
+    st.markdown(
+        f'<div class="rk-kartu"><div class="rk-avatar">{esc(inisial(nama))}</div><div>'
+        f'<div class="rk-nama">{esc(nama)}</div><div class="rk-sub">Divisi {esc(divisi)} • {esc(gedung)}</div>{chip}</div></div>'
+        f'<div class="rk-periode"><div class="rk-periode-t">Periode Rekap</div>'
+        f'<div class="rk-periode-g"><div>{BULAN_ID[bulan - 1]}</div><div>{tahun}</div></div></div>',
+        unsafe_allow_html=True,
+    )
+    tabel, ring = detail_absensi_peserta(df, nama)
+    st.markdown(
+        '<div class="db-judul"><div class="db-judul-t">Tabel Detail Absensi Peserta</div></div>'
+        '<div class="db-grid">'
+        f'<div class="db-k db-hadir"><div class="db-k-n">{ring["hadir"]}</div><div class="db-k-t">Hari Hadir</div></div>'
+        f'<div class="db-k db-telat"><div class="db-k-n">{ring["terlambat"]}</div><div class="db-k-t">Terlambat</div></div>'
+        f'<div class="db-k db-izin"><div class="db-k-n">{_rp(ring["uang"])}</div><div class="db-k-t">Uang Makan</div></div></div>'
+        f'<div class="db-catatan">Izin {ring["izin"]} • Cuti {ring["cuti"]}</div>',
+        unsafe_allow_html=True,
+    )
+    if tabel.empty:
+        st.info("Tidak ada absen yang berhasil, izin, atau cuti untuk peserta ini di bulan tersebut.")
+    else:
+        st.dataframe(beri_nomor(tabel.drop(columns="_tgl")), width="stretch")
+        tgl_foto = list(tabel.loc[tabel["Status"].isin(["Hadir", "Terlambat"]), "_tgl"])
+        pilih = st.selectbox("Lihat bukti foto: pilih tanggal", tgl_foto, index=None, placeholder="Pilih tanggal",
+                             format_func=lambda t: date.fromisoformat(t).strftime("%d/%m/%Y"), key=f"rk_foto_{nama}_{tahun}_{bulan}")
+        if pilih:
+            foto = foto_absen_peserta(eng, nama, pilih)
+            kol = st.columns(2)
+            for k, jenis, judul in ((kol[0], "masuk", "Foto absen masuk"), (kol[1], "pulang", "Foto absen pulang")):
+                jam, isi = foto.get(jenis, ("", None))
+                k.caption(f"{judul} {jam[:5]}".strip())
+                if isi:
+                    k.image(isi, width=170)
+                else:
+                    k.caption("Belum absen pulang." if jenis == "pulang" and not jam else "Foto tidak tersedia.")
+    aman = re.sub(r"[^A-Za-z0-9]+", "_", nama).strip("_")
     try:
-        data_satu = excel_template_bytes(eng, df, tahun_i, bulan_i, [pilih])
+        data = excel_template_bytes(eng, df, tahun, bulan, [nama])
+    except FileNotFoundError:
+        data = None
+        st.warning("File **template_absen.xlsx** tidak ditemukan di folder aplikasi. Unggah file itu ke folder yang sama dengan app.py (GitHub), lalu muat ulang.")
+    if data:
+        st.download_button("⬇️ Download Excel Peserta", data=data, width="stretch", type="primary", mime=MIME_XLSX,
+                           file_name=f"ABSEN_MAGANG_{aman}_{tahun}_{bulan:02d}.xlsx")
+    if info and divisi_tanpa_penandatangan(eng, [nama]):
+        st.warning(f"Penandatangan untuk Divisi {divisi} belum diisi, jadi bagian tanda tangan di Excel dikosongkan. Isi di `PENANDATANGAN` pada app.py.")
+
+
+def _bagian_download(eng, df, tahun_i, bulan_i):
+    st.markdown('<div class="db-judul"><div class="db-judul-t">Download Excel</div></div>', unsafe_allow_html=True)
+    rekap, detail = _susun_rekap_detail(df)
+    daftar_nama = sorted(df["nama"].unique())
+    try:
         data_semua = excel_template_bytes(eng, df, tahun_i, bulan_i, daftar_nama)
     except FileNotFoundError:
-        data_satu = data_semua = None
-        st.warning(
-            "File **template_absen.xlsx** tidak ditemukan di folder aplikasi. "
-            "Unggah file itu ke folder yang sama dengan app.py (GitHub), lalu muat ulang."
-        )
+        data_semua = None
+        st.warning("File **template_absen.xlsx** tidak ditemukan di folder aplikasi. Unggah file itu ke folder yang sama dengan app.py (GitHub), lalu muat ulang.")
     kurang = divisi_tanpa_penandatangan(eng, daftar_nama)
     if kurang:
-        st.warning(
-            "Penandatangan belum diisi untuk: " + ", ".join(kurang) +
-            ". Bagian tanda tangan di Excel untuk divisi itu dikosongkan. "
-            "Isi nama dan jabatannya di `PENANDATANGAN` pada app.py."
-        )
-    d1, d2 = st.columns(2)
-    if data_satu:
-        d1.download_button(
-            f"⬇️ Excel {pilih}", data=data_satu, width="stretch",
-            file_name=f"ABSEN_MAGANG_{aman(pilih)}_{tahun_i}_{bulan_i:02d}.xlsx", mime=mime_xlsx,
-        )
+        st.warning("Penandatangan belum diisi untuk: " + ", ".join(kurang) +
+                   ". Bagian tanda tangan di Excel untuk divisi itu dikosongkan. Isi nama dan jabatannya di `PENANDATANGAN` pada app.py.")
     if data_semua:
-        d2.download_button(
-            "⬇️ Excel semua peserta", data=data_semua, width="stretch",
-            file_name=f"ABSEN_MAGANG_SEMUA_{tahun_i}_{bulan_i:02d}.xlsx", mime=mime_xlsx,
-        )
-    st.download_button(
-        "⬇️ Rekap ringkas (tabel)", data=excel_bytes(rekap, detail),
-        file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx", mime=mime_xlsx,
+        st.download_button("⬇️ Download Rekap Excel (semua peserta)", data=data_semua, width="stretch", type="primary", mime=MIME_XLSX,
+                           file_name=f"ABSEN_MAGANG_SEMUA_{tahun_i}_{bulan_i:02d}.xlsx")
+    st.download_button("⬇️ Rekap ringkas (tabel)", data=excel_bytes(rekap, detail), mime=MIME_XLSX,
+                       file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx")
+    st.caption("Excel per peserta ada di halaman detail (klik › pada barisnya).")
+
+
+def halaman_rekap(eng):
+    st.header("📊 Rekap Absensi & Uang Makan")
+    if not admin_login():
+        return
+    st.markdown(CSS_DASHBOARD + CSS_REKAP, unsafe_allow_html=True)
+    try:
+        det = st.session_state.get("rekap_detail")
+        if det:
+            _halaman_detail_rekap(eng, get_absensi_bulan(eng, det["tahun"], det["bulan"]), det["nama"], det["tahun"], det["bulan"])
+            return
+
+        hari_ini = datetime.now(WITA).date()
+        c1, c2 = st.columns(2)
+        bulan = c1.selectbox("Bulan", list(range(1, 13)), index=hari_ini.month - 1, format_func=lambda m: BULAN_ID[m - 1], key="rekap_bulan")
+        tahun = c2.number_input("Tahun", value=hari_ini.year, step=1, key="rekap_tahun")
+        tahun_i, bulan_i = int(tahun), int(bulan)
+        df = get_absensi_bulan(eng, tahun_i, bulan_i)
+        if df.empty:
+            st.info("Belum ada data absensi di bulan ini.")
+            return
+        rekap_p = rekap_peserta_bulan(eng, df, tahun_i, bulan_i)
+    except SQLAlchemyError as e:
+        st.error(pesan_db(e))
+        return
+
+    aktif = int(rekap_p["Terdaftar"].sum())
+    st.markdown(_html_kartu_rekap(aktif, rekap_p, f"{BULAN_ID[bulan_i - 1]} {tahun_i}"), unsafe_allow_html=True)
+    gagal = int(((df["status"] != "berhasil") & (~df["jenis"].isin(["izin", "cuti"]))).sum())
+    st.markdown(
+        f'<div class="db-catatan">Terlambat sudah termasuk dalam Hari Hadir. Tidak hadir = hari kerja (Senin sampai Jumat) tanpa absen masuk, '
+        f'izin, atau cuti, dihitung sejak absen pertama peserta. {esc(HARI_LIBUR_KHUSUS_NOTE)}<br>'
+        f'Total uang makan {_rp(rekap_p["Total Uang Makan"].sum())} • Percobaan gagal lokasi {gagal}</div>',
+        unsafe_allow_html=True,
     )
+    _bagian_download(eng, df, tahun_i, bulan_i)
+    st.markdown('<div class="db-judul"><div class="db-judul-t">Rekap Absensi Peserta</div></div>', unsafe_allow_html=True)
+    st.caption("Klik › di ujung baris untuk membuka detail absensi peserta itu.")
+    _tabel_rekap_peserta(rekap_p, tahun_i, bulan_i)
+
 
 
 # ------------------------------------------------------------------
@@ -4541,7 +4753,7 @@ def halaman_umpan_balik(eng):
 # ------------------------------------------------------------------
 def keluar():
     """Logout: hapus peran & data login, kembali ke layar login."""
-    for k in ("peran", "nama_login", "admin_ok", "tab"):
+    for k in ("peran", "nama_login", "admin_ok", "tab", "rekap_detail"):
         st.session_state.pop(k, None)
     st.rerun()
 
