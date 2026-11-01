@@ -156,6 +156,19 @@ def test_hapus_peserta_rating_tetap_sebagai_statistik_tapi_dilepas(eng):
     assert A.rating_peserta(eng, "Andi") is None
 
 
+# =================== DATABASE LAMA ===================
+def test_migrasi_membuat_tabel_umpan_balik_di_database_lama(tmp_path):
+    """Kasus yang terjadi di Supabase: tabel lama sudah ada, tabel baru belum, dan engine lama masih dipakai."""
+    from sqlalchemy import create_engine
+    eng = create_engine(f"sqlite:///{tmp_path / 'lama.db'}")
+    A.metadata.create_all(eng, tables=[t for t in A.metadata.sorted_tables if t.name not in ("rating_aplikasi", "ulasan")])
+    assert not {"rating_aplikasi", "ulasan"} & set(inspect(eng).get_table_names())
+    A._migrasi(eng)
+    assert {"rating_aplikasi", "ulasan"} <= set(inspect(eng).get_table_names())
+    A._migrasi(eng)                                          # aman diulang
+    assert A.ringkasan_rating(eng)["n"] == 0
+
+
 # =================== TAMPILAN (AppTest) ===================
 @pytest.fixture
 def ui(tmp_path, monkeypatch):
