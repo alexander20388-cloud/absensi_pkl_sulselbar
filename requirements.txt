@@ -16,7 +16,7 @@ SQLAlchemy==2.1.6
 psycopg2-binary==2.9.13
 
 # WAJIB di bawah versi 5: OpenCV 5 menghapus CascadeClassifier, jadi verifikasi wajah mati diam-diam.
-opencv-python-headless>=4.10,<5
+opencv-python-headless>=5.0.0.93,<6
 
 # Machine learning (menu Model). Versi scikit-learn saat memuat model harus sama dengan saat melatih.
 scikit-learn==1.9.1
