@@ -1,4 +1,5 @@
-"""Latih ulang model prediksi keterlambatan dari seluruh data absensi. Cocok untuk cron / GitHub Actions.
+"""Latih ulang model prediksi keterlambatan dari seluruh data absensi, dari baris perintah.
+Berguna bila Anda menjalankan aplikasi di komputer/server sendiri; di Streamlit Cloud pakai Admin > Model > Latih sekarang.
 
 Pemakaian:
     python jalankan_latih.py                       # aktifkan hanya jika tidak lebih buruk dari model aktif
@@ -25,7 +26,7 @@ def main(argv=None) -> int:
     ap.add_argument("--json", action="store_true", help="cetak hasil sebagai JSON")
     args = ap.parse_args(argv)
     try:
-        r = absensi.latih_dan_simpan(absensi.get_engine(), args.aktifkan)
+        r = absensi.latih_dan_simpan(absensi.get_engine(), args.aktifkan, aktor="cli", peran="sistem")
     except ml.DataKurang as e:
         print(f"Data belum cukup: {e}", file=sys.stderr)
         return 2

@@ -1,0 +1,66 @@
+# Menjalankan aplikasi di KOMPUTER SENDIRI dengan Docker. Opsional: Streamlit Cloud tidak memakai berkas ini.
+#
+#   docker compose up --build                       # web: http://localhost:8501   API: http://localhost:8000/docs
+#   docker compose --profile dbsendiri up --build   # sekaligus dengan database Postgres lokal
+#
+# Tanpa berkas .env, aplikasi memakai database SQLite sementara (cukup untuk mencoba).
+# Untuk database sungguhan: salin .env.example menjadi .env lalu isi nilainya.
+
+name: absensi
+
+x-app: &app
+  build: .
+  image: absensi-pkl
+  restart: unless-stopped
+  env_file:
+    - path: .env
+      required: false
+  # Tulis hanya ke /tmp; kode dan dependensi tidak boleh berubah saat jalan.
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  environment:
+    HOME: /tmp
+
+services:
+  web:
+    <<: *app
+    ports:
+      - "127.0.0.1:8501:8501"
+
+  api:
+    <<: *app
+    command: ["uvicorn", "api:api", "--host=0.0.0.0", "--port=8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  db:
+    profiles: ["dbsendiri"]
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      # Tanpa :? supaya `docker compose up` biasa tidak gagal bila .env belum dibuat (variabel service db tetap diperiksa
+      # walau profilnya tidak dipakai). Profil dbsendiri tanpa DB_PASSWORD akan ditolak Postgres dengan pesan yang jelas.
+      POSTGRES_USER: ${DB_USER:-absensi}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
+      POSTGRES_DB: ${DB_NAME:-absensi}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  dbdata:

@@ -1,0 +1,6 @@
+# Untuk pengembangan dan CI (tes + lint). Pasang sesudah requirements.txt.
+-r requirements.txt
+pytest==9.2.0
+httpx==0.28.1
+ruff==0.17.3
+PyYAML==6.0.3

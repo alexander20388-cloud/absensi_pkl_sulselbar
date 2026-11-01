@@ -1,25 +1,27 @@
-streamlit>=1.50
+# Dependensi aplikasi Absensi PKL (web Streamlit + API FastAPI + modul ML).
+# Versi di bawah diuji lulus pada Python 3.12 (64 tes). Dependensi turunan dibiarkan mengikuti.
+# Untuk memperbarui: pasang versi baru di venv bersih, jalankan `pytest`, lalu salin versinya ke sini.
 
-streamlit-js-eval
+streamlit==1.66.1
+streamlit-js-eval==1.0.0
+altair==6.3.0
+pandas==3.1.0
+numpy==2.5.4
+openpyxl==3.1.5
+pillow==13.0.0
+requests==2.34.2
 
-pandas
+# Database
+SQLAlchemy==2.1.6
+psycopg2-binary==2.9.13
 
-scikit-learn
+# WAJIB di bawah versi 5: OpenCV 5 menghapus CascadeClassifier, jadi verifikasi wajah mati diam-diam.
+opencv-python-headless>=4.10,<5
 
-openpyxl
+# Machine learning (menu Model). Versi scikit-learn saat memuat model harus sama dengan saat melatih.
+scikit-learn==1.9.1
+joblib==1.6.0
 
-sqlalchemy
-
-psycopg2-binary
-
-pillow
-
-requests
-
-opencv-python-headless>=4.8,<5
-
-scikit-learn>=1.4
-
-fastapi>=0.110
-
-uvicorn>=0.29
+# API (api.py)
+fastapi==0.162.0
+uvicorn[standard]==0.54.0

@@ -1,0 +1,15 @@
+# Lint di CI hanya untuk kesalahan yang hampir pasti bug (bukan gaya penulisan), supaya kode yang sudah
+# berjalan tidak ditolak karena soal selera. Perketat bertahap bila perlu.
+target-version = "py312"
+line-length = 140
+extend-exclude = [".cache", "venv", ".venv"]
+
+[lint]
+select = [
+    "E9",    # kesalahan sintaks / IO
+    "F63",   # perbandingan/assert yang salah
+    "F7",    # pernyataan di tempat yang salah (return di luar fungsi, dll)
+    "F82",   # nama tidak terdefinisi (undefined name)
+    "F811",  # definisi ganda yang menimpa
+    "F841",  # variabel lokal tidak terpakai
+]

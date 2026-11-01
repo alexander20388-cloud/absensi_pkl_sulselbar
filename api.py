@@ -2,7 +2,7 @@
 
 Memakai database, aturan libur, dan model yang SAMA dengan aplikasi Streamlit (diimpor dari app.py dan
 ml_absensi.py), jadi hasilnya selalu konsisten dengan yang dilihat admin. Cocok untuk aplikasi Android/native,
-dashboard lain, atau penjadwal (cron/GitHub Actions) yang memicu pelatihan ulang.
+atau dashboard lain. Tidak bisa berjalan di Streamlit Cloud; jalankan di komputer/server sendiri atau lewat Docker.
 
 Jalankan  : uvicorn api:api --host 0.0.0.0 --port 8000
 Dokumentasi interaktif: http://localhost:8000/docs
@@ -156,7 +156,23 @@ def anomali(
 def latih_model(body: LatihIn = LatihIn()):
     """Latih versi model baru dari seluruh data (bisa dipicu penjadwal). Butuh beberapa detik."""
     try:
-        r = absensi.latih_dan_simpan(eng(), body.aktifkan)
+        r = absensi.latih_dan_simpan(eng(), body.aktifkan, aktor="api", peran="sistem")
     except ml.DataKurang as e:
         raise HTTPException(422, str(e))
     return {"id": r["id"], "aktif": r["aktif"], "metrik": _ringkas_metrik(r["metrik"])}
+
+
+@api.get("/v1/audit/verifikasi", tags=["Audit"], dependencies=[Depends(wajib_kunci)])
+def verifikasi_audit(hash_sebelumnya: Optional[str] = Query(
+        default=None, pattern="^[0-9a-f]{64}$", description="Hash puncak yang dicatat di luar sistem pada waktu lampau (jangkar)")):
+    """Periksa rantai hash jejak audit. HTTP 409 bila rantai rusak (mudah dipantau dengan `curl -f`).
+
+    Rantai saja tidak mendeteksi penghapusan catatan TERAKHIR. Kirim `hash_sebelumnya` (hash puncak yang pernah dicatat):
+    bila hash itu sudah tidak ada di rantai, catatan telah dipotong atau ditulis ulang, dan respons 409."""
+    v = absensi.verifikasi_audit(eng())
+    ada = None if hash_sebelumnya is None else absensi.hash_audit_ada(eng(), hash_sebelumnya)
+    alasan = v["alasan"] or (None if ada is not False else "hash jangkar tidak ditemukan: catatan telah dipotong atau ditulis ulang")
+    ok = v["ok"] and ada is not False
+    badan = {"ok": ok, "jumlah": v["jumlah"], "rusak_id": v["rusak_id"], "alasan": alasan,
+             "hash_terakhir": v["hash_terakhir"], "hash_sebelumnya_ada": ada}
+    return JSONResponse(badan, status_code=200 if ok else 409)

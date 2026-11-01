@@ -22,6 +22,7 @@ import hashlib
 import hmac
 import io
 import json
+import logging
 import os
 import re
 import shutil
@@ -44,12 +45,14 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageOps
 from sqlalchemy import (
-    Column, ForeignKey, Index, Integer, String, Float, LargeBinary, MetaData, Table, Text,
+    Column, ForeignKey, Index, Integer, String, Float, LargeBinary, MetaData, Table, Text, UniqueConstraint,
     create_engine, select, insert, update, delete, func, and_, or_, inspect, text,
 )
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from streamlit_js_eval import get_geolocation
+
+import proyek
 
 # ------------------------------------------------------------------
 # KONFIGURASI - SESUAIKAN BAGIAN INI
@@ -63,6 +66,12 @@ GEDUNG_COORD = {
 }
 
 RADIUS_METER = 200  # toleransi jarak dari titik gedung (meter)
+MAKS_AKURASI_METER = 100  # absen ditolak bila ketelitian GPS perangkat lebih buruk dari ini (BUKAN toleransi jarak; itu RADIUS_METER)
+
+# Pembatasan percobaan login: setelah MAKS_GAGAL_LOGIN kali salah berturut-turut (dalam jendela KUNCI_LOGIN_MENIT menit),
+# akun/peran itu dikunci selama KUNCI_LOGIN_MENIT menit.
+MAKS_GAGAL_LOGIN = 5
+KUNCI_LOGIN_MENIT = 15
 
 # Daftar Divisi asli beserta gedungnya ("A" atau "B").
 # Peserta tinggal pilih Divisi, Gedung otomatis ikut sesuai daftar ini.
@@ -215,14 +224,17 @@ peserta_t = Table(
     Column("nama", String(100), nullable=False, unique=True),
     Column("gedung", String(1), nullable=False),
     Column("divisi", String(100), nullable=False, default=""),
-    Column("pin_hash", String(64), nullable=False),
+    Column("pin_hash", String(200), nullable=False),            # scrypt (baru) atau SHA-256 64 hex (lama; ditingkatkan saat login berhasil)
     Column("no_rekening", String(40)),
+    Column("setuju_versi", String(20)),                         # versi pemberitahuan privasi yang disetujui
+    Column("setuju_pada", String(19)),                          # YYYY-MM-DD HH:MM:SS (WITA)
 )
 
 absensi_t = Table(
     "absensi", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("peserta_id", Integer, ForeignKey("peserta.id", ondelete="SET NULL")),  # penghubung resmi ke peserta
+    Column("divisi", String(100)),                              # divisi peserta SAAT absen (snapshot; anggaran per divisi tetap benar bila peserta pindah)
     Column("nama", String(100), nullable=False, index=True),
     Column("tanggal", String(10), nullable=False, index=True),  # YYYY-MM-DD
     Column("jam", String(8), nullable=False),                   # HH:MM:SS
@@ -270,6 +282,89 @@ model_versi_t = Table(
     Column("baseline", Text),
     Column("artefak", LargeBinary),
     Column("aktif", Integer, nullable=False, default=0),
+)
+
+
+# Jejak perubahan (change log) berantai hash: tiap catatan memuat hash catatan sebelumnya, jadi mengubah atau menghapus
+# catatan di tengah memutus rantai (lihat proyek.verifikasi_rantai). hash_prev unik = rantai tidak bisa bercabang.
+audit_log_t = Table(
+    "audit_log", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("waktu", String(19), nullable=False, index=True),    # YYYY-MM-DD HH:MM:SS (WITA)
+    Column("aktor", String(100), nullable=False),
+    Column("peran", String(20), nullable=False),                # admin / pembimbing / peserta / sistem
+    Column("aksi", String(40), nullable=False, index=True),     # mis. peserta.hapus, logbook.setuju
+    Column("objek", String(200), nullable=False, default=""),
+    Column("detail", Text, nullable=False, default="{}"),       # JSON
+    Column("hash_prev", String(64), nullable=False, unique=True),
+    Column("hash", String(64), nullable=False),
+)
+
+# Percobaan login gagal per akun/peran (kunci: "peserta:<nama>", "pembimbing:<nama>", "admin").
+login_gagal_t = Table(
+    "login_gagal", metadata,
+    Column("kunci", String(150), primary_key=True),
+    Column("gagal", Integer, nullable=False, default=0),
+    Column("kunci_sampai", String(19)),                         # YYYY-MM-DD HH:MM:SS (WITA); kosong = tidak terkunci
+    Column("terakhir", String(19), nullable=False),
+)
+
+# Pembimbing divisi (stakeholder yang menyetujui logbook dan mengelola paket kerja divisinya).
+pembimbing_t = Table(
+    "pembimbing", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("nama", String(100), nullable=False, unique=True),
+    Column("divisi", String(100), nullable=False),
+    Column("pin_hash", String(200), nullable=False),            # scrypt dengan garam acak (proyek.hash_pin_kuat)
+    Column("dibuat", String(19)),
+)
+
+# Paket kerja (WBS) per divisi: dasar jadwal dan progres logbook.
+paket_kerja_t = Table(
+    "paket_kerja", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("divisi", String(100), nullable=False, index=True),
+    Column("kode", String(20), nullable=False),                 # kode WBS: 1, 1.1, 2.3
+    Column("nama", String(120), nullable=False),
+    Column("mulai", String(10), nullable=False),                # YYYY-MM-DD
+    Column("selesai", String(10), nullable=False),
+    Column("estimasi_jam", Float, nullable=False),
+    Column("ditutup", Integer, nullable=False, default=0),      # 1 = ditutup manual (dianggap selesai 100%)
+    Column("dibuat_oleh", String(100)),
+    UniqueConstraint("divisi", "kode", name="uq_paket_divisi_kode"),
+)
+
+# Logbook kegiatan harian peserta. divisi = snapshot saat dibuat (menentukan pembimbing yang berwenang).
+logbook_t = Table(
+    "logbook", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("peserta_id", Integer, ForeignKey("peserta.id", ondelete="SET NULL")),
+    Column("nama", String(100), nullable=False, index=True),
+    Column("divisi", String(100), nullable=False, default="", index=True),
+    Column("tanggal", String(10), nullable=False, index=True),
+    Column("uraian", Text, nullable=False),
+    Column("durasi_jam", Float, nullable=False),
+    Column("paket_id", Integer, ForeignKey("paket_kerja.id", ondelete="SET NULL")),
+    Column("status", String(12), nullable=False, default="diajukan", index=True),   # diajukan / disetujui / ditolak
+    Column("catatan_peninjau", Text),
+    Column("ditinjau_oleh", String(100)),
+    Column("ditinjau_pada", String(19)),
+    Column("dibuat", String(19), nullable=False),
+    Column("diubah", String(19)),
+)
+
+# Anggaran uang makan per divisi per bulan (Rupiah).
+anggaran_t = Table(
+    "anggaran", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("tahun", Integer, nullable=False),
+    Column("bulan", Integer, nullable=False),
+    Column("divisi", String(100), nullable=False),
+    Column("jumlah", Integer, nullable=False),
+    Column("catatan", String(300)),
+    Column("diubah_oleh", String(100)),
+    Column("diubah_pada", String(19)),
+    UniqueConstraint("tahun", "bulan", "divisi", name="uq_anggaran"),
 )
 
 
@@ -346,13 +441,19 @@ def _pasang_indeks(eng):
 def _migrasi(eng):
     """Tambah kolom/indeks baru ke database lama (create_all tidak mengubah tabel yang sudah ada). Aman diulang."""
     perlu = {
-        "peserta": [("no_rekening", "VARCHAR(40)")],
+        "peserta": [("no_rekening", "VARCHAR(40)"), ("setuju_versi", "VARCHAR(20)"), ("setuju_pada", "VARCHAR(19)")],
         "absensi": [
             ("foto_path", "VARCHAR(200)"), ("alasan", "VARCHAR(300)"),
             ("peserta_id", "INTEGER REFERENCES peserta(id) ON DELETE SET NULL"),
+            ("divisi", "VARCHAR(100)"),
         ],
     }
     insp = inspect(eng)
+    if eng.dialect.name == "postgresql":      # hash scrypt lebih panjang dari 64 karakter (SQLite tidak membatasi panjang)
+        for k in insp.get_columns("peserta"):
+            if k["name"] == "pin_hash" and (getattr(k["type"], "length", None) or 0) < 200:
+                with eng.begin() as c:
+                    c.execute(text("ALTER TABLE peserta ALTER COLUMN pin_hash TYPE VARCHAR(200)"))
     for tabel, daftar in perlu.items():
         ada = {k["name"] for k in insp.get_columns(tabel)}
         for kolom, tipe in daftar:
@@ -364,11 +465,16 @@ def _migrasi(eng):
             "UPDATE absensi SET peserta_id = (SELECT p.id FROM peserta p WHERE p.nama = absensi.nama) "
             "WHERE peserta_id IS NULL AND EXISTS (SELECT 1 FROM peserta p WHERE p.nama = absensi.nama)"
         ))
+    with eng.begin() as c:    # snapshot divisi untuk riwayat lama: divisi peserta SAAT INI (satu-satunya data yang tersedia)
+        c.execute(text(
+            "UPDATE absensi SET divisi = (SELECT p.divisi FROM peserta p WHERE p.nama = absensi.nama) "
+            "WHERE divisi IS NULL AND EXISTS (SELECT 1 FROM peserta p WHERE p.nama = absensi.nama)"
+        ))
     eng.indeks_unik_ok = _pasang_indeks(eng)
 
 
 @st.cache_resource
-def get_engine(versi_skema=7):
+def get_engine(versi_skema=8):
     url = url_database()
     sementara = False
     if url:
@@ -429,7 +535,7 @@ def cari_duplikat(eng):
 
 
 @coba_ulang
-def rapikan_duplikat(eng):
+def rapikan_duplikat(eng, aktor="admin", peran="admin"):
     """Hapus absensi ganda, sisakan catatan PALING AWAL di tiap kelompok (jadi uang makan tidak terhitung dobel),
     lalu pasang indeks unik. Mengembalikan jumlah baris yang dihapus."""
     paths_hapus, paths_simpan, hapus = [], set(), 0
@@ -448,6 +554,8 @@ def rapikan_duplikat(eng):
             paths_simpan.update(r[0] for r in c.execute(select(absensi_t.c.foto_path).where(absensi_t.c.id == simpan)))
             paths_hapus += [r[0] for r in c.execute(select(absensi_t.c.foto_path).where(and_(kembar, absensi_t.c.id != simpan)))]
             hapus += c.execute(delete(absensi_t).where(and_(kembar, absensi_t.c.id != simpan))).rowcount
+        if hapus:
+            _audit(c, aktor, peran, "absensi.rapikan_duplikat", "absensi", {"dihapus": hapus})
     hapus_foto_storage([p for p in paths_hapus if p and p not in paths_simpan])   # jangan hapus foto milik catatan yang dipertahankan
     eng.indeks_unik_ok = _pasang_indeks(eng)
     return hapus
@@ -459,9 +567,96 @@ def foto_dipakai(eng, path):
         return c.execute(select(func.count()).select_from(absensi_t).where(absensi_t.c.foto_path == path)).scalar() > 0
 
 
+_KUNCI_ADVISORY_AUDIT = 727001
+
+
+def _audit(c, aktor, peran, aksi, objek, detail=None):
+    """Tambah satu catatan ke rantai audit DI DALAM transaksi yang sedang berjalan (c), jadi perubahan data dan
+    jejaknya berhasil atau gagal bersama-sama. Di Postgres penulisan audit diserialkan lewat advisory lock supaya
+    rantai tidak bercabang; di SQLite penguncian tulis bawaannya sudah menyerialkan. Pemanggil sebaiknya
+    memanggil ini SETELAH perintah perubahan datanya."""
+    if c.dialect.name == "postgresql":
+        c.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _KUNCI_ADVISORY_AUDIT})
+    prev = c.execute(select(audit_log_t.c.hash).order_by(audit_log_t.c.id.desc()).limit(1)).scalar() or proyek.GENESIS
+    waktu = datetime.now(WITA).strftime("%Y-%m-%d %H:%M:%S")
+    aktor, peran, aksi, objek = str(aktor)[:100], str(peran)[:20], str(aksi)[:40], str(objek)[:200]
+    detail_s = proyek.detail_json(detail)
+    c.execute(insert(audit_log_t).values(
+        waktu=waktu, aktor=aktor, peran=peran, aksi=aksi, objek=objek, detail=detail_s, hash_prev=prev,
+        hash=proyek.hitung_hash(prev, waktu, aktor, peran, aksi, objek, detail_s),
+    ))
+
+
 def hash_pin(nama, pin):
+    """Hash LAMA (SHA-256 bergaram tetap). Hanya untuk memverifikasi PIN lama; PIN baru memakai proyek.hash_pin_kuat."""
     garam = secret("salt", "pkl-sulselbar")
     return hashlib.sha256(f"{nama.strip().lower()}|{pin}|{garam}".encode()).hexdigest()
+
+
+# ---------- pembatasan percobaan login ----------
+def _fmt_waktu(dt):
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def sisa_kunci_login(eng, kunci, now=None):
+    """Sisa detik akun/peran itu terkunci (0 = tidak terkunci)."""
+    now = now or datetime.now(WITA)
+    with eng.connect() as c:
+        v = c.execute(select(login_gagal_t.c.kunci_sampai).where(login_gagal_t.c.kunci == kunci)).scalar()
+    if not v:
+        return 0
+    sampai = datetime.strptime(v, "%Y-%m-%d %H:%M:%S").replace(tzinfo=WITA)
+    return max(0, math.ceil((sampai - now).total_seconds()))
+
+
+@coba_ulang
+def catat_login_gagal(eng, kunci, now=None):
+    """Catat satu percobaan gagal. Mengembalikan sisa detik terkunci (0 bila belum mencapai batas)."""
+    now = now or datetime.now(WITA)
+    s = _fmt_waktu(now)
+    jendela_awal = _fmt_waktu(now - timedelta(minutes=KUNCI_LOGIN_MENIT))
+    try:
+        with eng.begin() as c:
+            row = c.execute(select(login_gagal_t.c.gagal, login_gagal_t.c.kunci_sampai, login_gagal_t.c.terakhir)
+                            .where(login_gagal_t.c.kunci == kunci)).first()
+            gagal = 0
+            if row is not None and row[2] >= jendela_awal and not (row[1] and row[1] <= s):
+                gagal = int(row[0])                       # hitungan lama dibuang bila sudah di luar jendela atau masa kunci habis
+            gagal += 1
+            sampai = _fmt_waktu(now + timedelta(minutes=KUNCI_LOGIN_MENIT)) if gagal >= MAKS_GAGAL_LOGIN else None
+            if row is None:
+                c.execute(insert(login_gagal_t).values(kunci=kunci, gagal=gagal, kunci_sampai=sampai, terakhir=s))
+            else:
+                c.execute(update(login_gagal_t).where(login_gagal_t.c.kunci == kunci)
+                          .values(gagal=gagal, kunci_sampai=sampai, terakhir=s))
+            if sampai:
+                _audit(c, "sistem", "sistem", "login.terkunci", kunci, {"gagal": gagal, "menit": KUNCI_LOGIN_MENIT})
+    except IntegrityError:                                # dua percobaan bersamaan menyisip baris yang sama: satu cukup
+        pass
+    return sisa_kunci_login(eng, kunci, now)
+
+
+@coba_ulang
+def reset_login_gagal(eng, kunci):
+    with eng.begin() as c:
+        c.execute(delete(login_gagal_t).where(login_gagal_t.c.kunci == kunci))
+
+
+def proses_login(eng, kunci, benar_fn, now=None):
+    """Satu pintu untuk semua login. benar_fn() dipanggil HANYA bila akun tidak sedang terkunci.
+    Mengembalikan (status, menit): status 'ok' | 'salah' | 'terkunci'; menit = sisa menit kunci (dibulatkan ke atas)."""
+    sisa = sisa_kunci_login(eng, kunci, now)
+    if sisa > 0:
+        return "terkunci", math.ceil(sisa / 60)
+    if benar_fn():
+        reset_login_gagal(eng, kunci)
+        return "ok", 0
+    sisa = catat_login_gagal(eng, kunci, now)
+    return ("terkunci", math.ceil(sisa / 60)) if sisa > 0 else ("salah", 0)
+
+
+def pesan_terkunci(menit):
+    return f"Terlalu banyak percobaan gagal. Akun dikunci sementara, coba lagi dalam {menit} menit."
 
 
 def list_peserta(eng):
@@ -479,18 +674,30 @@ def get_peserta(eng, nama):
 
 
 @coba_ulang
-def add_peserta(eng, nama, gedung, divisi, pin, no_rekening=None):
+def add_peserta(eng, nama, gedung, divisi, pin, no_rekening=None, aktor="admin", peran="admin"):
     with eng.begin() as c:
         c.execute(insert(peserta_t).values(
-            nama=nama.strip(), gedung=gedung, divisi=divisi.strip(), pin_hash=hash_pin(nama, pin),
+            nama=nama.strip(), gedung=gedung, divisi=divisi.strip(), pin_hash=proyek.hash_pin_kuat(pin),
             no_rekening=(no_rekening or None),
         ))
+        _audit(c, aktor, peran, "peserta.tambah", f"peserta:{nama.strip()}",
+               {"divisi": divisi.strip(), "gedung": gedung, "rekening_diisi": bool(no_rekening)})
+
+
+def _akhir_rekening(nomor):
+    """Hanya 4 angka terakhir yang masuk jejak audit (nomor rekening adalah data pribadi)."""
+    angka = re.sub(r"\D", "", nomor or "")
+    return angka[-4:] if angka else None
 
 
 @coba_ulang
-def set_rekening(eng, nama, no_rekening):
+def set_rekening(eng, nama, no_rekening, aktor="admin", peran="admin"):
     with eng.begin() as c:
-        c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(no_rekening=(no_rekening or None)))
+        lama = c.execute(select(peserta_t.c.no_rekening).where(peserta_t.c.nama == nama)).first()
+        r = c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(no_rekening=(no_rekening or None)))
+        if r.rowcount:
+            _audit(c, aktor, peran, "peserta.ubah_rekening", f"peserta:{nama}",
+                   {"dari_akhir": _akhir_rekening(lama[0]), "ke_akhir": _akhir_rekening(no_rekening)})
 
 
 def validasi_rekening(teks):
@@ -504,28 +711,39 @@ def validasi_rekening(teks):
 
 
 @coba_ulang
-def reset_pin(eng, nama, pin_baru):
+def reset_pin(eng, nama, pin_baru, aktor="admin", peran="admin"):
     with eng.begin() as c:
-        c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(pin_hash=hash_pin(nama, pin_baru)))
+        r = c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(pin_hash=proyek.hash_pin_kuat(pin_baru)))
+        if r.rowcount:
+            _audit(c, aktor, peran, "peserta.reset_pin", f"peserta:{nama}")           # PIN-nya sendiri tidak pernah dicatat
 
 
 @coba_ulang
-def set_divisi(eng, nama, divisi, gedung):
+def set_divisi(eng, nama, divisi, gedung, aktor="admin", peran="admin"):
     with eng.begin() as c:
-        c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(divisi=divisi.strip(), gedung=gedung))
+        lama = c.execute(select(peserta_t.c.divisi, peserta_t.c.gedung).where(peserta_t.c.nama == nama)).first()
+        r = c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(divisi=divisi.strip(), gedung=gedung))
+        if r.rowcount:
+            _audit(c, aktor, peran, "peserta.ubah_divisi", f"peserta:{nama}",
+                   {"dari": lama[0], "ke": divisi.strip(), "gedung_dari": lama[1], "gedung_ke": gedung})
 
 
 @coba_ulang
-def hapus_peserta(eng, nama, dengan_absensi=False):
-    """Hapus peserta. Kalau dengan_absensi=True, riwayat absensinya ikut dihapus."""
-    paths = []
+def hapus_peserta(eng, nama, dengan_absensi=False, aktor="admin", peran="admin"):
+    """Hapus peserta. Kalau dengan_absensi=True, riwayat absensi dan logbooknya ikut dihapus."""
+    paths, n_absen, n_log = [], 0, 0
     with eng.begin() as c:
         # riwayat yang dipertahankan dilepas dari peserta (SQLite tidak menjalankan ON DELETE SET NULL)
         c.execute(update(absensi_t).where(absensi_t.c.nama == nama).values(peserta_id=None))
-        c.execute(delete(peserta_t).where(peserta_t.c.nama == nama))
+        c.execute(update(logbook_t).where(logbook_t.c.nama == nama).values(peserta_id=None))
+        ada = c.execute(delete(peserta_t).where(peserta_t.c.nama == nama)).rowcount
         if dengan_absensi:
             paths = [r[0] for r in c.execute(select(absensi_t.c.foto_path).where(absensi_t.c.nama == nama))]
-            c.execute(delete(absensi_t).where(absensi_t.c.nama == nama))
+            n_absen = c.execute(delete(absensi_t).where(absensi_t.c.nama == nama)).rowcount
+            n_log = c.execute(delete(logbook_t).where(logbook_t.c.nama == nama)).rowcount
+        if ada or n_absen or n_log:
+            _audit(c, aktor, peran, "peserta.hapus", f"peserta:{nama}",
+                   {"dengan_riwayat": bool(dengan_absensi), "absensi_dihapus": n_absen, "logbook_dihapus": n_log})
     hapus_foto_storage(paths)
 
 
@@ -537,7 +755,7 @@ def daftar_nama_absensi(eng):
 
 
 @coba_ulang
-def hapus_absensi(eng, nama=None):
+def hapus_absensi(eng, nama=None, aktor="admin", peran="admin"):
     """Hapus riwayat absensi (beserta fotonya). nama=None berarti SEMUA peserta.
     Mengembalikan jumlah baris yang terhapus."""
     stmt = delete(absensi_t)
@@ -549,6 +767,8 @@ def hapus_absensi(eng, nama=None):
     with eng.begin() as c:
         paths = [r[0] for r in c.execute(sel)]
         jumlah = c.execute(stmt).rowcount
+        if jumlah:
+            _audit(c, aktor, peran, "absensi.hapus", f"absensi:{nama or 'SEMUA'}", {"jumlah": jumlah})
     hapus_foto_storage(paths)
     return jumlah
 
@@ -602,8 +822,13 @@ def sudah_berhasil(eng, nama, tanggal, jenis):
 def simpan_absen(eng, **nilai):
     sekarang = datetime.now(WITA)
     with eng.begin() as c:
-        if nilai.get("peserta_id") is None:
-            nilai["peserta_id"] = c.execute(select(peserta_t.c.id).where(peserta_t.c.nama == nilai.get("nama"))).scalar()
+        if nilai.get("peserta_id") is None or nilai.get("divisi") is None:
+            p = c.execute(select(peserta_t.c.id, peserta_t.c.divisi).where(peserta_t.c.nama == nilai.get("nama"))).first()
+            if p is not None:
+                if nilai.get("peserta_id") is None:
+                    nilai["peserta_id"] = p[0]
+                if nilai.get("divisi") is None:
+                    nilai["divisi"] = p[1]                  # snapshot: anggaran per divisi tetap benar bila peserta pindah
         c.execute(insert(absensi_t).values(**nilai))
         # pemberitahuan untuk Supabase Realtime (dashboard admin), + bersihkan yang sudah > 7 hari
         c.execute(insert(notifikasi_t).values(jenis="absen", dibuat=sekarang.strftime("%Y-%m-%d %H:%M:%S")))
@@ -1032,14 +1257,35 @@ def password_admin():
     pw = secret("admin_password")
     if pw:
         return str(pw)
-    if secret("database_url"):
+    if url_database() is not None:      # database cloud apa pun (database_url ATAU db_host dst.): jangan pernah pakai password bawaan
         return None
     return "admin123"  # mode lokal (tanpa database cloud)
 
 
 def cek_pin(eng, nama, pin):
+    """PIN peserta. Hash scrypt (baru) dan SHA-256 (lama) sama-sama diterima; yang lama otomatis ditingkatkan ke scrypt
+    saat login berhasil, jadi tidak ada peserta yang perlu direset."""
     peserta = get_peserta(eng, nama)
-    return peserta is not None and hmac.compare_digest(peserta["pin_hash"], hash_pin(nama, pin))
+    if peserta is None:
+        proyek.cek_pin_kuat(pin, _hash_dummy())            # waktu proses sama, supaya nama yang ada/tidak ada tak bisa dibedakan
+        return False
+    tersimpan = peserta["pin_hash"] or ""
+    if tersimpan.startswith("scrypt$"):
+        return proyek.cek_pin_kuat(pin, tersimpan)
+    if not hmac.compare_digest(tersimpan.encode(), hash_pin(nama, pin).encode()):
+        return False
+    try:                                                     # tingkatkan ke scrypt; gagal menyimpan tidak boleh menggagalkan login
+        with eng.begin() as c:
+            c.execute(update(peserta_t).where(and_(peserta_t.c.nama == nama, peserta_t.c.pin_hash == tersimpan))
+                      .values(pin_hash=proyek.hash_pin_kuat(pin)))
+    except SQLAlchemyError:
+        pass
+    return True
+
+
+def _sama(a, b):
+    """Perbandingan waktu-konstan untuk teks apa pun (compare_digest pada str melempar TypeError bila ada huruf non-ASCII)."""
+    return hmac.compare_digest(str(a).encode(), str(b).encode())
 
 
 def admin_login():
@@ -1052,14 +1298,17 @@ def admin_login():
     if pw_benar is None:
         st.error("admin_password belum diatur di Secrets. Hubungi pengelola aplikasi.")
         return False
-    if not secret("admin_password") and not secret("database_url"):
+    if not secret("admin_password") and url_database() is None:
         st.info("Mode lokal: password admin default = admin123")
 
     pw = st.text_input("Password admin", type="password")
     if st.button("Masuk sebagai admin"):
-        if hmac.compare_digest(pw, str(pw_benar)):
+        status, menit = proses_login(get_engine(), "admin", lambda: _sama(pw, str(pw_benar)))
+        if status == "ok":
             st.session_state.admin_ok = True
             st.rerun()
+        elif status == "terkunci":
+            st.error(pesan_terkunci(menit))
         else:
             st.error("Password salah.")
     return False
@@ -1555,12 +1804,12 @@ def tab_beranda(eng, nama, peserta):
 <div class="pr-top">
 <div class="pr-logo">{ic("fingerprint", 28)}</div>
 <div class="pr-title">Presensi</div>
-<div class="pr-avatar">{inisial(nama)}</div>
+<div class="pr-avatar">{esc(inisial(nama))}</div>
 <div class="pr-out">{ic("logout", 26)}</div>
 </div>
 <div class="pr-hello">{salam(now.hour)} 👋</div>
-<div class="pr-name">{nama}</div>
-<div class="pr-sub">{peserta["divisi"]} • Gedung {peserta["gedung"]}</div>
+<div class="pr-name">{esc(nama)}</div>
+<div class="pr-sub">{esc(peserta["divisi"])} • Gedung {esc(peserta["gedung"])}</div>
 </div>
 <div class="pr-card">
 <div class="pr-date">{ic("calendar", 20)}<span>{tgl_indonesia(now.date())}</span><span class="pr-badge">Aktif</span></div>
@@ -1577,6 +1826,7 @@ def tab_beranda(eng, nama, peserta):
     with st.container(key="ov_keluar"):
         if st.button("‎", key="ovb_keluar", width="stretch"):
             keluar()
+    _kartu_logbook_beranda(eng, nama)
 
 
 def _hasil(level, pesan, **ekstra):
@@ -1603,6 +1853,10 @@ def proses_absen(eng, nama, peserta, jenis, foto_bytes, lat, lon, akurasi=None, 
     if not dalam_jendela(now, buka, tutup):
         return _hasil("error", f"❌ Absen ditolak: {jenis} hanya dibuka pukul {rentang} WITA (sekarang {now.strftime('%H:%M')}).")
 
+    if akurasi is not None and akurasi > MAKS_AKURASI_METER:   # ketelitian GPS buruk (mis. lokasi dari IP/menara); BUKAN soal jarak ke gedung
+        return _hasil("error", f"📡 Akurasi lokasi terlalu rendah (±{akurasi:.0f} m; maksimal ±{MAKS_AKURASI_METER} m). "
+                               "Aktifkan GPS presisi tinggi atau pindah ke tempat terbuka, tunggu sebentar, lalu coba lagi.",
+                      alasan="akurasi")
     wajah_ok, pesan_wajah = periksa_wajah(foto_bytes)        # bukan wajah / posisi salah = tidak dicatat sama sekali
     if not wajah_ok:
         return _hasil("error", f"📷 {pesan_wajah} Ambil foto lagi.", alasan="wajah")
@@ -1714,7 +1968,10 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
 
     lokasi = get_geolocation()
     coords = (lokasi or {}).get("coords")
-    if coords:
+    if coords and (coords.get("accuracy") or 0) > MAKS_AKURASI_METER:
+        st.warning(f"📡 Akurasi lokasi masih rendah (±{coords['accuracy']:.0f} m, perlu ±{MAKS_AKURASI_METER} m atau lebih baik). "
+                   "Tunggu GPS menyesuaikan atau pindah ke tempat terbuka.")
+    elif coords:
         st.success(f"📡 Lokasi terdeteksi (akurasi ±{coords.get('accuracy', 0):.0f} m)")
     else:
         st.info("Menunggu lokasi... klik **Allow/Izinkan** saat browser meminta akses lokasi.")
@@ -1839,12 +2096,15 @@ def tab_profil(nama, peserta):
     header_halaman("Profil", "Data peserta PKL")
     with st.container(key="pagebody"):
         st.markdown(
-            f'<div class="pr-kv"><span>Nama</span><span>{nama}</span></div>'
-            f'<div class="pr-kv"><span>Divisi</span><span>{peserta["divisi"]}</span></div>'
-            f'<div class="pr-kv"><span>Gedung</span><span>Gedung {peserta["gedung"]}</span></div>'
-            f'<div class="pr-kv"><span>Status</span><span class="ok">Aktif</span></div>',
+            f'<div class="pr-kv"><span>Nama</span><span>{esc(nama)}</span></div>'
+            f'<div class="pr-kv"><span>Divisi</span><span>{esc(peserta["divisi"])}</span></div>'
+            f'<div class="pr-kv"><span>Gedung</span><span>Gedung {esc(peserta["gedung"])}</span></div>'
+            f'<div class="pr-kv"><span>Status</span><span class="ok">Aktif</span></div>'
+            f'<div class="pr-kv"><span>Persetujuan privasi</span><span>{esc(str(peserta["setuju_pada"] or "-")[:10])}</span></div>',
             unsafe_allow_html=True,
         )
+        with st.expander("Pemberitahuan privasi data"):
+            st.markdown(TEKS_PRIVASI.format(kontak=esc(kontak_privasi())))
         if st.button("Keluar", key="keluar_profil", width="stretch"):
             keluar()
 
@@ -1890,11 +2150,17 @@ def halaman_peserta(eng, nama):
         return
 
     st.markdown(CSS_PRESENSI, unsafe_allow_html=True)
+    st.markdown(CSS_PROYEK, unsafe_allow_html=True)
+    if perlu_persetujuan(peserta):
+        halaman_persetujuan(eng, nama)
+        return
     if nav_perlu_naik():
         st.markdown(CSS_NAV_NAIK, unsafe_allow_html=True)
     tab = st.session_state.get("tab", "beranda")
     if tab == "absen":
         tab_absen(eng, nama, peserta)
+    elif tab == "logbook":
+        tab_logbook(eng, nama, peserta)
     elif tab == "riwayat":
         tab_riwayat(eng, nama)
     elif tab == "rekap":
@@ -1906,6 +2172,246 @@ def halaman_peserta(eng, nama):
         tab_beranda(eng, nama, peserta)
     st.markdown('<div class="pr-spacer"></div>', unsafe_allow_html=True)
     navigasi_bawah(tab)
+
+
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# TAMPILAN PESERTA: PRIVASI DAN LOGBOOK
+# ------------------------------------------------------------------
+CSS_PROYEK = """
+<style>
+.pr-link { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 18px; margin: 12px 22px 0;
+  padding: 13px 14px; box-shadow: 0 4px 18px rgba(37,52,140,.08); position: relative; z-index: 2; }
+.pr-link .ic { width: 42px; height: 42px; border-radius: 12px; background: #eaf1ff; color: #2f5fd0; display: flex;
+  align-items: center; justify-content: center; flex: none; }
+.pr-link .t { font-weight: 600; color: #1e2a5a; font-size: 15px; }
+.pr-link .s { font-size: 12.5px; color: #6b779e; margin-top: 2px; }
+.pr-link.warn .s { color: #c2410c; font-weight: 600; }
+.pr-link .go { margin-left: auto; color: #9aa6c8; font-size: 24px; line-height: 1; }
+.lb-chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+.lb-diajukan { background: #fff4d6; color: #b45309; }
+.lb-disetujui { background: #d9f7e8; color: #12a15f; }
+.lb-ditolak { background: #fde2e2; color: #c0392b; }
+.lb-bar { height: 8px; background: #e6edfb; border-radius: 999px; overflow: hidden; margin-top: 7px; }
+.lb-bar > i { display: block; height: 100%; background: #2563eb; border-radius: 999px; }
+.lb-bar.rencana { margin-top: 3px; height: 4px; background: #eef0f5; }
+.lb-bar.rencana > i { background: #9db8f2; }
+</style>
+"""
+
+# CATATAN UNTUK PENGELOLA: ini draf pemberitahuan. Sesuaikan dengan kebijakan pelindungan data pribadi instansi dan
+# mintalah tinjauan unit hukum/Human Capital sebelum dipakai. Naikkan VERSI_PRIVASI bila isinya diubah supaya semua
+# peserta diminta menyetujui ulang. Setiap kalimat di bawah menggambarkan perilaku aplikasi yang sebenarnya.
+TEKS_PRIVASI = """
+**Data apa yang dikumpulkan**
+- **Lokasi GPS** saat kamu menekan absen masuk/pulang (dan percobaan absen yang gagal karena di luar area).
+- **Foto selfie** saat absen masuk/pulang.
+- **Jam absen**, izin/cuti beserta alasannya, dan **logbook kegiatan** yang kamu tulis.
+- Nama, divisi, gedung, dan nomor rekening yang didaftarkan admin.
+
+**Untuk apa**
+Memverifikasi kehadiran PKL, menghitung uang makan, dan mengevaluasi kegiatan PKL. Data tidak dipakai untuk tujuan lain.
+
+**Siapa yang dapat melihat**
+- **Admin/Human Capital**: absensi, lokasi, dan foto.
+- **Pembimbing divisi**: hanya logbook peserta di divisinya. Pembimbing **tidak** dapat melihat foto maupun lokasi.
+- Perubahan data oleh admin dan pembimbing tercatat pada jejak audit yang tidak dapat diubah diam-diam.
+
+**Berapa lama**
+Selama masa PKL dan jangka waktu administrasi yang ditetapkan instansi. Admin dapat menghapus data sesuai kebijakan tersebut.
+
+**Hakmu**
+Kamu dapat menanyakan data apa saja yang tersimpan tentangmu, meminta koreksi, atau menarik persetujuan dengan menghubungi {kontak}.
+Tanpa persetujuan, absen lewat aplikasi ini tidak dapat digunakan; hubungi pihak yang sama untuk cara absen alternatif.
+"""
+
+
+def kontak_privasi():
+    return (secret("kontak_privasi") or "admin atau unit Human Capital Bank Sulselbar").strip()
+
+
+def halaman_persetujuan(eng, nama):
+    """Layar wajib sebelum peserta memakai aplikasi (dan setiap VERSI_PRIVASI berubah)."""
+    header_halaman("Privasi Data", "Mohon dibaca sebelum menggunakan aplikasi")
+    with st.container(key="pagebody"):
+        st.markdown(TEKS_PRIVASI.format(kontak=esc(kontak_privasi())))
+        setuju = st.checkbox("Saya sudah membaca dan menyetujui pemberitahuan ini.", key="privasi_cek")
+        if st.button("Setuju dan lanjutkan", key="privasi_ok", type="primary", disabled=not setuju, width="stretch"):
+            try:
+                catat_persetujuan(eng, nama)
+            except SQLAlchemyError as e:
+                st.error(pesan_db(e))
+            else:
+                st.rerun()
+        if st.button("Keluar", key="privasi_keluar", width="stretch"):
+            keluar()
+
+
+def _chip(status):
+    return f'<span class="lb-chip lb-{status}">{status.capitalize()}</span>'
+
+
+def _kartu_logbook_beranda(eng, nama):
+    """Kartu tautan ke Logbook di Beranda, dengan ringkasan yang perlu perhatian peserta."""
+    df = daftar_logbook(eng, nama=nama, limit=100)
+    n_tolak = int((df["status"] == "ditolak").sum())
+    n_ajuan = int((df["status"] == "diajukan").sum())
+    hari_ini = datetime.now(WITA)
+    sudah_hari_ini = bool((df["tanggal"] == hari_ini.strftime("%Y-%m-%d")).any())
+    kelas = ""
+    if n_tolak:
+        sub, kelas = f"{n_tolak} logbook ditolak, perlu kamu perbaiki", "warn"
+    elif hari_libur(hari_ini):
+        sub = "Tulis kegiatan harianmu"
+    elif not sudah_hari_ini:
+        sub = "Belum ada kegiatan tercatat hari ini"
+    elif n_ajuan:
+        sub = f"{n_ajuan} menunggu persetujuan pembimbing"
+    else:
+        sub = "Kegiatan hari ini sudah tercatat"
+    html = (f'<div class="pr-link {kelas}"><div class="ic">{ic("file", 22)}</div>'
+            f'<div><div class="t">Logbook kegiatan</div><div class="s">{sub}</div></div><div class="go">›</div></div>')
+    tombol_overlay("logbook", html, tab="logbook")
+
+
+def _hari_kerja_sebelum(d):
+    while hari_libur(d):
+        d -= timedelta(days=1)
+    return d
+
+
+def _opsi_paket(eng, divisi):
+    paket = daftar_paket(eng, divisi)
+    opsi = {None: "(Tidak terkait paket kerja)"}
+    for r in paket.itertuples():
+        opsi[int(r.id)] = f"{r.kode}  {r.nama}"
+    return opsi
+
+
+def _lb_tulis(eng, nama, peserta, now):
+    # Isian dikosongkan HANYA setelah berhasil. clear_on_submit akan menghapus teks juga saat validasi gagal,
+    # padahal peserta baru saja mengetiknya. Mengubah session_state sebelum widget dibuat itu diizinkan.
+    if st.session_state.pop("lb_reset", False):
+        st.session_state["lb_uraian"], st.session_state["lb_durasi"], st.session_state["lb_paket"] = "", 4.0, None
+    pesan = st.session_state.pop("pesan_logbook", None)
+    if pesan:
+        st.success(pesan[0])
+        if pesan[1]:
+            st.info(pesan[1])
+    opsi = _opsi_paket(eng, peserta["divisi"])
+    with st.form("form_logbook"):
+        tgl = st.date_input("Tanggal kegiatan", value=_hari_kerja_sebelum(now.date()), key="lb_tgl",
+                            min_value=now.date() - timedelta(days=14), max_value=now.date())
+        paket_id = st.selectbox("Paket kerja (opsional)", list(opsi), format_func=opsi.get, key="lb_paket")
+        uraian = st.text_area("Apa yang kamu kerjakan?", max_chars=1000, height=130, key="lb_uraian",
+                              placeholder="Contoh: Menyusun rekap data nasabah bulan Oktober dan memeriksa kesesuaian angkanya")
+        durasi = st.number_input("Durasi (jam)", min_value=0.5, max_value=10.0, value=4.0, step=0.5, key="lb_durasi")
+        kirim = st.form_submit_button("Ajukan ke pembimbing", type="primary", width="stretch", key="lb_kirim")
+    if kirim:
+        try:
+            tambah_logbook(eng, nama, tgl, uraian, durasi, paket_id, now=now)
+        except ValueError as e:
+            st.error(str(e))
+        except SQLAlchemyError as e:
+            st.error(pesan_db(e))
+        else:
+            hadir = tgl.isoformat() in {r["tanggal"] for r in get_riwayat_peserta(eng, nama, limit=60)
+                                        if r["jenis"] == "masuk" and r["status"] == "berhasil"}
+            st.session_state["lb_reset"] = True
+            st.session_state["pesan_logbook"] = (
+                "Logbook diajukan. Pembimbing akan meninjaunya.",
+                None if hadir else "Catatan: tidak ada absen masuk berhasil pada tanggal itu. Pembimbing akan melihat penandanya.")
+            st.rerun()
+
+
+def _lb_daftar(eng, nama, peserta, now):
+    df = daftar_logbook(eng, nama=nama, limit=60)
+    if df.empty:
+        st.info("Belum ada logbook. Buka bagian Tulis untuk menambahkan.")
+        return
+    c = st.columns(3)
+    c[0].metric("Menunggu", int((df["status"] == "diajukan").sum()))
+    c[1].metric("Disetujui", int((df["status"] == "disetujui").sum()))
+    c[2].metric("Ditolak", int((df["status"] == "ditolak").sum()))
+    html = ""
+    for r in df.itertuples():
+        paket_txt = f"{esc(r.kode_paket)} • " if isinstance(r.kode_paket, str) else ""
+        uraian = esc(r.uraian[:90]) + ("…" if len(r.uraian) > 90 else "")
+        extra = ""
+        if r.status == "ditolak" and isinstance(r.catatan_peninjau, str):
+            extra = f'<div class="m" style="color:#c0392b">Catatan pembimbing: {esc(r.catatan_peninjau)}</div>'
+        html += (f'<div class="pr-row"><div><div class="d">{tgl_indonesia(date.fromisoformat(r.tanggal))}</div>'
+                 f'<div class="m">{paket_txt}{r.durasi_jam:g} jam</div><div class="m">{uraian}</div>{extra}</div>'
+                 f'<div class="r">{_chip(r.status)}</div></div>')
+    st.markdown(html, unsafe_allow_html=True)
+
+    bisa = df[df["status"].isin(["diajukan", "ditolak"])]
+    if bisa.empty:
+        return
+    st.markdown("**Perbaiki atau hapus**")
+    ringkas = {int(r.id): f"{r.tanggal} • {r.uraian[:38]}" for r in bisa.itertuples()}
+    pilih = st.selectbox("Pilih kegiatan", list(ringkas), format_func=ringkas.get, key="lb_pilih")
+    row = bisa[bisa["id"] == pilih].iloc[0]
+    opsi = _opsi_paket(eng, peserta["divisi"])
+    idx = list(opsi).index(int(row["paket_id"])) if pd.notna(row["paket_id"]) and int(row["paket_id"]) in opsi else 0
+    uraian_baru = st.text_area("Uraian", value=row["uraian"], key=f"lb_u_{pilih}", max_chars=1000, height=120)
+    durasi_baru = st.number_input("Durasi (jam)", min_value=0.5, max_value=10.0, value=float(row["durasi_jam"]), step=0.5, key=f"lb_d_{pilih}")
+    paket_baru = st.selectbox("Paket kerja", list(opsi), index=idx, format_func=opsi.get, key=f"lb_p_{pilih}")
+    k1, k2 = st.columns(2)
+    if k1.button("Simpan dan ajukan ulang", key=f"lb_simpan_{pilih}", type="primary", width="stretch"):
+        try:
+            ubah_logbook(eng, int(pilih), nama, uraian_baru, durasi_baru, paket_baru, now=now)
+        except ValueError as e:
+            st.error(str(e))
+        except SQLAlchemyError as e:
+            st.error(pesan_db(e))
+        else:
+            st.rerun()
+    if k2.button("Hapus", key=f"lb_hapus_{pilih}", width="stretch"):
+        try:
+            hapus_logbook(eng, int(pilih), nama)
+        except ValueError as e:
+            st.error(str(e))
+        except SQLAlchemyError as e:
+            st.error(pesan_db(e))
+        else:
+            st.rerun()
+
+
+def _baris_progres_html(r):
+    spi = "-" if r.spi is None or pd.isna(r.spi) else f"{r.spi:.2f}"
+    return (f'<div class="pr-row"><div style="flex:1"><div class="d">{esc(r.kode)}  {esc(r.nama)}</div>'
+            f'<div class="m">{r.jam_disetujui:g} dari {r.estimasi_jam:g} jam • rencana {r.rencana * 100:.0f}% • SPI {spi} • {esc(r.status)}</div>'
+            f'<div class="lb-bar"><i style="width:{r.progres * 100:.0f}%"></i></div>'
+            f'<div class="lb-bar rencana"><i style="width:{r.rencana * 100:.0f}%"></i></div></div>'
+            f'<div class="r">{r.progres * 100:.0f}%</div></div>')
+
+
+def _lb_progres(eng, nama, peserta, now):
+    saya = daftar_logbook(eng, nama=nama, status="disetujui", limit=1000)
+    st.metric("Jam logbook yang sudah disetujui (kamu)", f"{saya['durasi_jam'].sum():g}")
+    hasil = progres_divisi(eng, peserta["divisi"], now.date())
+    if hasil.empty:
+        st.info("Pembimbing belum menyusun paket kerja untuk divisimu.")
+        return
+    st.caption("Progres paket kerja divisi (gabungan semua peserta). Batang biru = progres, abu-abu = rencana jadwal.")
+    st.markdown("".join(_baris_progres_html(r) for r in hasil.itertuples()), unsafe_allow_html=True)
+
+
+def tab_logbook(eng, nama, peserta):
+    now = datetime.now(WITA)
+    header_halaman("Logbook", peserta["divisi"])
+    with st.container(key="pagebody"):
+        if st.button("← Beranda", key="lb_kembali"):
+            st.session_state.tab = "beranda"
+            st.rerun()
+        sub = st.radio("Bagian", ["Tulis", "Daftar", "Progres"], horizontal=True, key="lb_sub", label_visibility="collapsed")
+        if sub == "Tulis":
+            _lb_tulis(eng, nama, peserta, now)
+        elif sub == "Daftar":
+            _lb_daftar(eng, nama, peserta, now)
+        else:
+            _lb_progres(eng, nama, peserta, now)
 
 
 # ------------------------------------------------------------------
@@ -2001,7 +2507,7 @@ def halaman_kelola_peserta(eng):
 
             pin_baru = st.text_input("PIN baru (4-6 angka)", max_chars=6, key="pin_baru")
             hapus_absen_juga = st.checkbox(
-                "Saat menghapus peserta, hapus juga seluruh riwayat absensinya",
+                "Saat menghapus peserta, hapus juga seluruh riwayat absensi dan logbooknya",
                 key="hapus_absen_juga",
             )
             c1, c2 = st.columns(2)
@@ -2174,6 +2680,498 @@ def halaman_rekap(eng):
         "⬇️ Rekap ringkas (tabel)", data=excel_bytes(rekap, detail),
         file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx", mime=mime_xlsx,
     )
+
+
+# ------------------------------------------------------------------
+# PROYEK: audit, persetujuan privasi, pembimbing, paket kerja, logbook, anggaran (logika murni di proyek.py)
+# ------------------------------------------------------------------
+WAKTU_FMT = "%Y-%m-%d %H:%M:%S"
+STATUS_LOGBOOK = ("diajukan", "disetujui", "ditolak")
+
+
+def _sekarang_str():
+    return datetime.now(WITA).strftime(WAKTU_FMT)
+
+
+def _cek_wewenang(peran, divisi_scope, divisi_objek):
+    """Penjagaan di SISI SERVER (bukan hanya di tampilan): pembimbing hanya boleh menyentuh data divisinya."""
+    if peran == "pembimbing" and divisi_scope is None:
+        raise PermissionError("Pembimbing harus terikat pada satu divisi.")
+    if divisi_scope is not None and divisi_objek != divisi_scope:
+        raise PermissionError("Tidak berwenang atas data divisi lain.")
+
+
+# ---------- audit: baca & verifikasi ----------
+def daftar_audit(eng, limit=200, aksi=None, aktor=None):
+    """Catatan audit terbaru dulu (tanpa kolom hash). Filter opsional aksi/aktor (cocok persis)."""
+    q = select(audit_log_t.c.id, audit_log_t.c.waktu, audit_log_t.c.aktor, audit_log_t.c.peran, audit_log_t.c.aksi,
+               audit_log_t.c.objek, audit_log_t.c.detail).order_by(audit_log_t.c.id.desc()).limit(limit)
+    if aksi:
+        q = q.where(audit_log_t.c.aksi == aksi)
+    if aktor:
+        q = q.where(audit_log_t.c.aktor == aktor)
+    with eng.connect() as c:
+        return pd.read_sql(q, c)
+
+
+def verifikasi_audit(eng):
+    """Periksa seluruh rantai hash. Lihat proyek.verifikasi_rantai untuk apa yang bisa dan tidak bisa dideteksi."""
+    with eng.connect() as c:
+        rows = [dict(r) for r in c.execute(select(audit_log_t).order_by(audit_log_t.c.id)).mappings().all()]
+    return proyek.verifikasi_rantai(rows)
+
+
+def hash_audit_ada(eng, hash_catatan):
+    """True bila hash itu masih menjadi bagian rantai audit. Dipakai sebagai 'jangkar': hash puncak yang dicatat di luar
+    sistem pada waktu lampau HARUS tetap ada; bila hilang, ada catatan yang dipotong atau ditulis ulang."""
+    with eng.connect() as c:
+        return c.execute(select(func.count()).select_from(audit_log_t).where(audit_log_t.c.hash == hash_catatan)).scalar() > 0
+
+
+# ---------- persetujuan privasi ----------
+VERSI_PRIVASI = "2026-11"          # naikkan bila isi pemberitahuan berubah: semua peserta diminta menyetujui ulang
+
+
+def persetujuan_wajib():
+    """Bisa dimatikan lewat secret/env privasi_wajib=0 (mis. pengembangan lokal). Bawaan: wajib."""
+    return str(secret("privasi_wajib", "1")).strip().lower() not in ("0", "false", "tidak", "no")
+
+
+def perlu_persetujuan(peserta):
+    return persetujuan_wajib() and peserta["setuju_versi"] != VERSI_PRIVASI
+
+
+@coba_ulang
+def catat_persetujuan(eng, nama):
+    with eng.begin() as c:
+        r = c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(setuju_versi=VERSI_PRIVASI, setuju_pada=_sekarang_str()))
+        if r.rowcount:
+            _audit(c, nama, "peserta", "privasi.setuju", f"peserta:{nama}", {"versi": VERSI_PRIVASI})
+
+
+# ---------- pembimbing ----------
+_hash_dummy_cache = []
+
+
+def _hash_dummy():
+    """Hash tiruan agar login dengan nama yang tidak ada memakan waktu sama dengan nama yang ada (cegah pendataan nama)."""
+    if not _hash_dummy_cache:
+        _hash_dummy_cache.append(proyek.hash_pin_kuat("000000"))
+    return _hash_dummy_cache[0]
+
+
+@coba_ulang
+def add_pembimbing(eng, nama, divisi, pin, aktor="admin", peran="admin"):
+    nama = (nama or "").strip()
+    if len(nama) < 3:
+        raise ValueError("Nama pembimbing minimal 3 karakter.")
+    if divisi not in DIVISI_GEDUNG:
+        raise ValueError("Divisi tidak dikenal.")
+    err = proyek.validasi_pin_pembimbing(pin)
+    if err:
+        raise ValueError(err)
+    with eng.begin() as c:
+        c.execute(insert(pembimbing_t).values(nama=nama, divisi=divisi, pin_hash=proyek.hash_pin_kuat(pin), dibuat=_sekarang_str()))
+        _audit(c, aktor, peran, "pembimbing.tambah", f"pembimbing:{nama}", {"divisi": divisi})
+
+
+def list_pembimbing(eng):
+    with eng.connect() as c:
+        return pd.read_sql(select(pembimbing_t.c.nama, pembimbing_t.c.divisi, pembimbing_t.c.dibuat).order_by(pembimbing_t.c.nama), c)
+
+
+def get_pembimbing(eng, nama):
+    with eng.connect() as c:
+        return c.execute(select(pembimbing_t).where(pembimbing_t.c.nama == nama)).mappings().first()
+
+
+def cek_pin_pembimbing(eng, nama, pin):
+    b = get_pembimbing(eng, nama)
+    if b is None:
+        proyek.cek_pin_kuat(pin, _hash_dummy())
+        return False
+    return proyek.cek_pin_kuat(pin, b["pin_hash"])
+
+
+@coba_ulang
+def reset_pin_pembimbing(eng, nama, pin_baru, aktor="admin", peran="admin"):
+    err = proyek.validasi_pin_pembimbing(pin_baru)
+    if err:
+        raise ValueError(err)
+    with eng.begin() as c:
+        r = c.execute(update(pembimbing_t).where(pembimbing_t.c.nama == nama).values(pin_hash=proyek.hash_pin_kuat(pin_baru)))
+        if r.rowcount:
+            _audit(c, aktor, peran, "pembimbing.reset_pin", f"pembimbing:{nama}")
+
+
+@coba_ulang
+def hapus_pembimbing(eng, nama, aktor="admin", peran="admin"):
+    with eng.begin() as c:
+        r = c.execute(delete(pembimbing_t).where(pembimbing_t.c.nama == nama))
+        if r.rowcount:
+            _audit(c, aktor, peran, "pembimbing.hapus", f"pembimbing:{nama}")
+
+
+# ---------- paket kerja (WBS) ----------
+def _tgl(teks):
+    return date.fromisoformat(teks)
+
+
+def daftar_paket(eng, divisi=None):
+    q = select(paket_kerja_t).order_by(paket_kerja_t.c.divisi, paket_kerja_t.c.id)
+    if divisi is not None:
+        q = q.where(paket_kerja_t.c.divisi == divisi)
+    with eng.connect() as c:
+        df = pd.read_sql(q, c)
+    if len(df):
+        df["mulai"], df["selesai"] = df["mulai"].map(_tgl), df["selesai"].map(_tgl)
+    return df
+
+
+def _paket_atau_error(c, paket_id):
+    r = c.execute(select(paket_kerja_t).where(paket_kerja_t.c.id == paket_id)).mappings().first()
+    if r is None:
+        raise ValueError("Paket kerja tidak ditemukan.")
+    return r
+
+
+@coba_ulang
+def tambah_paket(eng, divisi, kode, nama, mulai, selesai, estimasi_jam, aktor="admin", peran="admin", divisi_scope=None):
+    _cek_wewenang(peran, divisi_scope, divisi)
+    if divisi not in DIVISI_GEDUNG:
+        raise ValueError("Divisi tidak dikenal.")
+    errs = proyek.validasi_paket(kode, nama, mulai, selesai, estimasi_jam)
+    if errs:
+        raise ValueError(" ".join(errs))
+    try:
+        with eng.begin() as c:
+            r = c.execute(insert(paket_kerja_t).values(
+                divisi=divisi, kode=kode.strip(), nama=nama.strip(), mulai=mulai.isoformat(), selesai=selesai.isoformat(),
+                estimasi_jam=float(estimasi_jam), ditutup=0, dibuat_oleh=aktor))
+            pid = int(r.inserted_primary_key[0])
+            _audit(c, aktor, peran, "paket.tambah", f"paket:{divisi}:{kode.strip()}",
+                   {"id": pid, "nama": nama.strip(), "mulai": mulai.isoformat(), "selesai": selesai.isoformat(), "estimasi_jam": float(estimasi_jam)})
+    except IntegrityError:
+        raise ValueError(f"Kode {kode.strip()} sudah dipakai di divisi ini.") from None
+    return pid
+
+
+@coba_ulang
+def ubah_paket(eng, paket_id, kode, nama, mulai, selesai, estimasi_jam, aktor="admin", peran="admin", divisi_scope=None):
+    errs = proyek.validasi_paket(kode, nama, mulai, selesai, estimasi_jam)
+    if errs:
+        raise ValueError(" ".join(errs))
+    try:
+        with eng.begin() as c:
+            lama = _paket_atau_error(c, paket_id)
+            _cek_wewenang(peran, divisi_scope, lama["divisi"])
+            c.execute(update(paket_kerja_t).where(paket_kerja_t.c.id == paket_id).values(
+                kode=kode.strip(), nama=nama.strip(), mulai=mulai.isoformat(), selesai=selesai.isoformat(), estimasi_jam=float(estimasi_jam)))
+            _audit(c, aktor, peran, "paket.ubah", f"paket:{lama['divisi']}:{kode.strip()}", {
+                "id": paket_id, "dari": {"kode": lama["kode"], "nama": lama["nama"], "mulai": lama["mulai"], "selesai": lama["selesai"],
+                                         "estimasi_jam": lama["estimasi_jam"]},
+                "ke": {"kode": kode.strip(), "nama": nama.strip(), "mulai": mulai.isoformat(), "selesai": selesai.isoformat(),
+                       "estimasi_jam": float(estimasi_jam)}})
+    except IntegrityError:
+        raise ValueError(f"Kode {kode.strip()} sudah dipakai di divisi ini.") from None
+
+
+@coba_ulang
+def tutup_paket(eng, paket_id, ditutup, aktor="admin", peran="admin", divisi_scope=None):
+    with eng.begin() as c:
+        lama = _paket_atau_error(c, paket_id)
+        _cek_wewenang(peran, divisi_scope, lama["divisi"])
+        c.execute(update(paket_kerja_t).where(paket_kerja_t.c.id == paket_id).values(ditutup=1 if ditutup else 0))
+        _audit(c, aktor, peran, "paket.tutup" if ditutup else "paket.buka_kembali", f"paket:{lama['divisi']}:{lama['kode']}", {"id": paket_id})
+
+
+@coba_ulang
+def hapus_paket(eng, paket_id, aktor="admin", peran="admin", divisi_scope=None):
+    """Hapus paket kerja. Logbook yang merujuknya tidak ikut terhapus; hanya dilepas dari paket."""
+    with eng.begin() as c:
+        lama = _paket_atau_error(c, paket_id)
+        _cek_wewenang(peran, divisi_scope, lama["divisi"])
+        n = c.execute(update(logbook_t).where(logbook_t.c.paket_id == paket_id).values(paket_id=None)).rowcount
+        c.execute(delete(paket_kerja_t).where(paket_kerja_t.c.id == paket_id))
+        _audit(c, aktor, peran, "paket.hapus", f"paket:{lama['divisi']}:{lama['kode']}", {"id": paket_id, "logbook_dilepas": n})
+
+
+def jam_disetujui_per_paket(eng, divisi=None):
+    """{paket_id: jam logbook yang SUDAH disetujui}; dasar perhitungan progres."""
+    q = (select(logbook_t.c.paket_id, func.sum(logbook_t.c.durasi_jam))
+         .where(and_(logbook_t.c.status == "disetujui", logbook_t.c.paket_id.is_not(None))).group_by(logbook_t.c.paket_id))
+    if divisi is not None:
+        q = q.where(logbook_t.c.divisi == divisi)
+    with eng.connect() as c:
+        return {int(pid): float(jam) for pid, jam in c.execute(q).all()}
+
+
+def progres_divisi(eng, divisi, hari_ini=None):
+    """Tabel progres paket kerja satu divisi (lihat proyek.progres_paket)."""
+    paket = daftar_paket(eng, divisi)
+    if paket.empty:
+        return paket
+    return proyek.progres_paket(paket, jam_disetujui_per_paket(eng, divisi), hari_ini or datetime.now(WITA).date(), HARI_LIBUR)
+
+
+# ---------- logbook ----------
+def _jam_logbook_hari(c, nama, tanggal_iso, kecuali_id=None):
+    q = select(func.coalesce(func.sum(logbook_t.c.durasi_jam), 0.0)).where(and_(
+        logbook_t.c.nama == nama, logbook_t.c.tanggal == tanggal_iso, logbook_t.c.status != "ditolak"))
+    if kecuali_id is not None:
+        q = q.where(logbook_t.c.id != kecuali_id)
+    return float(c.execute(q).scalar())
+
+
+def _cek_paket_divisi(c, paket_id, divisi):
+    if paket_id is None:
+        return None
+    r = c.execute(select(paket_kerja_t.c.divisi).where(paket_kerja_t.c.id == paket_id)).first()
+    return None if (r is not None and r[0] == divisi) else "Paket kerja itu tidak termasuk divisi kamu."
+
+
+@coba_ulang
+def tambah_logbook(eng, nama, tanggal, uraian, durasi, paket_id=None, now=None):
+    """Peserta mengajukan kegiatan harian. ValueError berisi pesan validasi yang siap ditampilkan."""
+    now = now or datetime.now(WITA)
+    with eng.begin() as c:
+        pes = c.execute(select(peserta_t.c.id, peserta_t.c.divisi).where(peserta_t.c.nama == nama)).first()
+        if pes is None:
+            raise ValueError("Peserta tidak ditemukan.")
+        errs = proyek.validasi_logbook(tanggal, now.date(), uraian, float(durasi), _jam_logbook_hari(c, nama, tanggal.isoformat()), HARI_LIBUR)
+        salah_paket = _cek_paket_divisi(c, paket_id, pes[1])
+        if salah_paket:
+            errs.append(salah_paket)
+        if errs:
+            raise ValueError("\n".join(errs))
+        r = c.execute(insert(logbook_t).values(
+            peserta_id=pes[0], nama=nama, divisi=pes[1], tanggal=tanggal.isoformat(), uraian=uraian.strip(), durasi_jam=float(durasi),
+            paket_id=paket_id, status="diajukan", dibuat=now.strftime(WAKTU_FMT)))
+        lid = int(r.inserted_primary_key[0])
+        _audit(c, nama, "peserta", "logbook.ajukan", f"logbook:{lid}", {"tanggal": tanggal.isoformat(), "durasi": float(durasi), "paket_id": paket_id})
+    return lid
+
+
+def _logbook_milik(c, logbook_id, nama):
+    r = c.execute(select(logbook_t).where(logbook_t.c.id == logbook_id)).mappings().first()
+    if r is None or r["nama"] != nama:
+        raise ValueError("Logbook tidak ditemukan.")                     # sengaja sama untuk 'bukan milikmu': tidak membocorkan keberadaan
+    if r["status"] == "disetujui":
+        raise ValueError("Logbook yang sudah disetujui tidak bisa diubah atau dihapus.")
+    return r
+
+
+@coba_ulang
+def ubah_logbook(eng, logbook_id, nama, uraian, durasi, paket_id=None, now=None):
+    """Ubah logbook milik sendiri yang belum disetujui. Mengajukannya kembali (status jadi 'diajukan')."""
+    now = now or datetime.now(WITA)
+    with eng.begin() as c:
+        lama = _logbook_milik(c, logbook_id, nama)
+        errs = proyek.validasi_logbook(_tgl(lama["tanggal"]), now.date(), uraian, float(durasi),
+                                       _jam_logbook_hari(c, nama, lama["tanggal"], kecuali_id=logbook_id), HARI_LIBUR, maks_mundur=10_000)
+        salah_paket = _cek_paket_divisi(c, paket_id, lama["divisi"])
+        if salah_paket:
+            errs.append(salah_paket)
+        if errs:
+            raise ValueError("\n".join(errs))
+        c.execute(update(logbook_t).where(logbook_t.c.id == logbook_id).values(
+            uraian=uraian.strip(), durasi_jam=float(durasi), paket_id=paket_id, status="diajukan", diubah=now.strftime(WAKTU_FMT),
+            catatan_peninjau=None, ditinjau_oleh=None, ditinjau_pada=None))
+        _audit(c, nama, "peserta", "logbook.ubah", f"logbook:{logbook_id}",
+               {"status_sebelum": lama["status"], "durasi_dari": lama["durasi_jam"], "durasi_ke": float(durasi)})
+
+
+@coba_ulang
+def hapus_logbook(eng, logbook_id, nama):
+    with eng.begin() as c:
+        lama = _logbook_milik(c, logbook_id, nama)
+        c.execute(delete(logbook_t).where(logbook_t.c.id == logbook_id))
+        _audit(c, nama, "peserta", "logbook.hapus", f"logbook:{logbook_id}", {"tanggal": lama["tanggal"], "status_sebelum": lama["status"]})
+
+
+@coba_ulang
+def tinjau_logbook(eng, logbook_id, keputusan, catatan, aktor, peran, divisi_scope=None):
+    """Pembimbing/admin menyetujui atau menolak logbook yang berstatus 'diajukan'. Menolak wajib disertai alasan."""
+    if keputusan not in ("disetujui", "ditolak"):
+        raise ValueError("Keputusan harus 'disetujui' atau 'ditolak'.")
+    catatan = (catatan or "").strip()
+    if keputusan == "ditolak" and len(catatan) < 5:
+        raise ValueError("Alasan penolakan wajib diisi (minimal 5 karakter) agar peserta tahu apa yang harus diperbaiki.")
+    with eng.begin() as c:
+        lama = c.execute(select(logbook_t).where(logbook_t.c.id == logbook_id)).mappings().first()
+        if lama is None:
+            raise ValueError("Logbook tidak ditemukan.")
+        _cek_wewenang(peran, divisi_scope, lama["divisi"])
+        if lama["status"] != "diajukan":
+            raise ValueError(f"Logbook ini sudah {lama['status']}; hanya yang berstatus 'diajukan' yang bisa ditinjau.")
+        c.execute(update(logbook_t).where(logbook_t.c.id == logbook_id).values(
+            status=keputusan, catatan_peninjau=catatan or None, ditinjau_oleh=aktor, ditinjau_pada=_sekarang_str()))
+        _audit(c, aktor, peran, "logbook.setuju" if keputusan == "disetujui" else "logbook.tolak", f"logbook:{logbook_id}",
+               {"peserta": lama["nama"], "tanggal": lama["tanggal"], "durasi": lama["durasi_jam"], "catatan": catatan or None})
+
+
+def daftar_logbook(eng, nama=None, divisi=None, status=None, awal=None, akhir=None, limit=300):
+    """Logbook terbaru dulu, dengan kolom tanpa_absensi (True = tidak ada absen masuk berhasil pada tanggal itu)."""
+    j = logbook_t.outerjoin(paket_kerja_t, logbook_t.c.paket_id == paket_kerja_t.c.id)
+    q = (select(
+        logbook_t.c.id, logbook_t.c.nama, logbook_t.c.divisi, logbook_t.c.tanggal, logbook_t.c.uraian, logbook_t.c.durasi_jam,
+        logbook_t.c.paket_id, paket_kerja_t.c.kode.label("kode_paket"), paket_kerja_t.c.nama.label("nama_paket"),
+        logbook_t.c.status, logbook_t.c.catatan_peninjau, logbook_t.c.ditinjau_oleh, logbook_t.c.ditinjau_pada,
+        logbook_t.c.dibuat, logbook_t.c.diubah,
+    ).select_from(j).order_by(logbook_t.c.tanggal.desc(), logbook_t.c.id.desc()).limit(limit))
+    for kolom, nilai in ((logbook_t.c.nama, nama), (logbook_t.c.divisi, divisi), (logbook_t.c.status, status)):
+        if nilai is not None:
+            q = q.where(kolom == nilai)
+    if awal is not None:
+        q = q.where(logbook_t.c.tanggal >= awal.isoformat())
+    if akhir is not None:
+        q = q.where(logbook_t.c.tanggal <= akhir.isoformat())
+    with eng.connect() as c:
+        df = pd.read_sql(q, c)
+        if df.empty:
+            df["tanpa_absensi"] = pd.Series(dtype=bool)
+            return df
+        hadir = set(map(tuple, c.execute(select(absensi_t.c.nama, absensi_t.c.tanggal).where(and_(
+            absensi_t.c.jenis == "masuk", absensi_t.c.status == "berhasil", absensi_t.c.nama.in_(list(df["nama"].unique())),
+            absensi_t.c.tanggal >= df["tanggal"].min(), absensi_t.c.tanggal <= df["tanggal"].max()))).all()))
+    df["tanpa_absensi"] = [(n, t) not in hadir for n, t in zip(df["nama"], df["tanggal"])]
+    return df
+
+
+# ---------- anggaran uang makan ----------
+def _rentang_bulan(tahun, bulan):
+    awal = date(tahun, bulan, 1)
+    akhir = date(tahun + (bulan == 12), bulan % 12 + 1, 1) - timedelta(days=1)
+    return awal, akhir
+
+
+def get_anggaran(eng, tahun, bulan):
+    with eng.connect() as c:
+        return {d: int(j) for d, j in c.execute(select(anggaran_t.c.divisi, anggaran_t.c.jumlah).where(
+            and_(anggaran_t.c.tahun == tahun, anggaran_t.c.bulan == bulan))).all()}
+
+
+@coba_ulang
+def set_anggaran(eng, tahun, bulan, divisi, jumlah, catatan=None, aktor="admin", peran="admin"):
+    """Tetapkan/ubah anggaran satu divisi untuk satu bulan. Mengembalikan True bila ada perubahan (dan tercatat di audit)."""
+    if not (2020 <= int(tahun) <= 2100 and 1 <= int(bulan) <= 12):
+        raise ValueError("Tahun atau bulan tidak valid.")
+    if divisi not in DIVISI_GEDUNG:
+        raise ValueError("Divisi tidak dikenal.")
+    jumlah = int(jumlah)
+    if not (0 <= jumlah <= 10_000_000_000):
+        raise ValueError("Jumlah anggaran harus antara Rp0 dan Rp10 miliar.")
+    catatan = (catatan or "").strip()[:300] or None
+    kunci = and_(anggaran_t.c.tahun == tahun, anggaran_t.c.bulan == bulan, anggaran_t.c.divisi == divisi)
+    with eng.begin() as c:
+        ada = c.execute(select(anggaran_t.c.jumlah, anggaran_t.c.catatan).where(kunci)).first()
+        if ada is not None and int(ada[0]) == jumlah and (ada[1] or None) == catatan:
+            return False
+        if ada is None:
+            c.execute(insert(anggaran_t).values(tahun=tahun, bulan=bulan, divisi=divisi, jumlah=jumlah, catatan=catatan,
+                                                diubah_oleh=aktor, diubah_pada=_sekarang_str()))
+        else:
+            c.execute(update(anggaran_t).where(kunci).values(jumlah=jumlah, catatan=catatan, diubah_oleh=aktor, diubah_pada=_sekarang_str()))
+        _audit(c, aktor, peran, "anggaran.set", f"anggaran:{tahun}-{int(bulan):02d}:{divisi}",
+               {"dari": None if ada is None else int(ada[0]), "ke": jumlah, "catatan": catatan})
+    return True
+
+
+@coba_ulang
+def hapus_anggaran(eng, tahun, bulan, divisi, aktor="admin", peran="admin"):
+    kunci = and_(anggaran_t.c.tahun == tahun, anggaran_t.c.bulan == bulan, anggaran_t.c.divisi == divisi)
+    with eng.begin() as c:
+        ada = c.execute(select(anggaran_t.c.jumlah).where(kunci)).first()
+        if ada is None:
+            return False
+        c.execute(delete(anggaran_t).where(kunci))
+        _audit(c, aktor, peran, "anggaran.hapus", f"anggaran:{tahun}-{int(bulan):02d}:{divisi}", {"dari": int(ada[0])})
+    return True
+
+
+def realisasi_harian(eng, tahun, bulan):
+    """Uang makan yang terealisasi per (divisi, tanggal): dicatat saat absen pulang berhasil."""
+    awal, akhir = _rentang_bulan(tahun, bulan)
+    div = func.coalesce(absensi_t.c.divisi, "(tidak terdaftar)").label("divisi")
+    q = (select(div, absensi_t.c.tanggal, func.sum(absensi_t.c.uang_makan).label("jumlah"))
+         .where(and_(absensi_t.c.jenis == "pulang", absensi_t.c.status == "berhasil",
+                     absensi_t.c.tanggal >= awal.isoformat(), absensi_t.c.tanggal <= akhir.isoformat()))
+         .group_by(div, absensi_t.c.tanggal))
+    with eng.connect() as c:
+        df = pd.read_sql(q, c)
+    df["tanggal"] = df["tanggal"].map(_tgl)
+    return df
+
+
+def jumlah_peserta_per_divisi(eng):
+    with eng.connect() as c:
+        return {d: int(n) for d, n in c.execute(select(peserta_t.c.divisi, func.count()).group_by(peserta_t.c.divisi)).all()}
+
+
+def tingkat_kehadiran_historis(eng, tahun, bulan, n_bulan=3):
+    """Rata-rata tingkat kehadiran per divisi pada n bulan SEBELUM (tahun, bulan):
+    jumlah absen pulang berhasil / (peserta yang aktif x hari kerja). Divisi tanpa riwayat tidak muncul."""
+    per_divisi = {}
+    for k in range(1, n_bulan + 1):
+        t, b = proyek.bulan_sebelumnya(tahun, bulan, k)
+        awal, akhir = _rentang_bulan(t, b)
+        hk = len(proyek.hari_kerja_bulan(t, b, HARI_LIBUR))
+        q = select(absensi_t.c.divisi, absensi_t.c.nama, absensi_t.c.jenis).where(and_(
+            absensi_t.c.status == "berhasil", absensi_t.c.jenis.in_(["masuk", "pulang"]),
+            absensi_t.c.tanggal >= awal.isoformat(), absensi_t.c.tanggal <= akhir.isoformat()))
+        with eng.connect() as c:
+            df = pd.read_sql(q, c)
+        if df.empty:
+            continue
+        df["divisi"] = df["divisi"].fillna("(tidak terdaftar)")
+        for dv, g in df.groupby("divisi"):
+            per_divisi.setdefault(dv, []).append(int((g["jenis"] == "pulang").sum()) / (g["nama"].nunique() * hk))
+    return {dv: sum(v) / len(v) for dv, v in per_divisi.items()}
+
+
+def saran_anggaran_bulan(eng, tahun, bulan, cadangan_pct=10.0):
+    peserta_n, tingkat = jumlah_peserta_per_divisi(eng), tingkat_kehadiran_historis(eng, tahun, bulan)
+    stats = {d: {"n_peserta": n, "tingkat_kehadiran": tingkat.get(d)} for d, n in peserta_n.items()}
+    return proyek.saran_anggaran(stats, len(proyek.hari_kerja_bulan(tahun, bulan, HARI_LIBUR)), UANG_MAKAN, cadangan_pct)
+
+
+def terapkan_saran_anggaran(eng, tahun, bulan, aktor="admin", peran="admin", timpa=False, cadangan_pct=10.0):
+    """Tulis saran sebagai anggaran. Divisi yang sudah punya anggaran tidak diubah kecuali timpa=True. Mengembalikan jumlah ditulis."""
+    ada = get_anggaran(eng, tahun, bulan)
+    n = 0
+    for r in saran_anggaran_bulan(eng, tahun, bulan, cadangan_pct).to_dict("records"):
+        if r["divisi"] in ada and not timpa:
+            continue
+        n += int(set_anggaran(eng, tahun, bulan, r["divisi"], r["saran"], f"Saran sistem (cadangan {cadangan_pct:g}%)", aktor, peran))
+    return n
+
+
+def ringkasan_anggaran(eng, tahun, bulan, now=None):
+    """Anggaran vs realisasi vs proyeksi per divisi. Mengembalikan (DataFrame, meta)."""
+    now = now or datetime.now(WITA)
+    hk = proyek.hari_kerja_bulan(tahun, bulan, HARI_LIBUR)
+    selesai_hari_ini = now.time() >= JAM_PULANG_TUTUP
+    real = realisasi_harian(eng, tahun, bulan)
+    per_divisi = {d: dict(zip(g["tanggal"], g["jumlah"].astype(int))) for d, g in real.groupby("divisi")} if len(real) else {}
+    n_peserta, anggaran = jumlah_peserta_per_divisi(eng), get_anggaran(eng, tahun, bulan)
+    tingkat = tingkat_kehadiran_historis(eng, tahun, bulan)
+    baris = []
+    for dv in sorted(set(n_peserta) | set(anggaran) | set(per_divisi)):
+        n = n_peserta.get(dv, 0)
+        rate_awal = n * UANG_MAKAN * (proyek.ASUMSI_KEHADIRAN if tingkat.get(dv) is None else min(1.0, max(0.5, tingkat[dv])))
+        pr = proyek.proyeksi_anggaran(per_divisi.get(dv, {}), hk, now.date(), selesai_hari_ini, n, UANG_MAKAN, rate_awal)
+        ang = anggaran.get(dv, 0)
+        baris.append({
+            "divisi": dv, "peserta": n, "anggaran": ang, "realisasi": pr["realisasi"],
+            "serapan_pct": (pr["realisasi"] / ang * 100) if ang else None, "sisa_anggaran": ang - pr["realisasi"],
+            "proyeksi": pr["proyeksi"], "proyeksi_maks": pr["proyeksi_maks"], "selisih": ang - pr["proyeksi"],
+            "status": proyek.status_anggaran(ang, pr["proyeksi"]), "sumber": pr["sumber"],
+        })
+    kolom = ["divisi", "peserta", "anggaran", "realisasi", "serapan_pct", "sisa_anggaran", "proyeksi", "proyeksi_maks",
+             "selisih", "status", "sumber"]
+    kosong = proyek.proyeksi_anggaran({}, hk, now.date(), selesai_hari_ini, 0, 0)
+    meta = {"hari_total": kosong["hari_total"], "hari_selesai": kosong["hari_selesai"], "hari_sisa": kosong["hari_sisa"]}
+    return pd.DataFrame(baris, columns=kolom), meta
 
 
 # ------------------------------------------------------------------
@@ -2501,7 +3499,7 @@ def data_masuk_semua(eng):
 
 
 @coba_ulang
-def simpan_model(eng, hasil, aktif=False, jenis=JENIS_MODEL):
+def simpan_model(eng, hasil, aktif=False, jenis=JENIS_MODEL, aktor="admin", peran="admin"):
     """Simpan hasil ml.latih_terlambat sebagai versi baru. aktif=True menonaktifkan versi lain. Mengembalikan id."""
     with eng.begin() as c:
         if aktif:
@@ -2511,7 +3509,10 @@ def simpan_model(eng, hasil, aktif=False, jenis=JENIS_MODEL):
             tanggal_akhir=hasil["tanggal_akhir"], metrik=json.dumps(hasil["metrik"]),
             baseline=json.dumps(hasil["baseline"]), artefak=hasil["artefak"], aktif=1 if aktif else 0,
         ))
-        return int(r.inserted_primary_key[0])
+        mid = int(r.inserted_primary_key[0])
+        _audit(c, aktor, peran, "model.simpan", f"model:{jenis}:{mid}",
+               {"aktif": bool(aktif), "n_data": hasil["n_data"], "f1_uji": hasil["metrik"]["uji"]["f1"]})
+        return mid
 
 
 def daftar_model(eng, jenis=JENIS_MODEL):
@@ -2537,16 +3538,17 @@ def ambil_model(eng, jenis=JENIS_MODEL, model_id=None):
 
 
 @coba_ulang
-def aktifkan_model(eng, model_id, jenis=JENIS_MODEL):
+def aktifkan_model(eng, model_id, jenis=JENIS_MODEL, aktor="admin", peran="admin"):
     with eng.begin() as c:
         if c.execute(select(model_versi_t.c.id).where(and_(model_versi_t.c.id == model_id, model_versi_t.c.jenis == jenis))).first() is None:
             return False
         c.execute(update(model_versi_t).where(model_versi_t.c.jenis == jenis).values(aktif=0))
         c.execute(update(model_versi_t).where(model_versi_t.c.id == model_id).values(aktif=1))
+        _audit(c, aktor, peran, "model.aktifkan", f"model:{jenis}:{model_id}")
         return True
 
 
-def latih_dan_simpan(eng, aktifkan="jika_lebih_baik"):
+def latih_dan_simpan(eng, aktifkan="jika_lebih_baik", aktor="admin", peran="admin"):
     """Latih model baru dari seluruh data, simpan sebagai versi baru.
     aktifkan: 'jika_lebih_baik' (aktif bila F1 uji tidak lebih buruk dari model aktif, toleransi 0,02), 'selalu', 'tidak'.
     Dipakai bersama oleh halaman admin, API, dan skrip jalankan_latih.py. Raise ml_absensi.DataKurang kalau data belum cukup."""
@@ -2561,7 +3563,7 @@ def latih_dan_simpan(eng, aktifkan="jika_lebih_baik"):
         aktif = hasil["metrik"]["uji"]["f1"] >= (lama["metrik"].get("uji") or {}).get("f1", 0.0) - 0.02
     else:
         aktif = False
-    mid = simpan_model(eng, hasil, aktif)
+    mid = simpan_model(eng, hasil, aktif, aktor=aktor, peran=peran)
     return {"id": mid, "aktif": bool(aktif), "metrik": hasil["metrik"], "ada_model_sebelumnya": lama is not None}
 
 
@@ -2838,6 +3840,353 @@ def halaman_model(eng):
 
 
 # ------------------------------------------------------------------
+# HALAMAN PEMBIMBING DAN ADMIN: PROYEK (logbook, paket kerja, anggaran, pembimbing, audit)
+# ------------------------------------------------------------------
+def _pilih_divisi(divisi_scope, key, semua=True):
+    """Admin memilih divisi; pembimbing terkunci pada divisinya. Mengembalikan nama divisi atau None (= semua)."""
+    if divisi_scope is not None:
+        st.caption(f"Divisi: {divisi_scope}")
+        return divisi_scope
+    opsi = (["(Semua divisi)"] if semua else []) + sorted(DIVISI_GEDUNG)
+    pilih = st.selectbox("Divisi", opsi, key=key)
+    return None if pilih == "(Semua divisi)" else pilih
+
+
+def ui_tinjau_logbook(eng, divisi_scope, aktor, peran):
+    divisi = _pilih_divisi(divisi_scope, "tj_divisi")
+    status = st.radio("Status", list(STATUS_LOGBOOK), horizontal=True, key="tj_status", label_visibility="collapsed")
+    df = daftar_logbook(eng, divisi=divisi, status=status, limit=100)
+    if df.empty:
+        st.info(f"Tidak ada logbook berstatus '{status}'.")
+        return
+    st.caption(f"{len(df)} logbook (maksimal 100 terbaru).")
+    for r in df.itertuples():
+        with st.container(border=True):
+            paket = f" • paket {r.kode_paket}" if isinstance(r.kode_paket, str) else ""
+            st.markdown(f"**{r.nama}** • {r.divisi} • {tgl_indonesia(date.fromisoformat(r.tanggal))} • {r.durasi_jam:g} jam{paket}")
+            st.write(r.uraian)
+            if r.tanpa_absensi:
+                st.warning("Tidak ada absen masuk berhasil pada tanggal ini.")
+            if r.status == "diajukan":
+                catatan = st.text_input("Catatan (wajib bila menolak)", key=f"tj_cat_{r.id}")
+                k1, k2 = st.columns(2)
+                for kolom, keputusan, label, tipe in ((k1, "disetujui", "Setujui", "primary"), (k2, "ditolak", "Tolak", "secondary")):
+                    if kolom.button(label, key=f"tj_{keputusan}_{r.id}", type=tipe, width="stretch"):
+                        try:
+                            tinjau_logbook(eng, int(r.id), keputusan, catatan, aktor, peran, divisi_scope)
+                        except (ValueError, PermissionError) as e:
+                            st.error(str(e))
+                        except SQLAlchemyError as e:
+                            st.error(pesan_db(e))
+                        else:
+                            st.rerun()
+            else:
+                st.caption(f"{r.status.capitalize()} oleh {r.ditinjau_oleh} pada {r.ditinjau_pada}"
+                           + (f" • catatan: {r.catatan_peninjau}" if isinstance(r.catatan_peninjau, str) else ""))
+
+
+def ui_paket_kerja(eng, divisi_scope, aktor, peran):
+    if st.session_state.pop("pk_reset", False):                  # kosongkan isian hanya setelah berhasil
+        st.session_state["pk_kode"], st.session_state["pk_nama"], st.session_state["pk_est"] = "", "", 40.0
+    divisi = _pilih_divisi(divisi_scope, "pk_divisi", semua=False)
+    hari_ini = datetime.now(WITA).date()
+    hasil = progres_divisi(eng, divisi, hari_ini)
+    if hasil.empty:
+        st.info("Belum ada paket kerja untuk divisi ini. Tambahkan di bawah.")
+    else:
+        st.caption("Progres = jam logbook yang DISETUJUI dibanding estimasi jam (proksi berbasis usaha, bukan ukuran keluaran). "
+                   "SPI < 0,9 terlambat dari jadwal, > 1,1 lebih cepat.")
+        st.altair_chart(proyek.grafik_gantt(hasil, hari_ini), width="stretch")
+        tabel = hasil.assign(mulai=hasil["mulai"].map(str), selesai=hasil["selesai"].map(str),
+                             rencana=(hasil["rencana"] * 100).round(0), progres=(hasil["progres"] * 100).round(0),
+                             spi=hasil["spi"].round(2))[["kode", "nama", "mulai", "selesai", "estimasi_jam", "jam_disetujui",
+                                                         "rencana", "progres", "spi", "status"]]
+        st.dataframe(tabel.rename(columns={"kode": "Kode", "nama": "Paket", "mulai": "Mulai", "selesai": "Selesai",
+                                           "estimasi_jam": "Estimasi jam", "jam_disetujui": "Jam disetujui",
+                                           "rencana": "Rencana %", "progres": "Progres %", "spi": "SPI", "status": "Status"}),
+                     width="stretch", hide_index=True)
+
+    with st.expander("➕ Tambah paket kerja"):
+        with st.form("form_paket_baru"):
+            c1, c2 = st.columns([1, 3])
+            kode = c1.text_input("Kode WBS", placeholder="1.1", key="pk_kode")
+            nama = c2.text_input("Nama paket", key="pk_nama")
+            d1, d2 = st.columns(2)
+            mulai = d1.date_input("Mulai", value=hari_ini, key="pk_mulai")
+            selesai = d2.date_input("Selesai", value=hari_ini + timedelta(days=13), key="pk_selesai")
+            est = st.number_input("Estimasi jam kerja", min_value=1.0, max_value=2000.0, value=40.0, step=1.0, key="pk_est")
+            kirim = st.form_submit_button("Simpan paket", type="primary", key="pk_simpan_baru")
+        if kirim:
+            try:
+                tambah_paket(eng, divisi, kode, nama, mulai, selesai, est, aktor, peran, divisi_scope)
+            except (ValueError, PermissionError) as e:
+                st.error(str(e))
+            except SQLAlchemyError as e:
+                st.error(pesan_db(e))
+            else:
+                st.session_state["pk_reset"] = True
+                st.rerun()
+
+    paket = daftar_paket(eng, divisi)
+    if paket.empty:
+        return
+    with st.expander("✏️ Ubah, tutup, atau hapus paket"):
+        label = {int(r.id): f"{r.kode}  {r.nama}" for r in paket.itertuples()}
+        pid = st.selectbox("Pilih paket", list(label), format_func=label.get, key="pk_pilih")
+        cur = paket[paket["id"] == pid].iloc[0]
+        c1, c2 = st.columns([1, 3])
+        kode_b = c1.text_input("Kode WBS", value=cur["kode"], key=f"pk_k_{pid}")
+        nama_b = c2.text_input("Nama paket", value=cur["nama"], key=f"pk_n_{pid}")
+        d1, d2 = st.columns(2)
+        mulai_b = d1.date_input("Mulai", value=cur["mulai"], key=f"pk_m_{pid}")
+        selesai_b = d2.date_input("Selesai", value=cur["selesai"], key=f"pk_s_{pid}")
+        est_b = st.number_input("Estimasi jam kerja", min_value=1.0, max_value=2000.0, value=float(cur["estimasi_jam"]), step=1.0, key=f"pk_e_{pid}")
+        b1, b2, b3 = st.columns(3)
+        aksi = None
+        if b1.button("Simpan perubahan", key=f"pk_ubah_{pid}", type="primary", width="stretch"):
+            aksi = lambda: ubah_paket(eng, int(pid), kode_b, nama_b, mulai_b, selesai_b, est_b, aktor, peran, divisi_scope)  # noqa: E731
+        if b2.button("Buka kembali" if cur["ditutup"] else "Tutup (selesai)", key=f"pk_tutup_{pid}", width="stretch"):
+            aksi = lambda: tutup_paket(eng, int(pid), not bool(cur["ditutup"]), aktor, peran, divisi_scope)  # noqa: E731
+        if b3.button("Hapus", key=f"pk_hapus_{pid}", width="stretch"):
+            aksi = lambda: hapus_paket(eng, int(pid), aktor, peran, divisi_scope)  # noqa: E731
+        if aksi is not None:
+            try:
+                aksi()
+            except (ValueError, PermissionError) as e:
+                st.error(str(e))
+            except SQLAlchemyError as e:
+                st.error(pesan_db(e))
+            else:
+                st.rerun()
+
+
+def _grafik_anggaran(df):
+    import altair as alt
+    d = df[(df["anggaran"] > 0) | (df["realisasi"] > 0)]
+    if d.empty:
+        return None
+    panjang = d.melt(id_vars="divisi", value_vars=["anggaran", "realisasi", "proyeksi"], var_name="Jenis", value_name="Rp")
+    panjang["Jenis"] = panjang["Jenis"].map({"anggaran": "Anggaran", "realisasi": "Realisasi", "proyeksi": "Proyeksi"})
+    return alt.Chart(panjang).mark_bar().encode(
+        x=alt.X("divisi:N", title=None, axis=alt.Axis(labelAngle=-35, labelLimit=150)), xOffset="Jenis:N",
+        y=alt.Y("Rp:Q", title="Rupiah"),
+        color=alt.Color("Jenis:N", scale=alt.Scale(domain=["Anggaran", "Realisasi", "Proyeksi"], range=["#9db8f2", "#2563eb", "#f59e0b"]),
+                        legend=alt.Legend(orient="bottom", title=None)),
+        tooltip=["divisi:N", "Jenis:N", alt.Tooltip("Rp:Q", format=",.0f")],
+    ).properties(height=300)
+
+
+def ui_anggaran(eng, aktor):
+    now = datetime.now(WITA)
+    c1, c2 = st.columns(2)
+    tahun = int(c1.number_input("Tahun", min_value=2025, max_value=2100, value=now.year, step=1, key="ag_tahun"))
+    bulan = BULAN_ID.index(c2.selectbox("Bulan", BULAN_ID, index=now.month - 1, key="ag_bulan")) + 1
+    df, meta = ringkasan_anggaran(eng, tahun, bulan, now)
+    st.caption(f"Hari kerja bulan ini: {meta['hari_total']} (selesai {meta['hari_selesai']}, sisa {meta['hari_sisa']}). "
+               f"Tarif uang makan {rupiah(UANG_MAKAN)} per hari hadir, tercatat saat absen pulang.")
+    m = st.columns(3)
+    m[0].metric("Total anggaran", rupiah(int(df["anggaran"].sum())))
+    m[1].metric("Realisasi", rupiah(int(df["realisasi"].sum())))
+    m[2].metric("Proyeksi akhir bulan", rupiah(int(df["proyeksi"].sum())))
+    tampil = df.assign(
+        anggaran=df["anggaran"].map(rupiah), realisasi=df["realisasi"].map(rupiah), sisa_anggaran=df["sisa_anggaran"].map(rupiah),
+        proyeksi=df["proyeksi"].map(rupiah), proyeksi_maks=df["proyeksi_maks"].map(rupiah), selisih=df["selisih"].map(rupiah),
+        serapan_pct=df["serapan_pct"].map(lambda v: "-" if pd.isna(v) else f"{v:.0f}%"),
+    ).rename(columns={"divisi": "Divisi", "peserta": "Peserta", "anggaran": "Anggaran", "realisasi": "Realisasi", "serapan_pct": "Serapan",
+                      "sisa_anggaran": "Sisa", "proyeksi": "Proyeksi", "proyeksi_maks": "Batas atas", "selisih": "Selisih",
+                      "status": "Status", "sumber": "Dasar proyeksi"})
+    st.dataframe(tampil, width="stretch", hide_index=True)
+    st.caption("Proyeksi = realisasi hari-hari yang sudah selesai + rata-rata harian x hari kerja tersisa. Batas atas = semua peserta hadir "
+               "tiap hari tersisa. Selisih = anggaran dikurangi proyeksi (negatif = diperkirakan melebihi). Realisasi per divisi "
+               "memakai divisi peserta SAAT absen; riwayat sebelum fitur ini memakai divisi peserta saat ini.")
+    grafik = _grafik_anggaran(df)
+    if grafik is not None:
+        st.altair_chart(grafik, width="stretch")
+    st.download_button("⬇️ Ringkasan anggaran (CSV)", df.to_csv(index=False).encode("utf-8"),
+                       file_name=f"anggaran_{tahun}-{bulan:02d}.csv", mime="text/csv", key="ag_csv")
+
+    st.subheader("Tetapkan anggaran")
+    ver = st.session_state.get("ag_ver", 0)
+    ada = get_anggaran(eng, tahun, bulan)
+    basis = pd.DataFrame({"Divisi": sorted(DIVISI_GEDUNG), "Anggaran (Rp)": [ada.get(d, 0) for d in sorted(DIVISI_GEDUNG)]})
+    edit = st.data_editor(basis, hide_index=True, width="stretch", disabled=["Divisi"], key=f"ag_editor_{tahun}_{bulan}_{ver}",
+                          column_config={"Anggaran (Rp)": st.column_config.NumberColumn(min_value=0, max_value=10_000_000_000, step=10_000, format="%d")})
+    if st.button("Simpan anggaran", key="ag_simpan", type="primary"):
+        diubah, galat = 0, None
+        for lama, baru in zip(basis.itertuples(), edit.itertuples()):
+            try:
+                if int(baru[2]) == int(lama[2]):
+                    continue
+                if int(baru[2]) == 0:
+                    diubah += int(hapus_anggaran(eng, tahun, bulan, lama.Divisi, aktor))
+                else:
+                    diubah += int(set_anggaran(eng, tahun, bulan, lama.Divisi, int(baru[2]), None, aktor))
+            except (ValueError, SQLAlchemyError) as e:
+                galat = str(e) if isinstance(e, ValueError) else pesan_db(e)
+                break
+        if galat:
+            st.error(galat)
+        else:
+            st.session_state["ag_ver"] = ver + 1
+            st.session_state["pesan_proyek"] = f"{diubah} anggaran diperbarui." if diubah else "Tidak ada perubahan."
+            st.rerun()
+
+    with st.expander("💡 Saran anggaran (estimasi + cadangan)"):
+        cad = st.slider("Cadangan (contingency) %", 0, 30, 10, key="ag_cad")
+        saran = saran_anggaran_bulan(eng, tahun, bulan, float(cad))
+        if saran.empty:
+            st.info("Belum ada peserta terdaftar.")
+        else:
+            st.caption("Estimasi dasar = peserta x hari kerja x tarif x tingkat kehadiran (rata-rata 3 bulan terakhir; bila belum ada riwayat "
+                       "dipakai asumsi 90%), lalu ditambah cadangan dan dibulatkan ke atas Rp10.000.")
+            st.dataframe(saran.assign(
+                tingkat_kehadiran=(saran["tingkat_kehadiran"] * 100).round(0).astype(int).astype(str) + "%",
+                estimasi_dasar=saran["estimasi_dasar"].map(rupiah), cadangan=saran["cadangan"].map(rupiah), saran=saran["saran"].map(rupiah),
+                asumsi_kehadiran=saran["asumsi_kehadiran"].map({True: "asumsi", False: "riwayat"}),
+            ).rename(columns={"divisi": "Divisi", "peserta": "Peserta", "hari_kerja": "Hari kerja", "tingkat_kehadiran": "Kehadiran",
+                              "estimasi_dasar": "Estimasi dasar", "cadangan": "Cadangan", "saran": "Saran anggaran",
+                              "asumsi_kehadiran": "Dasar kehadiran"}), width="stretch", hide_index=True)
+            timpa = st.checkbox("Timpa anggaran yang sudah ditetapkan", key="ag_timpa")
+            if st.button("Terapkan saran", key="ag_terapkan"):
+                try:
+                    n = terapkan_saran_anggaran(eng, tahun, bulan, aktor, "admin", timpa, float(cad))
+                except (ValueError, SQLAlchemyError) as e:
+                    st.error(str(e) if isinstance(e, ValueError) else pesan_db(e))
+                else:
+                    st.session_state["ag_ver"] = ver + 1
+                    st.session_state["pesan_proyek"] = f"{n} anggaran ditulis dari saran."
+                    st.rerun()
+
+
+def ui_pembimbing(eng, aktor):
+    if st.session_state.pop("pb_reset", False):                  # kosongkan isian hanya setelah berhasil
+        st.session_state["pb_nama"], st.session_state["pb_pin"] = "", ""
+    st.caption("Pembimbing menyetujui logbook dan menyusun paket kerja untuk divisinya. Akun dibuat di sini; PIN 6-8 angka.")
+    with st.form("form_pembimbing"):
+        nama = st.text_input("Nama pembimbing", key="pb_nama")
+        divisi = st.selectbox("Divisi", sorted(DIVISI_GEDUNG), key="pb_divisi")
+        pin = st.text_input("PIN (6-8 angka)", max_chars=8, type="password", key="pb_pin")
+        kirim = st.form_submit_button("Tambah pembimbing", key="pb_tambah")
+    if kirim:
+        try:
+            add_pembimbing(eng, nama, divisi, pin, aktor)
+        except ValueError as e:
+            st.error(str(e))
+        except IntegrityError:
+            st.error("Nama pembimbing itu sudah terdaftar.")
+        except SQLAlchemyError as e:
+            st.error(pesan_db(e))
+        else:
+            st.session_state["pb_reset"] = True
+            st.session_state["pesan_proyek"] = f"{nama.strip()} ditambahkan. Sampaikan PIN-nya langsung ke yang bersangkutan."
+            st.rerun()
+    df = list_pembimbing(eng)
+    if df.empty:
+        st.info("Belum ada pembimbing.")
+        return
+    st.dataframe(df.rename(columns={"nama": "Nama", "divisi": "Divisi", "dibuat": "Dibuat"}), width="stretch", hide_index=True)
+    with st.expander("Reset PIN atau hapus pembimbing"):
+        target = st.selectbox("Pilih pembimbing", df["nama"], key="pb_target")
+        pin_baru = st.text_input("PIN baru (6-8 angka)", max_chars=8, type="password", key="pb_pin_baru")
+        c1, c2 = st.columns(2)
+        if c1.button("Reset PIN", key="pb_reset"):
+            try:
+                reset_pin_pembimbing(eng, target, pin_baru, aktor)
+            except ValueError as e:
+                st.error(str(e))
+            except SQLAlchemyError as e:
+                st.error(pesan_db(e))
+            else:
+                st.success("PIN diperbarui.")
+        if c2.button("Hapus pembimbing", key="pb_hapus"):
+            try:
+                hapus_pembimbing(eng, target, aktor)
+            except SQLAlchemyError as e:
+                st.error(pesan_db(e))
+            else:
+                st.rerun()
+
+
+def ui_audit(eng):
+    st.caption("Jejak perubahan data oleh admin, pembimbing, peserta, dan sistem. Tiap catatan dikaitkan dengan hash catatan sebelumnya, "
+               "jadi perubahan atau penghapusan di tengah rantai terdeteksi.")
+    if st.button("Verifikasi integritas rantai", key="au_verif", type="primary"):
+        v = verifikasi_audit(eng)
+        if v["ok"]:
+            st.success(f"Rantai utuh: {v['jumlah']} catatan terverifikasi.")
+        else:
+            st.error(f"RANTAI RUSAK pada catatan #{v['rusak_id']}: {v['alasan']}.")
+        if v["hash_terakhir"]:
+            st.code(v["hash_terakhir"], language=None)
+            st.caption("Hash puncak di atas. Simpan di luar sistem (mis. dicetak atau dicatat berkala): menghapus catatan TERAKHIR "
+                       "tidak memutus rantai, tetapi mengubah hash puncak ini.")
+    semua = daftar_audit(eng, limit=1000)
+    c1, c2, c3 = st.columns([2, 2, 1])
+    aksi = c1.selectbox("Aksi", ["(semua)"] + sorted(semua["aksi"].unique()), key="au_aksi")
+    aktor = c2.text_input("Aktor (nama persis)", key="au_aktor")
+    batas = c3.number_input("Jumlah", min_value=10, max_value=1000, value=100, step=10, key="au_batas")
+    df = daftar_audit(eng, int(batas), None if aksi == "(semua)" else aksi, aktor.strip() or None)
+    if df.empty:
+        st.info("Belum ada catatan audit pada filter ini.")
+        return
+    st.dataframe(df.rename(columns={"id": "ID", "waktu": "Waktu (WITA)", "aktor": "Aktor", "peran": "Peran", "aksi": "Aksi",
+                                    "objek": "Objek", "detail": "Detail"}), width="stretch", hide_index=True)
+    st.download_button("⬇️ Audit (CSV)", df.to_csv(index=False).encode("utf-8"), file_name="audit_log.csv", mime="text/csv", key="au_csv")
+
+
+def halaman_proyek(eng):
+    st.header("📋 Proyek PKL")
+    if not admin_login():
+        return
+    pesan = st.session_state.pop("pesan_proyek", None)
+    if pesan:
+        st.success(pesan)
+    sub = st.radio("Bagian", ["Logbook", "Paket", "Anggaran", "Pembimbing", "Audit"], horizontal=True,
+                   key="menu_proyek", label_visibility="collapsed")
+    if sub == "Logbook":
+        ui_tinjau_logbook(eng, None, "admin", "admin")
+    elif sub == "Paket":
+        ui_paket_kerja(eng, None, "admin", "admin")
+    elif sub == "Anggaran":
+        ui_anggaran(eng, "admin")
+    elif sub == "Pembimbing":
+        ui_pembimbing(eng, "admin")
+    else:
+        ui_audit(eng)
+
+
+def halaman_pembimbing(eng, nama):
+    """Area pembimbing: tinjau logbook dan kelola paket kerja, terbatas pada divisinya sendiri."""
+    b = get_pembimbing(eng, nama)
+    if b is None:
+        st.error("Akun pembimbing tidak ditemukan (mungkin sudah dihapus admin). Silakan keluar.")
+        if st.button("Keluar", key="pb_keluar_hilang"):
+            keluar()
+        return
+    divisi = b["divisi"]
+    st.markdown(CSS_ADMIN, unsafe_allow_html=True)
+    st.markdown(
+        f"""<div class="admin-head"><div class="admin-top">
+<div class="admin-logo">{ic("fingerprint", 28)}</div>
+<div><div class="admin-title">Panel Pembimbing</div><div class="admin-sub">{esc(nama)} • {esc(divisi)}</div></div>
+<div style="flex:1"></div>
+<div class="admin-out">{ic("logout", 24)}</div>
+</div></div>""",
+        unsafe_allow_html=True,
+    )
+    with st.container(key="adminlogout"):
+        if st.button("‎", key="keluar_pembimbing", width="stretch"):
+            keluar()
+    with st.container(key="adminbody"):
+        menu = st.radio("Menu", ["Tinjau logbook", "Paket kerja"], horizontal=True, key="menu_pembimbing", label_visibility="collapsed")
+        st.markdown("---")
+        if menu == "Tinjau logbook":
+            ui_tinjau_logbook(eng, divisi, nama, "pembimbing")
+        else:
+            ui_paket_kerja(eng, divisi, nama, "pembimbing")
+
+
+# ------------------------------------------------------------------
 # HALAMAN ADMIN: BUKTI FOTO
 # ------------------------------------------------------------------
 def halaman_foto(eng):
@@ -2904,7 +4253,7 @@ def halaman_login(eng, hanya_peserta=False):
             peran = "Peserta PKL"
         else:
             peran = st.radio(
-                "Masuk sebagai", ["Peserta PKL", "Admin"], horizontal=True, key="login_peran",
+                "Masuk sebagai", ["Peserta PKL", "Pembimbing", "Admin"], horizontal=True, key="login_peran",
                 label_visibility="collapsed",
             )
 
@@ -2918,10 +4267,32 @@ def halaman_login(eng, hanya_peserta=False):
                     pin = st.text_input("PIN", type="password", max_chars=6, placeholder="Masukkan PIN kamu")
                     kirim = st.form_submit_button("Masuk", type="primary", width="stretch")
                 if kirim:
-                    if cek_pin(eng, nama, pin):
+                    status, menit = proses_login(eng, f"peserta:{nama}", lambda: cek_pin(eng, nama, pin))
+                    if status == "ok":
                         st.session_state.peran = "user"
                         st.session_state.nama_login = nama
                         st.rerun()
+                    elif status == "terkunci":
+                        st.error(pesan_terkunci(menit))
+                    else:
+                        st.error("PIN salah. Silakan periksa kembali.")
+        elif peran == "Pembimbing":
+            db = list_pembimbing(eng)
+            if db.empty:
+                st.warning("Belum ada pembimbing terdaftar. Hubungi admin untuk dibuatkan akun.")
+            else:
+                with st.form("login_pembimbing", border=False):
+                    nama_pb = st.selectbox("Nama pembimbing", db["nama"])
+                    pin_pb = st.text_input("PIN", type="password", max_chars=8, placeholder="Masukkan PIN kamu")
+                    kirim = st.form_submit_button("Masuk", type="primary", width="stretch")
+                if kirim:
+                    status, menit = proses_login(eng, f"pembimbing:{nama_pb}", lambda: cek_pin_pembimbing(eng, nama_pb, pin_pb))
+                    if status == "ok":
+                        st.session_state.peran = "pembimbing"
+                        st.session_state.nama_login = nama_pb
+                        st.rerun()
+                    elif status == "terkunci":
+                        st.error(pesan_terkunci(menit))
                     else:
                         st.error("PIN salah. Silakan periksa kembali.")
         else:
@@ -2929,16 +4300,19 @@ def halaman_login(eng, hanya_peserta=False):
             if pw_benar is None:
                 st.error("admin_password belum diatur di Secrets. Hubungi pengelola aplikasi.")
             else:
-                if not secret("admin_password") and not secret("database_url"):
+                if not secret("admin_password") and url_database() is None:
                     st.info("Mode lokal: password admin default = admin123")
                 with st.form("login_admin", border=False):
                     pw = st.text_input("Password admin", type="password", placeholder="Masukkan password admin")
                     kirim = st.form_submit_button("Masuk sebagai admin", type="primary", width="stretch")
                 if kirim:
-                    if hmac.compare_digest(pw, pw_benar):
+                    status, menit = proses_login(eng, "admin", lambda: _sama(pw, pw_benar))
+                    if status == "ok":
                         st.session_state.peran = "admin"
                         st.session_state.admin_ok = True
                         st.rerun()
+                    elif status == "terkunci":
+                        st.error(pesan_terkunci(menit))
                     else:
                         st.error("Password salah. Silakan coba lagi.")
 
@@ -3056,7 +4430,7 @@ def halaman_admin(eng):
         realtime_admin()
         menu = st.radio(
             "Menu admin",
-            ["Peserta", "Rekap", "Analitik", "Model", "Foto"],
+            ["Peserta", "Rekap", "Analitik", "Model", "Proyek", "Foto"],
             horizontal=True,
             key="menu_admin",
             label_visibility="collapsed",
@@ -3070,6 +4444,8 @@ def halaman_admin(eng):
             halaman_analitik(eng)
         elif menu == "Model":
             halaman_model(eng)
+        elif menu == "Proyek":
+            halaman_proyek(eng)
         else:
             halaman_foto(eng)
 
@@ -3082,11 +4458,11 @@ def main():
         eng = get_engine()
     except SQLAlchemyError as e:
         asal = getattr(e, "orig", e)
+        logging.getLogger("absensi").error("Gagal terhubung ke database: %s: %s", type(asal).__name__, str(asal).strip()[:400])
         st.error(
-            "Tidak bisa terhubung ke database. Periksa pengaturan database di Secrets "
-            "(`database_url`, atau `db_host`, `db_user`, `db_password`). Pakai alamat Transaction pooler; "
-            "nama pengguna harus `postgres.KODE_PROJECT`.\n\n"
-            f"Detail: {type(asal).__name__}: {str(asal).strip()[:400]}"
+            "Tidak bisa terhubung ke database. Hubungi pengelola aplikasi. "
+            "Pengelola: periksa pengaturan database di Secrets (`database_url`, atau `db_host`, `db_user`, `db_password`; "
+            "alamat Transaction pooler, pengguna `postgres.KODE_PROJECT`) dan baca detail kesalahan di Logs aplikasi."
         )
         st.stop()
 
@@ -3102,6 +4478,8 @@ def main():
     nama = st.session_state.get("nama_login")
     if peran == "user" and nama:
         halaman_peserta(eng, nama)
+    elif peran == "pembimbing" and nama and not pkl:
+        halaman_pembimbing(eng, nama)
     elif peran == "admin" and st.session_state.get("admin_ok") and not pkl:
         halaman_admin(eng)
     else:
