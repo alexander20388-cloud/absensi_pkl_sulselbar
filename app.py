@@ -2625,22 +2625,28 @@ def halaman_kelola_peserta(eng):
 CSS_REKAP = """
 <style>
 .st-key-rekap_tabel, .st-key-rekap_tabel > [data-testid="stVerticalBlock"] { overflow: auto !important; }
-.st-key-rekap_tabel { border: 1px solid var(--garis); border-radius: 14px; padding: 0 6px 4px; }
-.st-key-rekap_tabel [data-testid="stHorizontalBlock"]:first-child { position: sticky; top: 0; z-index: 2; background: #fff; }
+.st-key-rekap_tabel { border: 1px solid var(--garis); border-radius: 12px; padding: 0 4px; }
+.st-key-rekap_tabel > [data-testid="stVerticalBlock"] { gap: 0 !important; }
+.st-key-rekap_tabel [data-testid="stHorizontalBlock"]:first-child { position: sticky; top: 0; z-index: 2; background: #eef2ff; border-radius: 8px; }
 .st-key-rekap_tabel [data-testid="stHorizontalBlock"] {
-  flex-wrap: nowrap !important; min-width: 700px; gap: 6px !important; align-items: center;
-  border-bottom: 1px solid var(--garis); padding: 6px 4px;
+  flex-wrap: nowrap !important; min-width: 540px; gap: 4px !important; align-items: center;
+  border-bottom: 1px solid var(--garis); padding: 2px 6px;
 }
+.st-key-rekap_tabel [data-testid="stHorizontalBlock"]:not(:first-child):hover { background: #f6f8ff; }
+.st-key-rekap_tabel [data-testid="stMarkdownContainer"] p { margin: 0 !important; }
+.st-key-rekap_tabel [data-testid="stElementContainer"] { margin: 0 !important; }
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]) { width: auto !important; min-width: 0 !important; flex: 1 1 0 !important; }
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):first-child { flex: 3 1 0 !important; }
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(7) { flex: 2 1 0 !important; }
-.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):last-child { flex: 0 0 46px !important; }
-.st-key-rekap_tabel button { min-height: 34px; padding: 0 !important; border-radius: 11px; background: var(--tint); border: 1px solid var(--garis); width: 100%; }
-.st-key-rekap_tabel button p { color: var(--biru) !important; font-size: 20px; font-weight: 700; line-height: 1; }
-.rk-h { font-size: 12px; font-weight: 700; color: var(--muted); }
-.rk-n { font-size: 14px; font-weight: 700; color: var(--navy); }
-.rk-v { font-size: 14px; color: var(--navy); }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):last-child { flex: 0 0 32px !important; }
+.st-key-rekap_tabel button { min-height: 26px; height: 26px; padding: 0 !important; border-radius: 8px; background: var(--tint); border: 1px solid var(--garis); width: 100%; }
+.st-key-rekap_tabel button p { color: var(--biru) !important; font-size: 16px; font-weight: 700; line-height: 1; }
+.rk-h { font-size: 11px; font-weight: 700; color: var(--muted); text-align: center; white-space: nowrap; }
+.rk-h.kiri { text-align: left; }
+.rk-n { font-size: 13px; font-weight: 600; color: var(--navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rk-v { font-size: 13px; color: var(--navy); text-align: center; white-space: nowrap; }
 .rk-sub { font-size: 12px; color: var(--muted); }
+.rk-n .rk-sub { font-size: 10px; font-weight: 400; }
 .rk-kartu { display: flex; align-items: center; gap: 14px; background: var(--tint); border-radius: 18px; padding: 14px 16px; margin-bottom: 12px; }
 .rk-avatar { width: 54px; height: 54px; border-radius: 50%; background: #fff; color: var(--biru); font-size: 24px; font-weight: 700;
   display: flex; align-items: center; justify-content: center; flex: 0 0 54px; }
@@ -2801,17 +2807,19 @@ def _html_kartu_rekap(aktif, r, label_periode):
 
 
 def _tabel_rekap_peserta(rekap, tahun, bulan):
-    """Tabel peserta dengan kolom terakhir tombol ›. Klik membuka halaman detail peserta itu."""
+    """Tabel peserta (ringkas) dengan kolom terakhir tombol ›. Klik membuka halaman detail peserta itu."""
     lebar = [3, 1, 1, 1, 1, 1, 2, 1]
-    judul = ["Nama", "Hadir", "Terlambat", "Izin", "Cuti", "Tidak hadir", "Uang makan", ""]
+    judul = ["Nama", "Hadir", "Telat", "Izin", "Cuti", "Absen", "Uang makan", ""]
     # Tabel punya scroll sendiri (atas-bawah dan kiri-kanan) dengan tinggi dibatasi; halaman tidak ikut memanjang.
-    with st.container(key="rekap_tabel", height=min(440, 60 + 62 * len(rekap))):
-        for kol, t in zip(st.columns(lebar), judul):
-            kol.markdown(f'<div class="rk-h">{t}</div>', unsafe_allow_html=True)
+    with st.container(key="rekap_tabel", height=min(340, 48 + 38 * len(rekap))):
+        for i, (kol, t) in enumerate(zip(st.columns(lebar), judul)):
+            kelas = "rk-h kiri" if i == 0 else "rk-h"
+            bantu = ' title="Tidak hadir"' if t == "Absen" else (' title="Terlambat"' if t == "Telat" else "")
+            kol.markdown(f'<div class="{kelas}"{bantu}>{t}</div>', unsafe_allow_html=True)
         for i, r in enumerate(rekap.to_dict("records"), 1):
             kol = st.columns(lebar, vertical_alignment="center")
-            sisa = "" if r["Terdaftar"] else '<div class="rk-sub">tidak terdaftar</div>'
-            kol[0].markdown(f'<div class="rk-n">{esc(r["Nama"])}</div>{sisa}', unsafe_allow_html=True)
+            sisa = "" if r["Terdaftar"] else ' <span class="rk-sub">(tidak terdaftar)</span>'
+            kol[0].markdown(f'<div class="rk-n" title="{esc(r["Nama"])}">{esc(r["Nama"])}{sisa}</div>', unsafe_allow_html=True)
             for k, nilai in zip(kol[1:6], (r["Hari Hadir"], r["Terlambat"], r["Izin"], r["Cuti"], r["Tidak Hadir"])):
                 k.markdown(f'<div class="rk-v">{nilai}</div>', unsafe_allow_html=True)
             kol[6].markdown(f'<div class="rk-v">{_rp(r["Total Uang Makan"])}</div>', unsafe_allow_html=True)
@@ -2877,7 +2885,10 @@ def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
 
 
 def halaman_rekap(eng):
-    st.header("📊 Rekap Absensi & Uang Makan")
+    if st.session_state.get("rekap_detail"):
+        st.header("🧾 Detail Absensi")
+    else:
+        st.header("📊 Rekap Absensi & Uang Makan")
     if not admin_login():
         return
     st.markdown(CSS_DASHBOARD + CSS_REKAP, unsafe_allow_html=True)
@@ -2907,7 +2918,6 @@ def halaman_rekap(eng):
     st.caption("Klik › di ujung baris untuk membuka detail absensi peserta itu.")
     _tabel_rekap_peserta(rekap_p, tahun_i, bulan_i)
 
-    st.subheader("Download Excel")
     rekap, detail = _susun_rekap_detail(df)
     daftar_nama = sorted(df["nama"].unique())
     try:
@@ -2915,15 +2925,15 @@ def halaman_rekap(eng):
     except FileNotFoundError:
         data_semua = None
         st.warning("File **template_absen.xlsx** tidak ditemukan di folder aplikasi. Unggah file itu ke folder yang sama dengan app.py (GitHub), lalu muat ulang.")
+    if data_semua:
+        st.download_button("⬇️ Download Semua Excel Peserta", data=data_semua, width="stretch", type="primary", mime=MIME_XLSX,
+                           file_name=f"ABSEN_MAGANG_SEMUA_{tahun_i}_{bulan_i:02d}.xlsx", key="rk_dl_semua")
     kurang = divisi_tanpa_penandatangan(eng, daftar_nama)
     if kurang:
         st.warning("Penandatangan belum diisi untuk: " + ", ".join(kurang) +
                    ". Bagian tanda tangan di Excel untuk divisi itu dikosongkan. Isi nama dan jabatannya di `PENANDATANGAN` pada app.py.")
-    if data_semua:
-        st.download_button("⬇️ Excel semua peserta", data=data_semua, width="stretch", mime=MIME_XLSX,
-                           file_name=f"ABSEN_MAGANG_SEMUA_{tahun_i}_{bulan_i:02d}.xlsx")
     st.download_button("⬇️ Rekap ringkas (tabel)", data=excel_bytes(rekap, detail), mime=MIME_XLSX,
-                       file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx")
+                       file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx", key="rk_dl_ringkas")
     st.caption("Excel per peserta ada di halaman detail (klik › pada barisnya).")
 
 
