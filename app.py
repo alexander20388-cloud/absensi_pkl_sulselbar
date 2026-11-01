@@ -2814,18 +2814,6 @@ def _tabel_rekap_peserta(rekap, tahun, bulan):
                 st.rerun()
 
 
-def _excel_template_aman(eng, df, tahun, bulan, daftar_nama):
-    """Excel template, tapi kegagalan APA PUN tidak boleh merusak halaman: dikembalikan (data, pesan_error)."""
-    try:
-        return excel_template_bytes(eng, df, tahun, bulan, daftar_nama), None
-    except FileNotFoundError:
-        return None, ("File **template_absen.xlsx** tidak ditemukan di folder aplikasi. Unggah file itu ke folder yang sama "
-                      "dengan app.py (GitHub), lalu muat ulang.")
-    except Exception as e:  # noqa: BLE001
-        logging.getLogger("absensi").exception("Gagal membuat Excel template")
-        return None, f"Excel gagal dibuat ({type(e).__name__}: {str(e)[:200]}). Periksa isi file template_absen.xlsx (harus ada sheet bernama Template)."
-
-
 def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
     """Halaman detail absensi satu peserta untuk satu bulan: ringkasan, tabel per tanggal, bukti foto, dan Excel peserta."""
     if st.button("‹ Kembali ke rekap", key="rk_kembali"):
@@ -2870,9 +2858,11 @@ def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
                 else:
                     k.caption("Belum absen pulang." if jenis == "pulang" and not jam else "Foto tidak tersedia.")
     aman = re.sub(r"[^A-Za-z0-9]+", "_", nama).strip("_")
-    data, galat = _excel_template_aman(eng, df, tahun, bulan, [nama])
-    if galat:
-        st.warning(galat)
+    try:
+        data = excel_template_bytes(eng, df, tahun, bulan, [nama])
+    except FileNotFoundError:
+        data = None
+        st.warning("File **template_absen.xlsx** tidak ditemukan di folder aplikasi. Unggah file itu ke folder yang sama dengan app.py (GitHub), lalu muat ulang.")
     if data:
         st.download_button("⬇️ Download Excel Peserta", data=data, width="stretch", type="primary", mime=MIME_XLSX,
                            file_name=f"ABSEN_MAGANG_{aman}_{tahun}_{bulan:02d}.xlsx")
@@ -2921,24 +2911,20 @@ def halaman_rekap(eng):
     st.subheader("Download Excel")
     rekap, detail = _susun_rekap_detail(df)
     daftar_nama = sorted(df["nama"].unique())
-    data_semua, galat = _excel_template_aman(eng, df, tahun_i, bulan_i, daftar_nama)
-    if galat:
-        st.warning(galat)
     try:
-        kurang = divisi_tanpa_penandatangan(eng, daftar_nama)
-    except Exception:  # noqa: BLE001
-        kurang = []
+        data_semua = excel_template_bytes(eng, df, tahun_i, bulan_i, daftar_nama)
+    except FileNotFoundError:
+        data_semua = None
+        st.warning("File **template_absen.xlsx** tidak ditemukan di folder aplikasi. Unggah file itu ke folder yang sama dengan app.py (GitHub), lalu muat ulang.")
+    kurang = divisi_tanpa_penandatangan(eng, daftar_nama)
     if kurang:
         st.warning("Penandatangan belum diisi untuk: " + ", ".join(kurang) +
                    ". Bagian tanda tangan di Excel untuk divisi itu dikosongkan. Isi nama dan jabatannya di `PENANDATANGAN` pada app.py.")
     if data_semua:
-        st.download_button("⬇️ Download Rekap Excel (semua peserta)", data=data_semua, width="stretch", type="primary", mime=MIME_XLSX,
+        st.download_button("⬇️ Excel semua peserta", data=data_semua, width="stretch", mime=MIME_XLSX,
                            file_name=f"ABSEN_MAGANG_SEMUA_{tahun_i}_{bulan_i:02d}.xlsx")
-    try:
-        st.download_button("⬇️ Rekap ringkas (tabel)", data=excel_bytes(rekap, detail), mime=MIME_XLSX,
-                           file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx")
-    except Exception as e:  # noqa: BLE001
-        st.warning(f"Rekap ringkas gagal dibuat ({type(e).__name__}: {str(e)[:200]}).")
+    st.download_button("⬇️ Rekap ringkas (tabel)", data=excel_bytes(rekap, detail), mime=MIME_XLSX,
+                       file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx")
     st.caption("Excel per peserta ada di halaman detail (klik › pada barisnya).")
 
 
