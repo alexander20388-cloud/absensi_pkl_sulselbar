@@ -1084,7 +1084,10 @@ def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir):
     jumlah = r
     baris(10, jumlah)
     ws.merge_cells(f"B{jumlah}:F{jumlah}")
-    ws[f"G{jumlah}"].value = f"=SUM(G8:G{jumlah - 1})" if jumlah > 8 else 0
+    # Angka dihitung langsung (bukan rumus =SUM): file dari openpyxl tidak menyimpan hasil rumus, sehingga di pratinjau
+    # HP / Google Drive / Protected View / viewer tanpa kalkulasi, total tampil kosong.
+    ws[f"G{jumlah}"].value = sum(int(ws[f"G{rr}"].value) for rr in range(8, jumlah)
+                                 if isinstance(ws[f"G{rr}"].value, (int, float)))
 
     geser = jumlah - 10             # footer (tanda tangan) ikut turun
     penanda_nama, penanda_jabatan = cari_penandatangan(peserta["divisi"])
@@ -2621,7 +2624,9 @@ def halaman_kelola_peserta(eng):
 # ------------------------------------------------------------------
 CSS_REKAP = """
 <style>
-.st-key-rekap_tabel { overflow-x: auto; padding-bottom: 4px; }
+.st-key-rekap_tabel, .st-key-rekap_tabel > [data-testid="stVerticalBlock"] { overflow: auto !important; }
+.st-key-rekap_tabel { border: 1px solid var(--garis); border-radius: 14px; padding: 0 6px 4px; }
+.st-key-rekap_tabel [data-testid="stHorizontalBlock"]:first-child { position: sticky; top: 0; z-index: 2; background: #fff; }
 .st-key-rekap_tabel [data-testid="stHorizontalBlock"] {
   flex-wrap: nowrap !important; min-width: 700px; gap: 6px !important; align-items: center;
   border-bottom: 1px solid var(--garis); padding: 6px 4px;
@@ -2799,7 +2804,8 @@ def _tabel_rekap_peserta(rekap, tahun, bulan):
     """Tabel peserta dengan kolom terakhir tombol ›. Klik membuka halaman detail peserta itu."""
     lebar = [3, 1, 1, 1, 1, 1, 2, 1]
     judul = ["Nama", "Hadir", "Terlambat", "Izin", "Cuti", "Tidak hadir", "Uang makan", ""]
-    with st.container(key="rekap_tabel"):
+    # Tabel punya scroll sendiri (atas-bawah dan kiri-kanan) dengan tinggi dibatasi; halaman tidak ikut memanjang.
+    with st.container(key="rekap_tabel", height=min(440, 60 + 62 * len(rekap))):
         for kol, t in zip(st.columns(lebar), judul):
             kol.markdown(f'<div class="rk-h">{t}</div>', unsafe_allow_html=True)
         for i, r in enumerate(rekap.to_dict("records"), 1):
@@ -2897,13 +2903,6 @@ def halaman_rekap(eng):
 
     aktif = int(rekap_p["Terdaftar"].sum())
     st.markdown(_html_kartu_rekap(aktif, rekap_p, f"{BULAN_ID[bulan_i - 1]} {tahun_i}"), unsafe_allow_html=True)
-    gagal = int(((df["status"] != "berhasil") & (~df["jenis"].isin(["izin", "cuti"]))).sum())
-    st.markdown(
-        f'<div class="db-catatan">Terlambat sudah termasuk dalam Hari Hadir. Tidak hadir = hari kerja (Senin sampai Jumat) tanpa absen masuk, '
-        f'izin, atau cuti, dihitung sejak absen pertama peserta. {esc(HARI_LIBUR_KHUSUS_NOTE)}<br>'
-        f'Total uang makan {_rp(rekap_p["Total Uang Makan"].sum())} • Percobaan gagal lokasi {gagal}</div>',
-        unsafe_allow_html=True,
-    )
     st.markdown('<div class="db-judul"><div class="db-judul-t">Rekap Absensi Peserta</div></div>', unsafe_allow_html=True)
     st.caption("Klik › di ujung baris untuk membuka detail absensi peserta itu.")
     _tabel_rekap_peserta(rekap_p, tahun_i, bulan_i)
