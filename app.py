@@ -2624,9 +2624,7 @@ def halaman_kelola_peserta(eng):
 # ------------------------------------------------------------------
 CSS_REKAP = """
 <style>
-.st-key-rekap_tabel, .st-key-rekap_tabel > [data-testid="stVerticalBlock"] { overflow: auto !important; }
-.st-key-rekap_tabel { border: 1px solid var(--garis); border-radius: 14px; padding: 0 6px 4px; }
-.st-key-rekap_tabel [data-testid="stHorizontalBlock"]:first-child { position: sticky; top: 0; z-index: 2; background: #fff; }
+.st-key-rekap_tabel { overflow-x: auto; padding-bottom: 4px; }
 .st-key-rekap_tabel [data-testid="stHorizontalBlock"] {
   flex-wrap: nowrap !important; min-width: 700px; gap: 6px !important; align-items: center;
   border-bottom: 1px solid var(--garis); padding: 6px 4px;
@@ -2903,10 +2901,6 @@ def halaman_rekap(eng):
 
     aktif = int(rekap_p["Terdaftar"].sum())
     st.markdown(_html_kartu_rekap(aktif, rekap_p, f"{BULAN_ID[bulan_i - 1]} {tahun_i}"), unsafe_allow_html=True)
-    st.markdown('<div class="db-judul"><div class="db-judul-t">Rekap Absensi Peserta</div></div>', unsafe_allow_html=True)
-    st.caption("Klik › di ujung baris untuk membuka detail absensi peserta itu.")
-    _tabel_rekap_peserta(rekap_p, tahun_i, bulan_i)
-
     st.subheader("Download Excel")
     rekap, detail = _susun_rekap_detail(df)
     daftar_nama = sorted(df["nama"].unique())
@@ -2925,6 +2919,10 @@ def halaman_rekap(eng):
     st.download_button("⬇️ Rekap ringkas (tabel)", data=excel_bytes(rekap, detail), mime=MIME_XLSX,
                        file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx")
     st.caption("Excel per peserta ada di halaman detail (klik › pada barisnya).")
+
+    st.markdown('<div class="db-judul"><div class="db-judul-t">Rekap Absensi Peserta</div></div>', unsafe_allow_html=True)
+    st.caption("Klik › di ujung baris untuk membuka detail absensi peserta itu.")
+    _tabel_rekap_peserta(rekap_p, tahun_i, bulan_i)
 
 
 # ------------------------------------------------------------------
