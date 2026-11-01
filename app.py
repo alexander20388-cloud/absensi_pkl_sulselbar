@@ -2903,6 +2903,10 @@ def halaman_rekap(eng):
 
     aktif = int(rekap_p["Terdaftar"].sum())
     st.markdown(_html_kartu_rekap(aktif, rekap_p, f"{BULAN_ID[bulan_i - 1]} {tahun_i}"), unsafe_allow_html=True)
+    st.markdown('<div class="db-judul"><div class="db-judul-t">Rekap Absensi Peserta</div></div>', unsafe_allow_html=True)
+    st.caption("Klik › di ujung baris untuk membuka detail absensi peserta itu.")
+    _tabel_rekap_peserta(rekap_p, tahun_i, bulan_i)
+
     st.subheader("Download Excel")
     rekap, detail = _susun_rekap_detail(df)
     daftar_nama = sorted(df["nama"].unique())
@@ -2921,10 +2925,6 @@ def halaman_rekap(eng):
     st.download_button("⬇️ Rekap ringkas (tabel)", data=excel_bytes(rekap, detail), mime=MIME_XLSX,
                        file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx")
     st.caption("Excel per peserta ada di halaman detail (klik › pada barisnya).")
-
-    st.markdown('<div class="db-judul"><div class="db-judul-t">Rekap Absensi Peserta</div></div>', unsafe_allow_html=True)
-    st.caption("Klik › di ujung baris untuk membuka detail absensi peserta itu.")
-    _tabel_rekap_peserta(rekap_p, tahun_i, bulan_i)
 
 
 # ------------------------------------------------------------------
