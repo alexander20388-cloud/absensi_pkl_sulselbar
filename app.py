@@ -1396,6 +1396,8 @@ ICON = {
     "user": '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
     "chart": '<line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/>',
     "back": '<path d="m15 18-6-6 6-6"/>',
+    "menu": '<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
+    "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 }
 
 
@@ -1407,31 +1409,31 @@ CSS_PRESENSI = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
-  background: #eef2fb !important; font-family: 'Inter', system-ui, sans-serif;
+  background: #edf3f8 !important; font-family: 'Inter', system-ui, sans-serif;
 }
 [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], footer { display: none !important; }
 [data-testid="stMainBlockContainer"], .block-container {
   max-width: 430px !important; padding: 0 0 130px 0 !important; position: relative;
-  background: #eef2fb; min-height: 100vh;
+  background: #edf3f8; min-height: 100vh;
 }
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { gap: 0 !important; }
 
 /* ---------- header biru ---------- */
 .pr-head {
-  background: linear-gradient(135deg, #2563eb 0%, #3b3fd8 100%);
+  background: linear-gradient(135deg, #0a5a8f 0%, #063f6b 100%);
   color: #fff; padding: 30px 22px 76px; border-radius: 0 0 0 0;
   position: relative; overflow: hidden;
 }
 .pr-head::after {
   content: ""; position: absolute; left: -10%; right: -10%; bottom: -34px; height: 70px;
-  background: #eef2fb; border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  background: #edf3f8; border-radius: 50% 50% 0 0 / 100% 100% 0 0;
 }
 .pr-top { display: flex; align-items: center; gap: 14px; }
 .pr-logo { width: 46px; height: 46px; border-radius: 14px; background: rgba(255,255,255,.18);
   display: flex; align-items: center; justify-content: center; }
 .pr-title { font-size: 25px; font-weight: 600; letter-spacing: .2px; flex: 1; }
 .pr-avatar { width: 46px; height: 46px; border-radius: 12px; background: rgba(255,255,255,.9);
-  color: #2b3fd0; font-weight: 700; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+  color: #0a5a8f; font-weight: 700; font-size: 18px; display: flex; align-items: center; justify-content: center; }
 .pr-out { width: 52px; height: 52px; border-radius: 50%; background: rgba(255,255,255,.18);
   display: flex; align-items: center; justify-content: center; }
 .pr-hello { margin-top: 26px; font-size: 16px; color: rgba(255,255,255,.82); }
@@ -1440,9 +1442,9 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 
 /* ---------- kartu presensi ---------- */
 .pr-card { background: #fff; border-radius: 22px; margin: -46px 22px 0; padding: 14px 14px 14px;
-  box-shadow: 0 8px 28px rgba(37,52,140,.10); position: relative; z-index: 2; }
-.pr-date { display: flex; align-items: center; gap: 9px; color: #2f3b6b; font-size: 14px; font-weight: 500; }
-.pr-date svg { color: #4a5788; }
+  box-shadow: 0 8px 28px rgba(6,63,107,.10); position: relative; z-index: 2; }
+.pr-date { display: flex; align-items: center; gap: 9px; color: #21496b; font-size: 14px; font-weight: 500; }
+.pr-date svg { color: #3f6785; }
 .pr-badge { margin-left: auto; background: #d9f7e8; color: #12a15f; font-weight: 600; font-size: 15px;
   padding: 4px 12px; border-radius: 999px; }
 .pr-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
@@ -1453,10 +1455,17 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 .t-green { background: #e6f9f0; color: #14a068; }
 .t-yellow { background: #fff6dc; color: #c58a05; }
 .t-red { background: #fdeaea; color: #e04a4a; }
-.t-blue { background: #e8f0ff; color: #2f5fd0; }
-.pr-info { margin-top: 10px; background: #eaf1ff; border-radius: 12px; padding: 9px 12px; color: #2f5fd0; }
+.t-blue { background: #e4f0f8; color: #0a5a8f; }
+.pr-info { margin-top: 10px; background: #e4f0f8; border-radius: 12px; padding: 9px 12px; color: #0a5a8f; }
 .pr-info .h { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; }
-.pr-info .s { font-size: 12.5px; margin-top: 2px; color: #3b6fdc; line-height: 1.3; }
+.pr-info .s { font-size: 12.5px; margin-top: 2px; color: #1f78b4; line-height: 1.3; }
+
+/* ---------- tema Bank Sulselbar: lengkung hijau lime di header ---------- */
+.pr-head, .pr-page-head { position: relative; isolation: isolate; overflow: hidden; }
+.pr-head::before, .pr-page-head::before {
+  content: ""; position: absolute; right: 0; bottom: 0; width: 74%; height: 100%; z-index: -1; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 160' preserveAspectRatio='none'%3E%3Cpath d='M0 160C90 160 205 118 300 8V160Z' fill='%238cc63f'/%3E%3Cpath d='M90 160C170 150 240 110 300 56V160Z' fill='%23b5dd6a' fill-opacity='.6'/%3E%3C/svg%3E") right bottom / 100% 100% no-repeat;
+}
 
 /* kolom tidak boleh turun ke bawah di layar sempit */
 [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; }
@@ -1476,36 +1485,36 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 /* ---------- navigasi bawah ---------- */
 .st-key-bottomnav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: min(430px, 100%);
   background: #fff; z-index: 999; padding: 8px 6px 12px; border-radius: 22px 22px 0 0;
-  box-shadow: 0 -6px 24px rgba(37,52,140,.10); }
+  box-shadow: 0 -6px 24px rgba(6,63,107,.10); }
 .st-key-bottomnav [data-testid="stHorizontalBlock"] { gap: 0 !important; align-items: flex-end; }
-.nv { text-align: center; color: #9aa3b2; font-size: 12px; padding-top: 6px; min-height: 52px; }
+.nv { text-align: center; color: #8da3b5; font-size: 12px; padding-top: 6px; min-height: 52px; }
 .nv svg { display: block; margin: 0 auto 3px; }
-.nv.on { color: #2563eb; font-weight: 600; }
-.nv-fab { width: 64px; height: 64px; border-radius: 50%; background: linear-gradient(135deg,#2563eb,#3b3fd8);
+.nv.on { color: var(--hijau-tua, #3f8f1e); font-weight: 600; background: #e9f5d6; border-radius: 14px; }
+.nv-fab { width: 64px; height: 64px; border-radius: 50%; background: linear-gradient(135deg,#0a5a8f,#063f6b);
   color: #fff; margin: -34px auto 0; display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 8px 20px rgba(37,63,216,.45); border: 5px solid #fff; box-sizing: content-box; }
+  box-shadow: 0 8px 20px rgba(6,63,107,.45); border: 5px solid #fff; box-sizing: content-box; }
 .st-key-ov_fab { height: 64px; }
 
 /* ---------- halaman dalam ---------- */
-.pr-page-head { background: linear-gradient(135deg, #2563eb 0%, #3b3fd8 100%); color: #fff;
+.pr-page-head { background: linear-gradient(135deg, #0a5a8f 0%, #063f6b 100%); color: #fff;
   padding: 30px 22px 56px; font-size: 22px; font-weight: 600; border-radius: 0 0 28px 28px; }
 .pr-page-head small { display: block; font-size: 13px; font-weight: 400; opacity: .8; margin-top: 4px; }
 .st-key-pagebody { width: calc(100% - 36px) !important; margin: -34px 18px 0; background: #fff; border-radius: 24px; padding: 18px 16px;
-  box-shadow: 0 8px 28px rgba(37,52,140,.10); position: relative; z-index: 2; }
-.pr-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #eef0f5; }
+  box-shadow: 0 8px 28px rgba(6,63,107,.10); position: relative; z-index: 2; }
+.pr-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #e6eef4; }
 .pr-row:last-child { border-bottom: 0; }
-.pr-row .d { font-weight: 600; color: #1e2a5a; font-size: 15px; }
-.pr-row .m { font-size: 13px; color: #6b779e; margin-top: 2px; }
+.pr-row .d { font-weight: 600; color: #0b3a5e; font-size: 15px; }
+.pr-row .m { font-size: 13px; color: #5f7b92; margin-top: 2px; }
 .pr-row .r { margin-left: auto; text-align: right; font-size: 13px; font-weight: 600; }
-.ok { color: #14a068; } .bad { color: #e04a4a; } .izin { color: #c58a05; } .cuti { color: #2f5fd0; }
-.pr-kv { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #eef0f5; font-size: 15px; }
+.ok { color: #14a068; } .bad { color: #e04a4a; } .izin { color: #c58a05; } .cuti { color: #0a5a8f; }
+.pr-kv { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #e6eef4; font-size: 15px; }
 .pr-kv:last-child { border-bottom: 0; }
-.pr-kv span:first-child { color: #6b779e; } .pr-kv span:last-child { font-weight: 600; color: #1e2a5a; }
+.pr-kv span:first-child { color: #5f7b92; } .pr-kv span:last-child { font-weight: 600; color: #0b3a5e; }
 .pr-stat { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
-.pr-stat div { background: #eaf1ff; border-radius: 16px; padding: 14px; color: #2f5fd0; }
+.pr-stat div { background: #e4f0f8; border-radius: 16px; padding: 14px; color: #0a5a8f; }
 .pr-stat b { display: block; font-size: 22px; margin-top: 4px; }
 .pr-stat span { font-size: 13px; }
-.st-key-pagebody [data-testid="stButton"] button[kind="primary"] { background: #2563eb; border: 0; border-radius: 14px; }
+.st-key-pagebody [data-testid="stButton"] button[kind="primary"] { background: #0a5a8f; border: 0; border-radius: 14px; }
 
 </style>
 """
@@ -1516,8 +1525,9 @@ CSS_TEMA = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 :root {
-  --biru: #2563eb; --ungu: #3b3fd8; --bg: #eef2fb; --tint: #eaf1ff;
-  --navy: #1e2a5a; --navy2: #4a5788; --muted: #6b779e; --garis: #d5def3;
+  --biru: #0a5a8f; --ungu: #063f6b; --bg: #edf3f8; --tint: #e4f0f8;
+  --navy: #0b3a5e; --navy2: #3f6785; --muted: #5f7b92; --garis: #d3e2ed;
+  --hijau: #8cc63f; --hijau2: #6bb02f; --hijau-tua: #3f8f1e; --hijau-muda: #e9f5d6;
 }
 html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"] {
   background: var(--bg) !important; color: var(--navy); font-family: 'Inter', system-ui, sans-serif;
@@ -1547,14 +1557,14 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 .st-key-adminbody textarea,
 .st-key-loginbody [data-baseweb="select"] > div, .st-key-adminbody [data-baseweb="select"] > div,
 .st-key-adminbody [data-baseweb="base-input"], .st-key-loginbody [data-baseweb="base-input"] {
-  background: #f6f8ff !important; color: var(--navy) !important; border-color: var(--garis) !important;
+  background: #f3f8fb !important; color: var(--navy) !important; border-color: var(--garis) !important;
   border-radius: 14px !important;
 }
 .st-key-loginbody input, .st-key-adminbody input { background: transparent !important; color: var(--navy) !important; }
 .st-key-loginbody input::placeholder, .st-key-adminbody input::placeholder { color: var(--muted) !important; opacity: 1; }
 .st-key-loginbody [data-baseweb="select"] > div:focus-within, .st-key-adminbody [data-baseweb="select"] > div:focus-within,
 .st-key-loginbody [data-baseweb="base-input"]:focus-within, .st-key-adminbody [data-baseweb="base-input"]:focus-within {
-  border-color: var(--biru) !important; box-shadow: 0 0 0 3px rgba(37,99,235,.18) !important;
+  border-color: var(--biru) !important; box-shadow: 0 0 0 3px rgba(10,90,143,.18) !important;
 }
 
 /* radio -> tombol pil */
@@ -1569,7 +1579,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"] > div > div:first-child { display: none; }
 :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"] p { font-weight: 600; font-size: 15px; color: var(--biru); text-align: center; white-space: nowrap; }
 :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"][data-selected="true"] {
-  background: linear-gradient(135deg, var(--biru), var(--ungu)); box-shadow: 0 4px 12px rgba(37,63,216,.3);
+  background: linear-gradient(135deg, var(--hijau), var(--hijau2)); box-shadow: 0 4px 12px rgba(107,176,47,.35);
 }
 :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"][data-selected="true"] p { color: #fff; }
 
@@ -1577,7 +1587,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 :is(.st-key-loginbody, .st-key-adminbody) button[kind="primary"],
 :is(.st-key-loginbody, .st-key-adminbody) button[kind="primaryFormSubmit"] {
   background: linear-gradient(135deg, var(--biru), var(--ungu)) !important; border: 0 !important; color: #fff !important;
-  border-radius: 14px !important; min-height: 48px; font-weight: 600; box-shadow: 0 6px 16px rgba(37,63,216,.3);
+  border-radius: 14px !important; min-height: 48px; font-weight: 600; box-shadow: 0 6px 16px rgba(6,63,107,.3);
 }
 :is(.st-key-loginbody, .st-key-adminbody) button[kind="primary"] *, :is(.st-key-loginbody, .st-key-adminbody) button[kind="primaryFormSubmit"] * { color: #fff !important; }
 :is(.st-key-loginbody, .st-key-adminbody) button[kind="secondary"],
@@ -1592,17 +1602,17 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 
 /* kartu statistik, tabel, expander, alert */
 .st-key-adminbody [data-testid="stMetric"] { background: var(--tint); border-radius: 18px; padding: 14px 16px; }
-.st-key-adminbody [data-testid="stMetricLabel"] * { color: #2f5fd0 !important; }
+.st-key-adminbody [data-testid="stMetricLabel"] * { color: #0a5a8f !important; }
 .st-key-adminbody [data-testid="stMetricValue"] * { color: var(--navy) !important; font-weight: 700; font-family: 'Inter', system-ui, sans-serif !important; }
 .st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
   border: 1px solid var(--garis); border-radius: 16px; overflow: hidden;
 }
-.st-key-adminbody [data-testid="stExpander"] details { background: #f6f8ff; border: 1px solid var(--garis); border-radius: 16px; }
+.st-key-adminbody [data-testid="stExpander"] details { background: #f3f8fb; border: 1px solid var(--garis); border-radius: 16px; }
 .st-key-adminbody [data-testid="stExpander"] summary * { color: var(--navy); font-weight: 600; }
 .st-key-adminbody [data-testid="stAlert"], .st-key-loginbody [data-testid="stAlert"] { border-radius: 14px; }
 .st-key-adminbody [data-testid="stImage"] img { border-radius: 14px; }
 .st-key-adminbody [data-testid="stForm"] {
-  border: 1px solid var(--garis); border-radius: 18px; background: #fbfcff; padding: 16px;
+  border: 1px solid var(--garis); border-radius: 18px; background: #f8fbfd; padding: 16px;
 }
 
 /* ---------- komponen form di halaman peserta (radio pil, input, textarea) ---------- */
@@ -1619,11 +1629,11 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 .st-key-pagebody [data-testid="stRadioOption"] > div > div:first-child { display: none; }
 .st-key-pagebody [data-testid="stRadioOption"] p { font-weight: 600; font-size: 14px; color: var(--biru); text-align: center; white-space: nowrap; }
 .st-key-pagebody [data-testid="stRadioOption"][data-selected="true"] {
-  background: linear-gradient(135deg, var(--biru), var(--ungu)); box-shadow: 0 4px 12px rgba(37,63,216,.3);
+  background: linear-gradient(135deg, var(--hijau), var(--hijau2)); box-shadow: 0 4px 12px rgba(107,176,47,.35);
 }
 .st-key-pagebody [data-testid="stRadioOption"][data-selected="true"] p { color: #fff; }
 .st-key-pagebody [data-baseweb="textarea"], .st-key-pagebody [data-baseweb="base-input"] {
-  background: #f6f8ff !important; border-color: var(--garis) !important; border-radius: 14px !important;
+  background: #f3f8fb !important; border-color: var(--garis) !important; border-radius: 14px !important;
 }
 .st-key-pagebody textarea, .st-key-pagebody input { background: transparent !important; color: var(--navy) !important; }
 .st-key-pagebody textarea::placeholder { color: var(--muted) !important; opacity: 1; }
@@ -1639,27 +1649,29 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 
 CSS_AUTH_ADMIN = """
 <style>
-[data-testid="stMainBlockContainer"], .block-container { max-width: 460px !important; }
+[data-testid="stMainBlockContainer"], .block-container {
+  max-width: 460px !important; background: linear-gradient(180deg, #0a5a8f 0%, #063f6b 100%) !important; overflow: hidden;
+}
+[data-testid="stMainBlockContainer"]::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 190px; z-index: 0; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 160' preserveAspectRatio='none'%3E%3Cpath d='M0 160C90 160 205 118 300 8V160Z' fill='%238cc63f'/%3E%3Cpath d='M90 160C170 150 240 110 300 56V160Z' fill='%23b5dd6a' fill-opacity='.6'/%3E%3C/svg%3E") bottom / 100% 100% no-repeat;
+}
 .auth-head {
-  background: linear-gradient(135deg, #2563eb 0%, #3b3fd8 100%); color: #fff;
-  padding: 36px 24px 92px; position: relative; overflow: hidden;
+  background: #fff; margin: 24px 18px 0; border-radius: 26px 26px 0 0; padding: 26px 20px 24px; position: relative; z-index: 2;
 }
-.auth-head::after {
-  content: ""; position: absolute; left: -10%; right: -10%; bottom: -34px; height: 70px;
-  background: #eef2fb; border-radius: 50% 50% 0 0 / 100% 100% 0 0;
-}
-.auth-brand { display: flex; align-items: center; gap: 14px; }
-.auth-logo { width: 52px; height: 52px; border-radius: 16px; background: rgba(255,255,255,.2);
-  display: flex; align-items: center; justify-content: center; color: #fff; }
-.auth-title { font-size: 27px; font-weight: 700; letter-spacing: .2px; color: #fff; }
-.auth-bank { font-size: 13px; color: rgba(255,255,255,.8); margin-top: 2px; }
-.auth-greet { margin-top: 30px; font-size: 22px; font-weight: 600; color: #fff; }
-.auth-desc { margin-top: 5px; font-size: 14px; color: rgba(255,255,255,.82); }
+.auth-brand { display: flex; align-items: center; gap: 12px; }
+.auth-logo { width: 52px; height: 52px; border-radius: 16px; background: var(--tint); color: var(--biru);
+  display: flex; align-items: center; justify-content: center; flex: 0 0 52px; }
+.auth-title { font-size: 26px; font-weight: 700; letter-spacing: .2px; color: var(--navy); line-height: 1.1; }
+.auth-bank { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.auth-greet { margin-top: 24px; font-size: 22px; font-weight: 700; color: var(--navy); }
+.auth-desc { margin-top: 4px; font-size: 13px; color: var(--muted); }
 .st-key-loginbody {
-  width: calc(100% - 44px) !important; margin: -50px 22px 0; background: #fff; border-radius: 26px;
-  padding: 24px 18px 22px; position: relative; z-index: 2; box-shadow: 0 8px 28px rgba(37,52,140,.12);
+  width: calc(100% - 36px) !important; margin: 0 18px; background: #fff; border-radius: 0 0 26px 26px;
+  padding: 16px 20px 24px; position: relative; z-index: 2; box-shadow: 0 14px 30px rgba(3,30,52,.35);
 }
-.auth-foot { text-align: center; color: #6b779e; font-size: 13px; padding: 20px 0 0; }
+.st-key-loginbody [data-testid="stElementContainer"]:has([data-testid="stRadio"]) { width: 100% !important; }
+.auth-foot { text-align: center; color: rgba(255,255,255,.9); font-size: 12px; padding: 26px 0 40px; position: relative; z-index: 2; }
 </style>
 """
 
@@ -1667,14 +1679,18 @@ CSS_ADMIN = """
 <style>
 [data-testid="stMainBlockContainer"], .block-container { max-width: 1100px !important; }
 .admin-head {
-  background: linear-gradient(135deg, #2563eb 0%, #3b3fd8 100%); color: #fff;
-  padding: 32px 28px 84px; position: relative; overflow: hidden;
+  background: linear-gradient(135deg, #0a5a8f 0%, #063f6b 100%); color: #fff;
+  padding: 32px 28px 84px; position: relative; overflow: hidden; isolation: isolate;
+}
+.admin-head::before {
+  content: ""; position: absolute; right: 0; bottom: 0; width: 60%; height: 100%; z-index: -1; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 160' preserveAspectRatio='none'%3E%3Cpath d='M0 160C90 160 205 118 300 8V160Z' fill='%238cc63f'/%3E%3Cpath d='M90 160C170 150 240 110 300 56V160Z' fill='%23b5dd6a' fill-opacity='.6'/%3E%3C/svg%3E") right bottom / 100% 100% no-repeat;
 }
 .admin-head::after {
   content: ""; position: absolute; left: -10%; right: -10%; bottom: -34px; height: 70px;
-  background: #eef2fb; border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  background: #edf3f8; border-radius: 50% 50% 0 0 / 100% 100% 0 0;
 }
-.admin-top { display: flex; align-items: center; gap: 14px; }
+.admin-top { display: flex; align-items: center; gap: 14px; position: relative; z-index: 1; }
 .admin-logo { width: 50px; height: 50px; border-radius: 15px; background: rgba(255,255,255,.2);
   display: flex; align-items: center; justify-content: center; color: #fff; }
 .admin-title { font-size: 25px; font-weight: 700; color: #fff; flex: 1; }
@@ -1682,17 +1698,63 @@ CSS_ADMIN = """
 .admin-out { width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.2);
   display: flex; align-items: center; justify-content: center; color: #fff; }
 .st-key-adminlogout { position: absolute !important; top: 32px; right: 28px; width: 50px; height: 50px; z-index: 10; }
+.st-key-adminmenu { position: absolute !important; top: 32px; left: 28px; width: 50px; height: 50px; z-index: 10; }
+.st-key-adminmenu [data-testid="stElementContainer"], .st-key-adminmenu [data-testid="stButton"] { height: 50px; width: 50px !important; }
+.st-key-adminmenu button { width: 50px !important; height: 50px !important; opacity: 0; cursor: pointer; padding: 0; }
+
+/* ---------- menu hamburger (drawer) ---------- */
+.st-key-drawerbg { position: fixed !important; inset: 0; z-index: 9998; background: rgba(4,32,58,.55); animation: drFade .18s ease-out; }
+.st-key-drawerbg [data-testid="stElementContainer"] { position: absolute; inset: 0; }
+.st-key-drawerbg [data-testid="stButton"], .st-key-drawerbg .stButton { height: 100%; width: 100% !important; }
+.st-key-drawerbg button { width: 100% !important; height: 100% !important; opacity: 0; cursor: pointer; min-height: 0; }
+.st-key-drawer {
+  position: fixed !important; top: 0; left: 0; bottom: 0; width: min(290px, 84vw) !important; z-index: 9999; background: #fff;
+  overflow-y: auto; gap: 4px !important; padding: 0 0 18px; box-shadow: 8px 0 30px rgba(3,30,52,.35); animation: drIn .2s ease-out;
+}
+.st-key-drawer [data-testid="stElementContainer"]:has(button) { padding: 0 12px; }
+.st-key-drawer [data-testid="stElementContainer"]:has(.dr-head) { padding: 0; }
+.dr-head { background: linear-gradient(160deg, #0a5a8f 0%, #063f6b 100%); color: #fff; padding: 20px 20px 18px; position: relative; overflow: hidden; isolation: isolate; margin-bottom: 8px; }
+.dr-head::before {
+  content: ""; position: absolute; right: 0; bottom: 0; width: 80%; height: 70%; z-index: -1; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 160' preserveAspectRatio='none'%3E%3Cpath d='M0 160C90 160 205 118 300 8V160Z' fill='%238cc63f'/%3E%3Cpath d='M90 160C170 150 240 110 300 56V160Z' fill='%23b5dd6a' fill-opacity='.6'/%3E%3C/svg%3E") right bottom / 100% 100% no-repeat;
+}
+.dr-top { display: flex; align-items: center; justify-content: space-between; height: 26px; color: #fff; }
+.dr-t { font-size: 19px; font-weight: 700; margin-top: 18px; color: #fff; }
+.dr-s { font-size: 12px; color: rgba(255,255,255,.85); margin-top: 3px; }
+.dr-m { font-size: 10.5px; font-weight: 700; letter-spacing: .8px; color: rgba(255,255,255,.9); margin-top: 18px; }
+.st-key-drawerx { position: absolute !important; top: 16px; right: 16px; width: 36px; height: 36px; z-index: 5; }
+.st-key-drawerx [data-testid="stElementContainer"] { padding: 0 !important; height: 36px; width: 36px; }
+.st-key-drawerx [data-testid="stButton"] { height: 36px; width: 36px !important; }
+.st-key-drawerx button { width: 36px !important; height: 36px !important; opacity: 0; cursor: pointer; padding: 0; min-height: 0; }
+.st-key-drawer [class*="st-key-drw_"] button {
+  position: relative; width: 100%; justify-content: flex-start !important; text-align: left; padding: 10px 14px; min-height: 46px;
+  background: #fff; border: 0; border-radius: 12px; box-shadow: none; color: var(--navy);
+}
+.st-key-drawer [class*="st-key-drw_"] button:hover { background: #f3f8fb; }
+.st-key-drawer [class*="st-key-drw_"] button > div { width: 100%; padding-right: 22px; }
+.st-key-drawer [class*="st-key-drw_"] button > div > span { display: flex; align-items: center; justify-content: flex-start; gap: 12px; width: 100%; }
+.st-key-drawer [class*="st-key-drw_"] button > div > span > span:last-child { flex: 1; text-align: left; }
+.st-key-drawer [class*="st-key-drw_"] button [data-testid="stMarkdownContainer"] { text-align: left; }
+.st-key-drawer [class*="st-key-drw_"] button p { text-align: left; font-size: 15px; font-weight: 600; color: inherit; }
+.st-key-drawer [class*="st-key-drw_"] button::after { content: "›"; position: absolute; right: 14px; top: 50%; transform: translateY(-52%); font-size: 20px; color: #9bb3c4; }
+.st-key-drawer .st-key-drw_keluar button { color: #d64545; }
+.st-key-drawer .st-key-drw_keluar button::after { content: none; }
+.dr-garis { border-top: 1px solid var(--garis); margin: 8px 20px 4px; }
+.dr-foot { text-align: center; font-size: 11px; color: var(--muted); padding: 10px 0 0; }
+@keyframes drIn { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes drFade { from { opacity: 0; } to { opacity: 1; } }
 .st-key-adminlogout [data-testid="stElementContainer"], .st-key-adminlogout [data-testid="stButton"] { height: 50px; width: 50px !important; }
 .st-key-adminlogout button { width: 50px !important; height: 50px !important; opacity: 0; cursor: pointer; padding: 0; }
-.st-box { background: #f6f8ff; border: 1px solid #d5def3; border-radius: 14px; padding: 10px 14px; font-size: 13px; line-height: 1.7; color: #1e2a5a; margin-bottom: 8px; }
+.st-box { background: #f3f8fb; border: 1px solid #d3e2ed; border-radius: 14px; padding: 10px 14px; font-size: 13px; line-height: 1.7; color: #0b3a5e; margin-bottom: 8px; }
 .st-key-rt_hidden { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 .st-key-adminbody {
   width: calc(100% - 36px) !important; margin: -44px 18px 0; background: #fff; border-radius: 26px;
-  padding: 22px 22px 26px; position: relative; z-index: 2; box-shadow: 0 8px 28px rgba(37,52,140,.12);
+  padding: 22px 22px 26px; position: relative; z-index: 2; box-shadow: 0 8px 28px rgba(6,63,107,.12);
 }
 @media (max-width: 600px) {
   .admin-head { padding: 28px 18px 80px; }
   .st-key-adminlogout { right: 18px; top: 28px; }
+  .st-key-adminmenu { left: 18px; top: 28px; }
   .st-key-adminbody { padding: 16px 12px 22px; width: calc(100% - 20px) !important; margin-left: 10px; }
 }
 </style>
@@ -2223,11 +2285,11 @@ def halaman_peserta(eng, nama):
 CSS_PROYEK = """
 <style>
 .pr-link { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 18px; margin: 12px 22px 0;
-  padding: 13px 14px; box-shadow: 0 4px 18px rgba(37,52,140,.08); position: relative; z-index: 2; }
-.pr-link .ic { width: 42px; height: 42px; border-radius: 12px; background: #eaf1ff; color: #2f5fd0; display: flex;
+  padding: 13px 14px; box-shadow: 0 4px 18px rgba(6,63,107,.08); position: relative; z-index: 2; }
+.pr-link .ic { width: 42px; height: 42px; border-radius: 12px; background: #e4f0f8; color: #0a5a8f; display: flex;
   align-items: center; justify-content: center; flex: none; }
-.pr-link .t { font-weight: 600; color: #1e2a5a; font-size: 15px; }
-.pr-link .s { font-size: 12.5px; color: #6b779e; margin-top: 2px; }
+.pr-link .t { font-weight: 600; color: #0b3a5e; font-size: 15px; }
+.pr-link .s { font-size: 12.5px; color: #5f7b92; margin-top: 2px; }
 .pr-link.warn .s { color: #c2410c; font-weight: 600; }
 .pr-link .go { margin-left: auto; color: #9aa6c8; font-size: 24px; line-height: 1; }
 .lb-chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
@@ -2235,9 +2297,9 @@ CSS_PROYEK = """
 .lb-disetujui { background: #d9f7e8; color: #12a15f; }
 .lb-ditolak { background: #fde2e2; color: #c0392b; }
 .lb-bar { height: 8px; background: #e6edfb; border-radius: 999px; overflow: hidden; margin-top: 7px; }
-.lb-bar > i { display: block; height: 100%; background: #2563eb; border-radius: 999px; }
-.lb-bar.rencana { margin-top: 3px; height: 4px; background: #eef0f5; }
-.lb-bar.rencana > i { background: #9db8f2; }
+.lb-bar > i { display: block; height: 100%; background: #0a5a8f; border-radius: 999px; }
+.lb-bar.rencana { margin-top: 3px; height: 4px; background: #e6eef4; }
+.lb-bar.rencana > i { background: #8fc0de; }
 </style>
 """
 
@@ -2628,34 +2690,35 @@ CSS_REKAP = """
 .st-key-rekap_tabel { border: 1px solid var(--garis); border-radius: 12px; padding: 0 4px; }
 .st-key-rekap_tabel > * { border-bottom: 1px solid var(--garis); }
 .st-key-rekap_tabel > :has(.rk-h) { position: sticky; top: 0; z-index: 3; background: #eef2ff; }
-.st-key-rekap_tabel > :not(:has(.rk-h)):hover { background: #f6f8ff; }
-.st-key-rekap_tabel [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; min-width: 520px; gap: 4px !important; align-items: center; padding: 2px 6px; margin: 0; }
+.st-key-rekap_tabel > :not(:has(.rk-h)):hover { background: #f3f8fb; }
+.st-key-rekap_tabel [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; min-width: 300px; gap: 3px !important; align-items: center; padding: 2px 6px; margin: 0; }
 .st-key-rekap_tabel [data-testid="stElementContainer"] { margin: 0 !important; }
-.st-key-rekap_tabel [data-testid="stMarkdownContainer"] { min-width: 0; overflow: hidden; }
+.st-key-rekap_tabel [data-testid="stMarkdownContainer"] { min-width: 0; overflow: hidden; margin: 0 !important; }
 .st-key-rekap_tabel [data-testid="stMarkdownContainer"] p { margin: 0 !important; }
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]) { width: auto !important; min-width: 0 !important; flex: 1 1 0 !important; }
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):first-child { flex: 3 1 0 !important; }
-.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(7) { flex: 2 1 0 !important; }
-.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):last-child { flex: 0 0 32px !important; }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(7) { flex: 2.4 1 0 !important; }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):last-child { flex: 0 0 28px !important; }
 /* menimpa aturan tombol global panel admin (min-height 44px, border biru, !important) */
 .st-key-adminbody .st-key-rekap_tabel button[kind="secondary"] {
   min-height: 26px !important; height: 26px !important; padding: 0 !important; width: 100% !important;
   border-radius: 8px !important; border: 1px solid var(--garis) !important; background: var(--tint) !important; box-shadow: none !important;
 }
 .st-key-adminbody .st-key-rekap_tabel button[kind="secondary"] p { font-size: 16px !important; font-weight: 700; line-height: 1; margin: 0 !important; }
-.rk-h { font-size: 11px; font-weight: 700; color: var(--muted); text-align: center; white-space: nowrap; }
+.rk-h { font-size: 10.5px; font-weight: 700; color: var(--muted); text-align: center; white-space: nowrap; }
 .rk-h.kiri { text-align: left; }
-.rk-n { font-size: 13px; font-weight: 600; color: var(--navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rk-v { font-size: 13px; color: var(--navy); text-align: center; white-space: nowrap; }
+.rk-n { font-size: 12.5px; font-weight: 600; color: var(--navy); line-height: 1.2; white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+.rk-v { font-size: 12.5px; color: var(--navy); text-align: center; white-space: nowrap; }
 .rk-sub { font-size: 12px; color: var(--muted); }
 .rk-n .rk-sub { font-size: 10px; font-weight: 400; }
+@media (max-width: 600px) { .db-k-n { font-size: 19px; white-space: nowrap; } }
 .rk-kartu { display: flex; align-items: center; gap: 14px; background: var(--tint); border-radius: 18px; padding: 14px 16px; margin-bottom: 12px; }
 .rk-avatar { width: 54px; height: 54px; border-radius: 50%; background: #fff; color: var(--biru); font-size: 24px; font-weight: 700;
   display: flex; align-items: center; justify-content: center; flex: 0 0 54px; }
 .rk-nama { font-size: 17px; font-weight: 700; color: var(--navy); }
 .rk-chip { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 600; padding: 3px 12px; border-radius: 999px; background: #d9f7e8; color: #12a15f; }
-.rk-chip.abu { background: #eef1f7; color: #4a5788; }
-.rk-periode { background: #f6f8ff; border: 1px solid var(--garis); border-radius: 16px; padding: 12px 14px; margin-bottom: 4px; }
+.rk-chip.abu { background: #eaf0f5; color: #3f6785; }
+.rk-periode { background: #f3f8fb; border: 1px solid var(--garis); border-radius: 16px; padding: 12px 14px; margin-bottom: 4px; }
 .rk-periode-t { font-size: 14px; font-weight: 700; color: var(--navy); margin-bottom: 8px; }
 .rk-periode-g { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
 .rk-periode-g div { background: var(--tint); border-radius: 12px; padding: 9px 12px; font-size: 14px; color: var(--navy); }
@@ -2811,12 +2874,12 @@ def _html_kartu_rekap(aktif, r, label_periode):
 def _tabel_rekap_peserta(rekap, tahun, bulan):
     """Tabel ringkas peserta dengan kolom terakhir tombol ›. Klik membuka halaman detail peserta itu."""
     lebar = [3, 1, 1, 1, 1, 1, 2, 1]
-    judul = ["Nama", "Hadir", "Telat", "Izin", "Cuti", "Absen", "Uang makan", ""]
+    judul = ["Nama", "Hadir", "Telat", "Izin", "Cuti", "Absen", "Uang", ""]
     # Tabel punya scroll sendiri (atas-bawah dan kiri-kanan) dengan tinggi dibatasi; halaman tidak ikut memanjang.
     with st.container(key="rekap_tabel", height=min(340, 40 + 35 * len(rekap))):
         for i, (kol, t) in enumerate(zip(st.columns(lebar), judul)):
             kelas = "rk-h kiri" if i == 0 else "rk-h"
-            bantu = ' title="Tidak hadir"' if t == "Absen" else (' title="Terlambat"' if t == "Telat" else "")
+            bantu = {"Absen": ' title="Tidak hadir"', "Telat": ' title="Terlambat"', "Uang": ' title="Uang makan"'}.get(t, "")
             kol.markdown(f'<div class="{kelas}"{bantu}>{t}</div>', unsafe_allow_html=True)
         for i, r in enumerate(rekap.to_dict("records"), 1):
             kol = st.columns(lebar, vertical_alignment="center")
@@ -2927,6 +2990,8 @@ def halaman_rekap(eng):
                            width="stretch", type="primary", mime=MIME_XLSX,
                            file_name=f"ABSEN_MAGANG_SEMUA_{tahun_i}_{bulan_i:02d}.xlsx", key="rk_dl_semua")
     else:
+        st.download_button("⬇️ Download Semua Excel Peserta", data=b"", width="stretch", type="primary", disabled=True,
+                           key="rk_dl_semua_off", mime=MIME_XLSX)
         st.warning("File **template_absen.xlsx** tidak ditemukan di folder aplikasi. Unggah file itu ke folder yang sama dengan app.py (GitHub), lalu muat ulang.")
     st.download_button("⬇️ Rekap ringkas (tabel)", data=lambda: excel_bytes(*_susun_rekap_detail(df)), width="stretch", mime=MIME_XLSX,
                        file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx", key="rk_dl_ringkas")
@@ -3590,7 +3655,7 @@ def buat_insight(eda):
 def grafik_eda(eda):
     """Kumpulan grafik Altair dari hasil siapkan_eda."""
     import altair as alt
-    biru, oranye = "#2563eb", "#f59e0b"
+    biru, oranye = "#0a5a8f", "#f59e0b"
     skala_ket = alt.Scale(domain=[KET_TEPAT_WAKTU, KET_TERLAMBAT], range=[biru, oranye])
     g = {}
 
@@ -3626,7 +3691,7 @@ def grafik_eda(eda):
     g["per_hari"] = (
         dasar.mark_bar(color=oranye, cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
             tooltip=["hari:N", "total:Q", "terlambat:Q", alt.Tooltip("persen:Q", format=".1f")])
-        + dasar.mark_text(dy=-8, color="#1e2a5a").encode(text=alt.Text("persen:Q", format=".0f"))
+        + dasar.mark_text(dy=-8, color="#0b3a5e").encode(text=alt.Text("persen:Q", format=".0f"))
     ).properties(height=240)
 
     if len(eda["jarak"]):
@@ -3952,11 +4017,11 @@ def _tab_anomali(eng, ml):
     titik = hasil.assign(Penanda=np.where(hasil["ditandai"], "Ditandai", "Normal"))
     batas = float(max(titik["dx"].abs().max(), titik["dy"].abs().max(), RADIUS_METER) * 1.1)
     skala = alt.Scale(domain=[-batas, batas])
-    garis = alt.Chart(ring).mark_line(strokeDash=[5, 4], color="#6b779e").encode(
+    garis = alt.Chart(ring).mark_line(strokeDash=[5, 4], color="#5f7b92").encode(
         x=alt.X("dx:Q", scale=skala, title="Timur-barat (m)"), y=alt.Y("dy:Q", scale=skala, title="Utara-selatan (m)"), order="u:Q")
     pts = alt.Chart(titik).mark_circle(size=55).encode(
         x=alt.X("dx:Q", scale=skala), y=alt.Y("dy:Q", scale=skala),
-        color=alt.Color("Penanda:N", scale=alt.Scale(domain=["Normal", "Ditandai"], range=["#9db8f2", "#e04a4a"]),
+        color=alt.Color("Penanda:N", scale=alt.Scale(domain=["Normal", "Ditandai"], range=["#8fc0de", "#e04a4a"]),
                         legend=alt.Legend(orient="bottom", title=None)),
         opacity=alt.condition(alt.datum.Penanda == "Ditandai", alt.value(0.95), alt.value(0.4)),
         tooltip=["nama:N", "tanggal:N", "jam:N", alt.Tooltip("skor:Q", format=".0f"), "alasan:N"])
@@ -4225,7 +4290,7 @@ def _grafik_anggaran(df):
     return alt.Chart(panjang).mark_bar().encode(
         x=alt.X("divisi:N", title=None, axis=alt.Axis(labelAngle=-35, labelLimit=150)), xOffset="Jenis:N",
         y=alt.Y("Rp:Q", title="Rupiah"),
-        color=alt.Color("Jenis:N", scale=alt.Scale(domain=["Anggaran", "Realisasi", "Proyeksi"], range=["#9db8f2", "#2563eb", "#f59e0b"]),
+        color=alt.Color("Jenis:N", scale=alt.Scale(domain=["Anggaran", "Realisasi", "Proyeksi"], range=["#8fc0de", "#0a5a8f", "#f59e0b"]),
                         legend=alt.Legend(orient="bottom", title=None)),
         tooltip=["divisi:N", "Jenis:N", alt.Tooltip("Rp:Q", format=",.0f")],
     ).properties(height=300)
@@ -4758,7 +4823,7 @@ def halaman_umpan_balik(eng):
 # ------------------------------------------------------------------
 def keluar():
     """Logout: hapus peran & data login, kembali ke layar login."""
-    for k in ("peran", "nama_login", "admin_ok", "tab", "rekap_detail"):
+    for k in ("peran", "nama_login", "admin_ok", "tab", "rekap_detail", "drawer_admin", "menu_admin"):
         st.session_state.pop(k, None)
     st.rerun()
 
@@ -4958,9 +5023,9 @@ CSS_DASHBOARD = """
 .db-k-t { font-size: 13px; font-weight: 600; color: var(--navy2); margin-top: 2px; }
 .db-hadir { background: #d9f7e8; } .db-hadir .db-k-n { color: #12a15f; }
 .db-telat { background: #fff4d6; } .db-telat .db-k-n { color: #b45309; }
-.db-izin { background: #e3ecff; } .db-izin .db-k-n { color: #2563eb; }
-.db-cuti { background: #ece8ff; } .db-cuti .db-k-n { color: #5b3fd0; }
-.db-belum { background: #eef1f7; } .db-belum .db-k-n { color: #4a5788; }
+.db-izin { background: #dcecf7; } .db-izin .db-k-n { color: #0a5a8f; }
+.db-cuti { background: #dff3f0; } .db-cuti .db-k-n { color: #0e8a7d; }
+.db-belum { background: #eaf0f5; } .db-belum .db-k-n { color: #3f6785; }
 .db-belum.merah { background: #fde2e2; } .db-belum.merah .db-k-n { color: #c0392b; }
 .db-libur { background: #fff4d6; color: #b45309; border-radius: 14px; padding: 10px 14px; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
 .db-catatan { font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.6; }
@@ -5040,21 +5105,80 @@ def halaman_beranda_admin(eng):
     st.markdown(html, unsafe_allow_html=True)
 
 
+# Menu admin: (nama menu, ikon Material, judul di header)
+MENU_ADMIN = [
+    ("Beranda", ":material/home:", "Dashboard Admin"),
+    ("Peserta", ":material/group:", "Peserta PKL"),
+    ("Rekap", ":material/table_chart:", "Rekap Absensi"),
+    ("Analitik", ":material/bar_chart:", "Analitik"),
+    ("Model", ":material/psychology:", "Model"),
+    ("Proyek", ":material/assignment:", "Proyek"),
+    ("Umpan balik", ":material/rate_review:", "Umpan Balik"),
+    ("Foto", ":material/photo_camera:", "Foto Bukti"),
+]
+
+
+def _drawer_admin(menu_aktif):
+    """Menu hamburger admin: panel geser dari kiri berisi semua menu. Mengikuti desain sidebar Bank Sulselbar."""
+    idx = [m[0] for m in MENU_ADMIN].index(menu_aktif)
+    st.markdown(
+        f"<style>.st-key-drw_{idx} button {{ background: #e9f5d6 !important; color: #2f7d1e !important; }}"
+        f".st-key-drw_{idx} button:hover {{ background: #e9f5d6 !important; }}</style>",
+        unsafe_allow_html=True,
+    )
+    with st.container(key="drawerbg"):               # klik area gelap di luar panel = tutup
+        if st.button("tutup", key="drw_bg"):
+            st.session_state.drawer_admin = False
+            st.rerun()
+    with st.container(key="drawer"):
+        st.markdown(
+            f'<div class="dr-head"><div class="dr-top"><span>{ic("menu", 24)}</span><span>{ic("x", 22)}</span></div>'
+            '<div class="dr-t">Bank Sulselbar</div><div class="dr-s">Presensi PKL • Admin</div>'
+            '<div class="dr-m">MENU UTAMA</div></div>',
+            unsafe_allow_html=True,
+        )
+        with st.container(key="drawerx"):
+            if st.button("\u200e", key="drw_x"):
+                st.session_state.drawer_admin = False
+                st.rerun()
+        for i, (nama, ikon, _) in enumerate(MENU_ADMIN):
+            if st.button(nama, key=f"drw_{i}", icon=ikon, width="stretch"):
+                st.session_state.menu_admin = nama
+                st.session_state.drawer_admin = False
+                st.session_state.pop("rekap_detail", None)
+                st.rerun()
+        st.markdown('<div class="dr-garis"></div>', unsafe_allow_html=True)
+        if st.button("Keluar", key="drw_keluar", icon=":material/logout:", width="stretch"):
+            keluar()
+        st.markdown('<div class="dr-foot">© Bank Sulselbar • Absensi PKL</div>', unsafe_allow_html=True)
+
+
 def halaman_admin(eng):
     """Area admin dengan gaya visual yang selaras dengan halaman peserta."""
     st.markdown(CSS_ADMIN, unsafe_allow_html=True)
+    nama_menu = [m[0] for m in MENU_ADMIN]
+    menu = st.session_state.get("menu_admin", "Beranda")
+    if menu not in nama_menu:
+        menu = "Beranda"
+    judul = MENU_ADMIN[nama_menu.index(menu)][2]
     st.markdown(
         f"""<div class="admin-head"><div class="admin-top">
-<div class="admin-logo">{ic("fingerprint", 28)}</div>
-<div><div class="admin-title">Panel Admin</div><div class="admin-sub">Bank Sulselbar • Pengelolaan Absensi PKL</div></div>
+<div class="admin-logo">{ic("menu", 28)}</div>
+<div><div class="admin-title">{esc(judul)}</div><div class="admin-sub">Bank Sulselbar • Pengelolaan Absensi PKL</div></div>
 <div style="flex:1"></div>
 <div class="admin-out">{ic("logout", 24)}</div>
 </div></div>""",
         unsafe_allow_html=True,
     )
+    with st.container(key="adminmenu"):
+        if st.button("\u200e", key="buka_menu_admin", width="stretch"):
+            st.session_state.drawer_admin = True
+            st.rerun()
     with st.container(key="adminlogout"):
-        if st.button("‎", key="keluar_admin", width="stretch"):
+        if st.button("\u200e", key="keluar_admin", width="stretch"):
             keluar()
+    if st.session_state.get("drawer_admin"):
+        _drawer_admin(menu)
 
     with st.container(key="adminbody"):
         if getattr(eng, "db_sementara", False):
@@ -5065,14 +5189,6 @@ def halaman_admin(eng):
             )
         panel_status(eng)
         realtime_admin()
-        menu = st.radio(
-            "Menu admin",
-            ["Beranda", "Peserta", "Rekap", "Analitik", "Model", "Proyek", "Umpan balik", "Foto"],
-            horizontal=True,
-            key="menu_admin",
-            label_visibility="collapsed",
-        )
-        st.markdown("---")
         if menu == "Beranda":
             halaman_beranda_admin(eng)
         elif menu == "Peserta":
