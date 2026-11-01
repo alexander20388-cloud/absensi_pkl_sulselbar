@@ -102,7 +102,7 @@ JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
 # Hari libur PKL (0=Senin ... 5=Sabtu, 6=Minggu). Pada hari ini TIDAK bisa absen masuk, pulang, izin, maupun cuti.
 HARI_LIBUR = (5, 6)
 # Masuk sampai jam ini = tidak terlambat; setelahnya (sampai JAM_MASUK_TUTUP) = terlambat, tetap bisa absen pulang & dapat uang makan.
-BATAS_TEPAT_WAKTU = dtime(19, 10)
+BATAS_TEPAT_WAKTU = dtime(8, 0)
 KET_TEPAT_WAKTU, KET_TERLAMBAT = "Tidak terlambat", "Terlambat"      # tulisan di aplikasi & kolom Keterangan Excel
 
 WITA = timezone(timedelta(hours=8))  # server cloud pakai UTC, jadi jam dipaksa WITA
@@ -266,6 +266,29 @@ notifikasi_t = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("jenis", String(20)),
     Column("dibuat", String(19)),                               # YYYY-MM-DD HH:MM:SS (WITA)
+)
+
+
+# Umpan balik peserta (hanya dikumpulkan lewat aplikasi Android). Rating terikat ke peserta supaya hanya bisa diberikan
+# SEKALI; ulasan/saran sengaja TIDAK memuat nama atau peserta_id (hanya divisi dan tanggal) dan tidak masuk audit,
+# supaya tidak bisa ditelusuri ke orangnya. Tanggal saja (bukan jam) agar tidak bisa dicocokkan lewat waktu kirim.
+rating_aplikasi_t = Table(
+    "rating_aplikasi", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("peserta_id", Integer, ForeignKey("peserta.id", ondelete="SET NULL"), unique=True),
+    Column("bintang", Integer, nullable=False),                 # 1-5
+    Column("dibuat", String(10), nullable=False),               # YYYY-MM-DD
+)
+
+ulasan_t = Table(
+    "ulasan", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("divisi", String(100)),
+    Column("kategori", String(20), nullable=False),             # absen / logbook / tampilan / lainnya
+    Column("isi", String(500), nullable=False),
+    Column("dibuat", String(10), nullable=False, index=True),   # YYYY-MM-DD
+    Column("status", String(12), nullable=False, default="baru"),   # baru / diproses / selesai (ditindaklanjuti admin)
+    Column("catatan_admin", String(300)),
 )
 
 
@@ -736,6 +759,9 @@ def hapus_peserta(eng, nama, dengan_absensi=False, aktor="admin", peran="admin")
         # riwayat yang dipertahankan dilepas dari peserta (SQLite tidak menjalankan ON DELETE SET NULL)
         c.execute(update(absensi_t).where(absensi_t.c.nama == nama).values(peserta_id=None))
         c.execute(update(logbook_t).where(logbook_t.c.nama == nama).values(peserta_id=None))
+        pid = c.execute(select(peserta_t.c.id).where(peserta_t.c.nama == nama)).scalar()
+        if pid is not None:                                     # rating tetap sebagai statistik, tetapi dilepas dari peserta
+            c.execute(update(rating_aplikasi_t).where(rating_aplikasi_t.c.peserta_id == pid).values(peserta_id=None))
         ada = c.execute(delete(peserta_t).where(peserta_t.c.nama == nama)).rowcount
         if dengan_absensi:
             paths = [r[0] for r in c.execute(select(absensi_t.c.foto_path).where(absensi_t.c.nama == nama))]
@@ -1562,7 +1588,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 .st-key-adminbody [data-testid="stMetricLabel"] * { color: #2f5fd0 !important; }
 .st-key-adminbody [data-testid="stMetricValue"] * { color: var(--navy) !important; font-weight: 700; font-family: 'Inter', system-ui, sans-serif !important; }
 .st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
-  border: 1px solid var(--garis); border-radius: 16px; overflow: visible;
+  border: 1px solid var(--garis); border-radius: 16px; overflow: hidden;
 }
 .st-key-adminbody [data-testid="stExpander"] details { background: #f6f8ff; border: 1px solid var(--garis); border-radius: 16px; }
 .st-key-adminbody [data-testid="stExpander"] summary * { color: var(--navy); font-weight: 600; }
@@ -2092,7 +2118,7 @@ def tab_rekap(eng, nama):
         )
 
 
-def tab_profil(nama, peserta):
+def tab_profil(eng, nama, peserta):
     header_halaman("Profil", "Data peserta PKL")
     with st.container(key="pagebody"):
         st.markdown(
@@ -2105,6 +2131,8 @@ def tab_profil(nama, peserta):
         )
         with st.expander("Pemberitahuan privasi data"):
             st.markdown(TEKS_PRIVASI.format(kontak=esc(kontak_privasi())))
+        if di_aplikasi():
+            _profil_umpan_balik(eng, nama)
         if st.button("Keluar", key="keluar_profil", width="stretch"):
             keluar()
 
@@ -2154,6 +2182,13 @@ def halaman_peserta(eng, nama):
     if perlu_persetujuan(peserta):
         halaman_persetujuan(eng, nama)
         return
+    if di_aplikasi():
+        if _perlu_umpan_balik_sesi(eng, nama) and not st.session_state.get(f"umpan_lewati:{nama}"):
+            halaman_minta_umpan_balik(eng, nama)
+            return
+        pesan_umpan = st.session_state.pop("pesan_umpan", None)
+        if pesan_umpan:
+            st.toast(pesan_umpan)
     if nav_perlu_naik():
         st.markdown(CSS_NAV_NAIK, unsafe_allow_html=True)
     tab = st.session_state.get("tab", "beranda")
@@ -2166,7 +2201,7 @@ def halaman_peserta(eng, nama):
     elif tab == "rekap":
         tab_rekap(eng, nama)
     elif tab == "profil":
-        tab_profil(nama, peserta)
+        tab_profil(eng, nama, peserta)
     else:
         tab = "beranda"
         tab_beranda(eng, nama, peserta)
@@ -4218,6 +4253,287 @@ def halaman_foto(eng):
 
 
 # ------------------------------------------------------------------
+# UMPAN BALIK PESERTA: rating, ulasan, dan saran (hanya di aplikasi Android)
+# ------------------------------------------------------------------
+HARI_MINTA_UMPAN_BALIK = 7              # peserta diarahkan ke form setelah sekian hari sejak absen pertamanya
+KATEGORI_ULASAN = {"absen": "Absen", "logbook": "Logbook", "tampilan": "Tampilan", "lainnya": "Lainnya"}
+STATUS_ULASAN = ("baru", "diproses", "selesai")
+ULASAN_MIN, ULASAN_MAKS = 10, 500
+ULASAN_MAKS_PER_SESI = 3                # penahan spam ringan; ulasan tanpa nama jadi tidak bisa dibatasi per peserta di DB
+
+
+def di_aplikasi():
+    """True kalau halaman dibuka lewat aplikasi Android Presensi PKL. Aplikasi itu selalu menambahkan ?mode=pkl dan
+    menempelkan 'PresensiPKLApp' pada user-agent; salah satunya cukup. Ini penentu tampilan, BUKAN pengaman: yang
+    sengaja memalsukannya di browser hanya akan melihat form umpan balik."""
+    if mode_pkl():
+        return True
+    try:
+        return "PresensiPKLApp" in (st.context.headers.get("user-agent") or "")
+    except Exception:
+        return False
+
+
+def hari_pemakaian(eng, nama, hari_ini=None):
+    """Jumlah hari sejak absen pertama peserta (percobaan yang gagal lokasi tidak dihitung); None kalau belum pernah absen."""
+    with eng.connect() as c:
+        awal = c.execute(select(func.min(absensi_t.c.tanggal)).where(
+            and_(absensi_t.c.nama == nama, absensi_t.c.status != "gagal_lokasi"))).scalar()
+    if not awal:
+        return None
+    return ((hari_ini or datetime.now(WITA).date()) - date.fromisoformat(awal)).days
+
+
+def rating_peserta(eng, nama):
+    """Jumlah bintang (1-5) yang sudah diberikan peserta, atau None kalau belum pernah menilai."""
+    with eng.connect() as c:
+        return c.execute(
+            select(rating_aplikasi_t.c.bintang)
+            .select_from(rating_aplikasi_t.join(peserta_t, peserta_t.c.id == rating_aplikasi_t.c.peserta_id))
+            .where(peserta_t.c.nama == nama)
+        ).scalar()
+
+
+def perlu_diminta_umpan_balik(eng, nama, hari_ini=None):
+    """True kalau peserta belum pernah menilai DAN sudah memakai aplikasi minimal HARI_MINTA_UMPAN_BALIK hari."""
+    if rating_peserta(eng, nama) is not None:
+        return False
+    hari = hari_pemakaian(eng, nama, hari_ini)
+    return hari is not None and hari >= HARI_MINTA_UMPAN_BALIK
+
+
+def validasi_ulasan(isi, kategori, wajib=True):
+    """Daftar pesan kesalahan (kosong = valid). wajib=False: isi boleh kosong (peserta hanya memberi rating)."""
+    teks = (isi or "").strip()
+    if not teks and not wajib:
+        return []
+    salah = []
+    if kategori not in KATEGORI_ULASAN:
+        salah.append("Pilih kategori ulasan.")
+    if len(teks) < ULASAN_MIN:
+        salah.append(f"Ulasan atau saran minimal {ULASAN_MIN} karakter.")
+    elif len(teks) > ULASAN_MAKS:
+        salah.append(f"Ulasan atau saran maksimal {ULASAN_MAKS} karakter.")
+    return salah
+
+
+@coba_ulang
+def simpan_rating(eng, nama, bintang, isi="", kategori="lainnya", now=None):
+    """Rating SEKALI seumur akun (tidak bisa diubah). Ulasan opsional ikut disimpan, tanpa nama. Salah -> ValueError."""
+    if isinstance(bintang, bool) or not isinstance(bintang, int) or not 1 <= bintang <= 5:
+        raise ValueError("Penilaian harus 1 sampai 5 bintang.")
+    salah = validasi_ulasan(isi, kategori, wajib=False)
+    if salah:
+        raise ValueError(" ".join(salah))
+    tanggal = (now or datetime.now(WITA)).strftime("%Y-%m-%d")
+    try:
+        with eng.begin() as c:
+            pes = c.execute(select(peserta_t.c.id, peserta_t.c.divisi).where(peserta_t.c.nama == nama)).first()
+            if pes is None:
+                raise ValueError("Data kamu tidak ditemukan.")
+            c.execute(insert(rating_aplikasi_t).values(peserta_id=pes[0], bintang=bintang, dibuat=tanggal))
+            if (isi or "").strip():
+                c.execute(insert(ulasan_t).values(divisi=pes[1], kategori=kategori, isi=isi.strip(), dibuat=tanggal, status="baru"))
+    except IntegrityError:
+        raise ValueError("Kamu sudah memberi penilaian. Terima kasih!") from None
+
+
+@coba_ulang
+def simpan_ulasan(eng, nama, isi, kategori, now=None):
+    """Ulasan atau saran dari Profil (boleh berkali-kali). Hanya divisi dan tanggal yang disimpan, tanpa nama."""
+    salah = validasi_ulasan(isi, kategori)
+    if salah:
+        raise ValueError(" ".join(salah))
+    tanggal = (now or datetime.now(WITA)).strftime("%Y-%m-%d")
+    with eng.begin() as c:
+        pes = c.execute(select(peserta_t.c.divisi).where(peserta_t.c.nama == nama)).first()
+        if pes is None:
+            raise ValueError("Data kamu tidak ditemukan.")
+        c.execute(insert(ulasan_t).values(divisi=pes[0], kategori=kategori, isi=isi.strip(), dibuat=tanggal, status="baru"))
+
+
+def ringkasan_rating(eng):
+    """Angka gabungan untuk admin: jumlah penilai, rata-rata, sebaran per bintang, dan jumlah peserta."""
+    with eng.connect() as c:
+        baris = c.execute(select(rating_aplikasi_t.c.bintang, func.count()).group_by(rating_aplikasi_t.c.bintang)).all()
+        n_peserta = c.execute(select(func.count()).select_from(peserta_t)).scalar() or 0
+    sebaran = {b: 0 for b in range(1, 6)}
+    for bintang, jumlah in baris:
+        sebaran[int(bintang)] = int(jumlah)
+    n = sum(sebaran.values())
+    rata = sum(b * k for b, k in sebaran.items()) / n if n else None
+    return {"n": n, "rata": rata, "sebaran": sebaran, "n_peserta": int(n_peserta)}
+
+
+def daftar_ulasan(eng, status=None, limit=500):
+    q = select(ulasan_t).order_by(ulasan_t.c.id.desc()).limit(limit)
+    if status:
+        q = q.where(ulasan_t.c.status == status)
+    with eng.connect() as c:
+        return pd.read_sql(q, c)
+
+
+@coba_ulang
+def ubah_status_ulasan(eng, ulasan_id, status, catatan="", aktor="admin"):
+    """Admin menandai tindak lanjut ulasan (baru, diproses, selesai). Tercatat di audit; ulasan itu sendiri tanpa nama."""
+    if status not in STATUS_ULASAN:
+        raise ValueError("Status tidak dikenal.")
+    catatan = (catatan or "").strip()[:300]
+    with eng.begin() as c:
+        lama = c.execute(select(ulasan_t.c.status).where(ulasan_t.c.id == ulasan_id)).first()
+        if lama is None:
+            raise ValueError("Ulasan tidak ditemukan.")
+        c.execute(update(ulasan_t).where(ulasan_t.c.id == ulasan_id).values(status=status, catatan_admin=catatan or None))
+        _audit(c, aktor, "admin", "ulasan.status", f"ulasan:{ulasan_id}", {"dari": lama[0], "ke": status})
+
+
+def _perlu_umpan_balik_sesi(eng, nama):
+    """Dihitung sekali per sesi (bukan tiap interaksi). Kalau database bermasalah, fitur opsional ini dilewati supaya
+    peserta tetap bisa absen."""
+    kunci = f"umpan_perlu:{nama}"
+    if kunci not in st.session_state:
+        try:
+            st.session_state[kunci] = perlu_diminta_umpan_balik(eng, nama)
+        except SQLAlchemyError as e:
+            logging.getLogger("absensi").warning("Cek umpan balik dilewati: %s", type(getattr(e, "orig", e)).__name__)
+            return False
+    return bool(st.session_state[kunci])
+
+
+def _bintang(n):
+    return "★" * n + "☆" * (5 - n)
+
+
+def _form_umpan_balik(eng, nama, kunci, minta_rating, boleh_lewati):
+    """Form rating + ulasan/saran. minta_rating=False: peserta sudah menilai, jadi hanya ulasan. True bila ada yang tersimpan."""
+    k_bintang, k_kat, k_isi = f"ub_bintang_{kunci}", f"ub_kategori_{kunci}", f"ub_isi_{kunci}"
+    if st.session_state.pop(f"ub_reset_{kunci}", False):          # kosongkan isian hanya setelah berhasil terkirim
+        st.session_state.pop(k_isi, None)
+        st.session_state.pop(k_bintang, None)
+    bintang = None
+    if minta_rating:
+        bintang = st.radio("Seberapa puas kamu dengan aplikasi ini?", [1, 2, 3, 4, 5], index=None, horizontal=True,
+                           format_func=lambda n: f"{n} ★", key=k_bintang)
+        st.caption("1 = sangat kurang, 5 = sangat baik. Penilaian hanya diminta satu kali.")
+    kategori = st.selectbox("Tentang apa?", list(KATEGORI_ULASAN), format_func=KATEGORI_ULASAN.get, key=k_kat)
+    isi = st.text_area("Ulasan dan saran" + (" (boleh dikosongkan)" if minta_rating else ""), max_chars=ULASAN_MAKS,
+                       height=120, key=k_isi, placeholder="Ceritakan yang sudah enak dipakai atau yang masih menyulitkan.")
+    st.caption("Ulasan disimpan tanpa namamu (hanya divisi dan tanggal).")
+    if boleh_lewati:
+        kol_kirim, kol_lewati = st.columns(2)
+    else:
+        kol_kirim, kol_lewati = st.container(), None
+    kirim = kol_kirim.button("Kirim", key=f"ub_kirim_{kunci}", type="primary", width="stretch")
+    if kol_lewati is not None and kol_lewati.button("Lewati", key=f"ub_lewati_{kunci}", width="stretch"):
+        st.session_state[f"umpan_lewati:{nama}"] = True           # hanya untuk sesi ini; dibuka lagi muncul lagi
+        st.rerun()
+    if not kirim:
+        return False
+    if minta_rating and bintang is None:
+        st.error("Pilih jumlah bintang dulu.")
+        return False
+    ada_isi = bool((isi or "").strip())
+    kunci_sesi = f"ulasan_terkirim:{nama}"
+    if ada_isi and st.session_state.get(kunci_sesi, 0) >= ULASAN_MAKS_PER_SESI:
+        st.error("Kamu sudah mengirim beberapa ulasan. Coba lagi nanti.")
+        return False
+    try:
+        if minta_rating:
+            simpan_rating(eng, nama, int(bintang), isi, kategori)
+        else:
+            simpan_ulasan(eng, nama, isi, kategori)
+    except ValueError as e:
+        st.error(str(e))
+        return False
+    except SQLAlchemyError as e:
+        st.error(pesan_db(e))
+        return False
+    if ada_isi:
+        st.session_state[kunci_sesi] = st.session_state.get(kunci_sesi, 0) + 1
+    st.session_state[f"ub_reset_{kunci}"] = True
+    return True
+
+
+def halaman_minta_umpan_balik(eng, nama):
+    """Layar yang muncul setelah seminggu pemakaian sampai peserta menilai. 'Lewati' hanya berlaku selama sesi ini."""
+    header_halaman("Ulasan dan saran", "Bantu kami memperbaiki aplikasi")
+    with st.container(key="pagebody"):
+        st.write("Kamu sudah lebih dari seminggu memakai aplikasi ini. Boleh beri penilaian dan saran? "
+                 "Hanya sebentar, dan hanya diminta satu kali. Setelah ini, ulasan dan saran bisa kamu tulis kapan saja di menu Profil.")
+        if _form_umpan_balik(eng, nama, "awal", minta_rating=True, boleh_lewati=True):
+            st.session_state[f"umpan_perlu:{nama}"] = False
+            st.session_state["pesan_umpan"] = "Terima kasih atas penilaian dan sarannya!"
+            st.rerun()
+
+
+def _profil_umpan_balik(eng, nama):
+    """Bagian 'Ulasan dan saran' di Profil (hanya di aplikasi). Peserta yang belum menilai juga bisa memberi bintang di sini."""
+    with st.container(border=True):
+        st.markdown("**Ulasan dan saran**")
+        try:
+            bintang = rating_peserta(eng, nama)
+        except SQLAlchemyError as e:
+            st.error(pesan_db(e))
+            return
+        if bintang is not None:
+            st.caption(f"Penilaianmu: {_bintang(bintang)}. Terima kasih! Penilaian hanya diminta satu kali.")
+        if _form_umpan_balik(eng, nama, "profil", minta_rating=bintang is None, boleh_lewati=False):
+            st.session_state[f"umpan_perlu:{nama}"] = False
+            st.session_state["pesan_umpan"] = "Terima kasih! Masukanmu sudah kami terima."
+            st.rerun()
+
+
+def halaman_umpan_balik(eng):
+    """Admin: ringkasan rating dan daftar ulasan beserta status tindak lanjutnya (bukti iterasi desain)."""
+    st.header("💬 Umpan Balik Peserta")
+    if not admin_login():
+        return
+    st.caption("Dikumpulkan lewat aplikasi Android. Ulasan tersimpan tanpa nama (hanya divisi dan tanggal). "
+               "Rating hanya ditampilkan sebagai angka gabungan.")
+    try:
+        ring = ringkasan_rating(eng)
+        semua = daftar_ulasan(eng)
+    except SQLAlchemyError as e:
+        st.error(pesan_db(e))
+        return
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Rata-rata penilaian", "-" if ring["rata"] is None else f"{ring['rata']:.1f} / 5")
+    k2.metric("Sudah menilai", f"{ring['n']} dari {ring['n_peserta']}")
+    k3.metric("Ulasan masuk", len(semua))
+    if ring["n"]:
+        urut = (5, 4, 3, 2, 1)
+        st.dataframe(pd.DataFrame({"Penilaian": [_bintang(b) for b in urut], "Jumlah": [ring["sebaran"][b] for b in urut]}),
+                     width="stretch", hide_index=True)
+    if semua.empty:
+        st.info("Belum ada ulasan.")
+        return
+    st.download_button("⬇️ Ulasan (CSV)", semua.to_csv(index=False).encode("utf-8"), file_name="ulasan_peserta.csv",
+                       mime="text/csv", key="ub_csv")
+    pilih = st.radio("Status", ["(semua)", *STATUS_ULASAN], horizontal=True, key="ub_filter", label_visibility="collapsed")
+    df = semua if pilih == "(semua)" else semua[semua["status"] == pilih]
+    if df.empty:
+        st.info("Tidak ada ulasan dengan status itu.")
+        return
+    for u in df.itertuples():
+        with st.container(border=True):
+            st.markdown(f"**{esc(KATEGORI_ULASAN.get(u.kategori, u.kategori))}** · {esc(str(u.divisi or '-'))} · {esc(u.dibuat)}")
+            st.write(u.isi)
+            kol_status, kol_catatan = st.columns([1, 2])
+            status_baru = kol_status.selectbox("Status", STATUS_ULASAN, index=STATUS_ULASAN.index(u.status), key=f"ub_st_{u.id}")
+            catatan_lama = u.catatan_admin if isinstance(u.catatan_admin, str) else ""
+            catatan = kol_catatan.text_input("Catatan tindak lanjut", value=catatan_lama, max_chars=300, key=f"ub_cat_{u.id}")
+            if st.button("Simpan", key=f"ub_simpan_{u.id}"):
+                try:
+                    ubah_status_ulasan(eng, int(u.id), status_baru, catatan)
+                except ValueError as e:
+                    st.error(str(e))
+                except SQLAlchemyError as e:
+                    st.error(pesan_db(e))
+                else:
+                    st.rerun()
+
+
+# ------------------------------------------------------------------
 # MAIN
 # ------------------------------------------------------------------
 def keluar():
@@ -4430,7 +4746,7 @@ def halaman_admin(eng):
         realtime_admin()
         menu = st.radio(
             "Menu admin",
-            ["Peserta", "Rekap", "Analitik", "Model", "Proyek", "Foto"],
+            ["Peserta", "Rekap", "Analitik", "Model", "Proyek", "Umpan balik", "Foto"],
             horizontal=True,
             key="menu_admin",
             label_visibility="collapsed",
@@ -4446,6 +4762,8 @@ def halaman_admin(eng):
             halaman_model(eng)
         elif menu == "Proyek":
             halaman_proyek(eng)
+        elif menu == "Umpan balik":
+            halaman_umpan_balik(eng)
         else:
             halaman_foto(eng)
 
