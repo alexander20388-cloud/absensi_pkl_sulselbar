@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Satu image untuk web (Streamlit) dan API (FastAPI); perintah jalannya ditentukan di docker-compose.yml.
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
