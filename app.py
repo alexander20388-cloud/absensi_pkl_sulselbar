@@ -4722,6 +4722,107 @@ try {
     )
 
 
+# ------------------------------------------------------------------
+# BERANDA ADMIN: ringkasan peserta aktif dan kehadiran hari ini
+# ------------------------------------------------------------------
+CSS_DASHBOARD = """
+<style>
+.db-hero { background: var(--tint); border-radius: 18px; padding: 16px 18px; display: flex; align-items: center; gap: 18px; }
+.db-hero-n { font-size: 40px; font-weight: 700; color: var(--biru); line-height: 1; min-width: 56px; }
+.db-hero-t { font-size: 17px; font-weight: 700; color: var(--navy); }
+.db-hero-s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.db-judul { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 22px 0 10px; }
+.db-judul-t { font-size: 17px; font-weight: 700; color: var(--navy); }
+.db-judul-s { font-size: 12px; font-weight: 600; color: var(--biru); text-align: right; }
+.db-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.db-k { grid-column: span 2; border-radius: 16px; padding: 12px 14px; }
+.db-k.lebar { grid-column: span 3; }
+.db-k-n { font-size: 28px; font-weight: 700; line-height: 1.1; }
+.db-k-t { font-size: 13px; font-weight: 600; color: var(--navy2); margin-top: 2px; }
+.db-hadir { background: #d9f7e8; } .db-hadir .db-k-n { color: #12a15f; }
+.db-telat { background: #fff4d6; } .db-telat .db-k-n { color: #b45309; }
+.db-izin { background: #e3ecff; } .db-izin .db-k-n { color: #2563eb; }
+.db-cuti { background: #ece8ff; } .db-cuti .db-k-n { color: #5b3fd0; }
+.db-belum { background: #eef1f7; } .db-belum .db-k-n { color: #4a5788; }
+.db-belum.merah { background: #fde2e2; } .db-belum.merah .db-k-n { color: #c0392b; }
+.db-libur { background: #fff4d6; color: #b45309; border-radius: 14px; padding: 10px 14px; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.db-catatan { font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.6; }
+@media (max-width: 600px) {
+  .db-hero-n { font-size: 34px; } .db-k-n { font-size: 24px; } .db-k { padding: 10px 12px; }
+  .st-key-menu_admin [role="radiogroup"] { overflow-x: auto; }      /* 8 menu tidak muat di layar sempit: geser, jangan terhimpit */
+  .st-key-menu_admin [data-testid="stRadioOption"] { flex: 1 0 auto; padding: 9px 12px; }
+}
+</style>
+"""
+
+
+def ringkasan_hari_ini(eng, sekarang=None):
+    """Hitung kehadiran satu hari untuk Beranda admin. Setiap peserta terdaftar masuk TEPAT SATU kelompok, jadi
+    tepat + terlambat + izin + cuti + belum = aktif. Yang dihitung hanya absen yang berhasil (percobaan gagal lokasi
+    diabaikan) dan hanya peserta yang masih terdaftar. Bila satu peserta punya beberapa catatan hari itu, absen masuk
+    yang menentukan. 'Belum' = belum ada catatan sama sekali; di Sabtu/Minggu nilainya 0 karena memang tidak ada absen."""
+    sekarang = sekarang or datetime.now(WITA)
+    hari = sekarang.date()
+    libur = hari_libur(hari)
+    q = (
+        select(absensi_t.c.nama, absensi_t.c.jenis, absensi_t.c.jam)
+        .select_from(absensi_t.join(peserta_t, peserta_t.c.nama == absensi_t.c.nama))
+        .where(and_(absensi_t.c.tanggal == hari.isoformat(), absensi_t.c.status != "gagal_lokasi",
+                    absensi_t.c.jenis.in_(("masuk", "izin", "cuti"))))
+    )
+    with eng.connect() as c:
+        aktif = c.execute(select(func.count()).select_from(peserta_t)).scalar() or 0
+        baris = c.execute(q).all()
+    status = {}
+    for nama, jenis, jam in baris:
+        if jenis == "masuk":
+            status[nama] = "terlambat" if terlambat(jam) else "tepat"
+        elif nama not in status:
+            status[nama] = jenis
+    hitung = {k: sum(1 for v in status.values() if v == k) for k in ("tepat", "terlambat", "izin", "cuti")}
+    belum = 0 if libur else max(int(aktif) - len(status), 0)
+    return {
+        "tanggal": hari, "libur": libur, "aktif": int(aktif), **hitung, "belum": belum,
+        "sudah_absen": hitung["tepat"] + hitung["terlambat"],
+        # sebelum jendela absen masuk tutup mereka baru "belum absen"; sesudahnya baru pantas disebut tidak hadir
+        "label_belum": "Belum absen" if sekarang.time().replace(second=0, microsecond=0) <= JAM_MASUK_TUTUP else "Tidak hadir",
+        "waktu": sekarang.strftime("%H:%M"),
+    }
+
+
+def halaman_beranda_admin(eng):
+    """Beranda admin: peserta aktif + kehadiran hari ini."""
+    st.markdown(CSS_DASHBOARD, unsafe_allow_html=True)
+    try:
+        r = ringkasan_hari_ini(eng)
+    except SQLAlchemyError as e:
+        st.error(pesan_db(e))
+        return
+    merah = " merah" if r["label_belum"] == "Tidak hadir" and r["belum"] else ""
+    kartu = [
+        ("db-hadir", r["tepat"], "Hadir", ""), ("db-telat", r["terlambat"], "Terlambat", ""), ("db-izin", r["izin"], "Izin", ""),
+        ("db-cuti", r["cuti"], "Cuti", " lebar"), (f"db-belum{merah}", r["belum"], r["label_belum"], " lebar"),
+    ]
+    html = (
+        f'<div class="db-hero"><div class="db-hero-n">{r["aktif"]}</div>'
+        '<div><div class="db-hero-t">Peserta Aktif</div><div class="db-hero-s">Terdaftar di sistem</div></div></div>'
+        '<div class="db-judul"><div class="db-judul-t">Kehadiran Hari Ini</div>'
+        f'<div class="db-judul-s">{esc(tgl_indonesia(r["tanggal"]))}</div></div>'
+    )
+    if r["libur"]:
+        html += '<div class="db-libur">Hari ini libur PKL (Sabtu/Minggu), tidak ada absen yang diharapkan.</div>'
+    html += '<div class="db-grid">' + "".join(
+        f'<div class="db-k {kelas}{lebar}"><div class="db-k-n">{n}</div><div class="db-k-t">{esc(label)}</div></div>'
+        for kelas, n, label, lebar in kartu
+    ) + "</div>"
+    html += (
+        f'<div class="db-catatan">Sudah absen masuk: {r["sudah_absen"]} dari {r["aktif"]} peserta. '
+        f'Hadir = absen masuk sampai {BATAS_TEPAT_WAKTU:%H:%M}, Terlambat = sesudahnya. '
+        f'Diperbarui {r["waktu"]} WITA.</div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
 def halaman_admin(eng):
     """Area admin dengan gaya visual yang selaras dengan halaman peserta."""
     st.markdown(CSS_ADMIN, unsafe_allow_html=True)
@@ -4749,13 +4850,15 @@ def halaman_admin(eng):
         realtime_admin()
         menu = st.radio(
             "Menu admin",
-            ["Peserta", "Rekap", "Analitik", "Model", "Proyek", "Umpan balik", "Foto"],
+            ["Beranda", "Peserta", "Rekap", "Analitik", "Model", "Proyek", "Umpan balik", "Foto"],
             horizontal=True,
             key="menu_admin",
             label_visibility="collapsed",
         )
         st.markdown("---")
-        if menu == "Peserta":
+        if menu == "Beranda":
+            halaman_beranda_admin(eng)
+        elif menu == "Peserta":
             halaman_kelola_peserta(eng)
         elif menu == "Rekap":
             halaman_rekap(eng)
