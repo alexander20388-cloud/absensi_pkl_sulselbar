@@ -1562,7 +1562,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 .st-key-adminbody [data-testid="stMetricLabel"] * { color: #2f5fd0 !important; }
 .st-key-adminbody [data-testid="stMetricValue"] * { color: var(--navy) !important; font-weight: 700; font-family: 'Inter', system-ui, sans-serif !important; }
 .st-key-adminbody [data-testid="stDataFrame"], .st-key-adminbody [data-testid="stTable"] {
-  border: 1px solid var(--garis); border-radius: 16px; overflow: hidden;
+  border: 1px solid var(--garis); border-radius: 16px; overflow: visible;
 }
 .st-key-adminbody [data-testid="stExpander"] details { background: #f6f8ff; border: 1px solid var(--garis); border-radius: 16px; }
 .st-key-adminbody [data-testid="stExpander"] summary * { color: var(--navy); font-weight: 600; }
