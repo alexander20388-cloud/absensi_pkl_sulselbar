@@ -227,6 +227,8 @@ peserta_t = Table(
     Column("divisi", String(100), nullable=False, default=""),
     Column("pin_hash", String(200), nullable=False),            # scrypt (baru) atau SHA-256 64 hex (lama; ditingkatkan saat login berhasil)
     Column("no_rekening", String(40)),
+    Column("universitas", String(150)),
+    Column("jurusan", String(150)),
     Column("setuju_versi", String(20)),                         # versi pemberitahuan privasi yang disetujui
     Column("setuju_pada", String(19)),                          # YYYY-MM-DD HH:MM:SS (WITA)
 )
@@ -468,7 +470,8 @@ def _migrasi(eng):
     pembaruan kode tidak terbentuk selama proses aplikasi belum restart."""
     metadata.create_all(eng)
     perlu = {
-        "peserta": [("no_rekening", "VARCHAR(40)"), ("setuju_versi", "VARCHAR(20)"), ("setuju_pada", "VARCHAR(19)")],
+        "peserta": [("no_rekening", "VARCHAR(40)"), ("setuju_versi", "VARCHAR(20)"), ("setuju_pada", "VARCHAR(19)"),
+                    ("universitas", "VARCHAR(150)"), ("jurusan", "VARCHAR(150)")],
         "absensi": [
             ("foto_path", "VARCHAR(200)"), ("alasan", "VARCHAR(300)"),
             ("peserta_id", "INTEGER REFERENCES peserta(id) ON DELETE SET NULL"),
@@ -695,17 +698,30 @@ def list_peserta(eng):
         )
 
 
+def list_peserta_lengkap(eng):
+    """Seperti list_peserta, ditambah universitas & jurusan (dipakai halaman Kelola Peserta)."""
+    with eng.connect() as c:
+        return pd.read_sql(
+            select(
+                peserta_t.c.nama, peserta_t.c.gedung, peserta_t.c.divisi, peserta_t.c.no_rekening,
+                peserta_t.c.universitas, peserta_t.c.jurusan,
+            ).order_by(peserta_t.c.nama), c
+        )
+
+
 def get_peserta(eng, nama):
     with eng.connect() as c:
         return c.execute(select(peserta_t).where(peserta_t.c.nama == nama)).mappings().first()
 
 
 @coba_ulang
-def add_peserta(eng, nama, gedung, divisi, pin, no_rekening=None, aktor="admin", peran="admin"):
+def add_peserta(eng, nama, gedung, divisi, pin, no_rekening=None, aktor="admin", peran="admin",
+                universitas=None, jurusan=None):
     with eng.begin() as c:
         c.execute(insert(peserta_t).values(
             nama=nama.strip(), gedung=gedung, divisi=divisi.strip(), pin_hash=proyek.hash_pin_kuat(pin),
             no_rekening=(no_rekening or None),
+            universitas=((universitas or "").strip() or None), jurusan=((jurusan or "").strip() or None),
         ))
         _audit(c, aktor, peran, "peserta.tambah", f"peserta:{nama.strip()}",
                {"divisi": divisi.strip(), "gedung": gedung, "rekening_diisi": bool(no_rekening)})
@@ -725,6 +741,16 @@ def set_rekening(eng, nama, no_rekening, aktor="admin", peran="admin"):
         if r.rowcount:
             _audit(c, aktor, peran, "peserta.ubah_rekening", f"peserta:{nama}",
                    {"dari_akhir": _akhir_rekening(lama[0]), "ke_akhir": _akhir_rekening(no_rekening)})
+
+
+@coba_ulang
+def set_kampus(eng, nama, universitas, jurusan, aktor="admin", peran="admin"):
+    with eng.begin() as c:
+        r = c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(
+            universitas=((universitas or "").strip() or None), jurusan=((jurusan or "").strip() or None),
+        ))
+        if r.rowcount:
+            _audit(c, aktor, peran, "peserta.ubah_kampus", f"peserta:{nama}", {})
 
 
 def validasi_rekening(teks):
@@ -2579,18 +2605,99 @@ def tab_logbook(eng, nama, peserta):
 # ------------------------------------------------------------------
 # HALAMAN ADMIN: KELOLA PESERTA
 # ------------------------------------------------------------------
-def halaman_kelola_peserta(eng):
-    st.header("👥 Kelola Peserta PKL")
-    if not admin_login():
-        return
+CSS_PESERTA = """
+<style>
+/* tabel peserta: baris dibuat dari kolom, tidak boleh bertumpuk di layar HP, teks membungkus (tidak terpotong) */
+.st-key-tabel_peserta { background: #fff; border: 1px solid #d3e2ed; border-radius: 16px; padding: 4px 8px; }
+.st-key-tabel_peserta [data-testid="stVerticalBlock"] { gap: 0 !important; }
+.st-key-tabel_peserta [data-testid="stHorizontalBlock"] {
+  flex-wrap: nowrap !important; gap: 6px !important; border-bottom: 1px solid #e3edf4; padding: 7px 2px; align-items: center;
+}
+.st-key-tabel_peserta [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
+.st-key-tabel_peserta [data-testid="stColumn"]:nth-child(1) { flex: 0.7 1 0 !important; }
+.st-key-tabel_peserta [data-testid="stColumn"]:nth-child(2) { flex: 2.4 1 0 !important; }
+.st-key-tabel_peserta [data-testid="stColumn"]:nth-child(3) { flex: 1 1 0 !important; }
+.st-key-tabel_peserta [data-testid="stColumn"]:nth-child(4) { flex: 2.9 1 0 !important; }
+.tp-h { font-size: 12px; font-weight: 700; color: #3f6785; text-transform: uppercase; letter-spacing: .3px; }
+.tp-c { font-size: 13px; line-height: 1.35; color: #0b3a5e; overflow-wrap: anywhere; word-break: break-word; }
+.st-key-tabel_peserta button {
+  min-height: 0 !important; height: auto !important; padding: 0 !important; justify-content: flex-start !important;
+  text-align: left !important; background: transparent !important; border: 0 !important; box-shadow: none !important;
+}
+.st-key-tabel_peserta button p {
+  white-space: normal !important; overflow-wrap: anywhere; word-break: break-word; text-align: left !important;
+  font-size: 13px !important; font-weight: 700 !important; line-height: 1.35 !important; color: #0a5a8f !important;
+  text-decoration: underline; text-decoration-color: rgba(10,90,143,.35);
+}
+.pf-baris { padding: 10px 0; border-bottom: 1px solid #e3edf4; }
+.pf-baris:last-child { border-bottom: 0; }
+.pf-l { font-size: 12px; font-weight: 600; color: #6b8599; }
+.pf-v { font-size: 15px; font-weight: 600; color: #0b3a5e; overflow-wrap: anywhere; margin-top: 2px; }
+</style>
+"""
 
-    with st.form("tambah_peserta", clear_on_submit=True):
+
+def _kosong(v):
+    """Teks siap tampil: nilai kosong/NaN jadi '-'."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return "-"
+    t = str(v).strip()
+    return t if t else "-"
+
+
+def halaman_profil_peserta(df, nama):
+    """Halaman profil peserta (halaman penuh, bukan pop-up). Dibuka dengan menekan nama di tabel."""
+    if st.button("← Kembali ke daftar peserta", key="profil_kembali"):
+        st.session_state.pop("profil_peserta", None)
+        st.rerun()
+    cocok = df[df["nama"] == nama]
+    if cocok.empty:
+        st.session_state.pop("profil_peserta", None)
+        st.warning("Peserta tidak ditemukan (mungkin sudah dihapus).")
+        return
+    data = {k: _kosong(v) for k, v in cocok.iloc[0].to_dict().items()}
+    st.subheader("Profil Peserta")
+    baris = [
+        ("Nama", data["nama"]), ("Divisi", data["divisi"]), ("Gedung", data["gedung"]),
+        ("No. Rekening", data["no_rekening"]), ("Universitas", data["universitas"]), ("Jurusan", data["jurusan"]),
+    ]
+    st.markdown(
+        "".join(
+            f'<div class="pf-baris"><div class="pf-l">{esc(k)}</div><div class="pf-v">{esc(_kosong(v))}</div></div>'
+            for k, v in baris
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def tabel_peserta(df):
+    """Tabel peserta: semua teks membungkus (tidak ada yang terpotong); menekan nama membuka profil peserta."""
+    lebar = [0.7, 2.4, 1, 2.9]
+    with st.container(key="tabel_peserta"):
+        kepala = st.columns(lebar, vertical_alignment="center")
+        for kol, teks in zip(kepala, ["No", "Nama", "Gedung", "Divisi"]):
+            kol.markdown(f'<div class="tp-h">{teks}</div>', unsafe_allow_html=True)
+        for no, r in enumerate(df.to_dict("records"), start=1):
+            kol = st.columns(lebar, vertical_alignment="center")
+            kol[0].markdown(f'<div class="tp-c">{no}</div>', unsafe_allow_html=True)
+            if kol[1].button(str(r["nama"]), key=f"profil_{no}", type="tertiary"):
+                st.session_state["profil_peserta"] = r["nama"]
+                st.rerun()
+            kol[2].markdown(f'<div class="tp-c">{esc(_kosong(r["gedung"]))}</div>', unsafe_allow_html=True)
+            kol[3].markdown(f'<div class="tp-c">{esc(_kosong(r["divisi"]))}</div>', unsafe_allow_html=True)
+
+
+def form_tambah_peserta(eng):
+    """Form tambah peserta (tampil di halaman, bukan pop-up); hanya muncul setelah tombol Tambah Peserta ditekan."""
+    with st.form("tambah_peserta", clear_on_submit=False, border=True):
         nama = st.text_input("Nama peserta")
         divisi = st.selectbox("Divisi", list(DIVISI_GEDUNG.keys()))
         gedung = DIVISI_GEDUNG[divisi]
+        univ = st.text_input("Universitas", max_chars=150)
+        jurusan = st.text_input("Jurusan", max_chars=150)
         no_rek = st.text_input("Nomor rekening", placeholder="contoh: 130-210-000554616-9", max_chars=30)
         pin = st.text_input("PIN (4-6 angka)", max_chars=6)
-        kirim = st.form_submit_button("Tambah Peserta")
+        kirim = st.form_submit_button("Simpan Peserta", width="stretch")
 
     if kirim:
         if (no_rek or "").strip():
@@ -2605,34 +2712,59 @@ def halaman_kelola_peserta(eng):
             st.error("PIN harus 4-6 angka.")
         else:
             try:
-                add_peserta(eng, nama, gedung, divisi, pin, rek_rapi)
-                catatan = "" if rek_rapi else " Nomor rekening belum diisi, bisa ditambahkan nanti lewat panel Edit di bawah."
-                st.success(f"{nama.strip()} ditambahkan ke Gedung {gedung}. Kasih tahu PIN-nya ke yang bersangkutan.{catatan}")
+                add_peserta(eng, nama, gedung, divisi, pin, rek_rapi, universitas=univ, jurusan=jurusan)
             except IntegrityError:
                 st.error("Nama itu sudah terdaftar.")
             except SQLAlchemyError as e:
                 st.error(pesan_db(e))
+            else:
+                catatan = "" if rek_rapi else " Nomor rekening belum diisi, bisa ditambahkan nanti lewat panel Edit di bawah."
+                st.session_state["pesan_tambah"] = (
+                    f"{nama.strip()} ditambahkan ke Gedung {gedung}. Kasih tahu PIN-nya ke yang bersangkutan.{catatan}"
+                )
+                st.session_state["tambah_terbuka"] = False      # form disembunyikan lagi
+                st.rerun()
+
+
+def halaman_kelola_peserta(eng):
+    st.header("👥 Kelola Peserta PKL")
+    if not admin_login():
+        return
+    st.markdown(CSS_PESERTA, unsafe_allow_html=True)
+
+    profil = st.session_state.get("profil_peserta")
+    if profil:
+        halaman_profil_peserta(list_peserta_lengkap(eng), profil)
+        if st.session_state.get("profil_peserta"):
+            return
+
+    terbuka = st.session_state.get("tambah_terbuka", False)
+    if st.button("✖ Tutup Form" if terbuka else "➕ Tambah Peserta", key="buka_tambah_peserta"):
+        st.session_state["tambah_terbuka"] = not terbuka
+        st.rerun()
+    pesan_tambah = st.session_state.pop("pesan_tambah", None)
+    if pesan_tambah:
+        st.success(pesan_tambah)
+    if st.session_state.get("tambah_terbuka", False):
+        form_tambah_peserta(eng)
 
     pesan = st.session_state.pop("pesan_hapus", None)
     if pesan:
         st.success(pesan)
 
-    df = list_peserta(eng)
-    st.dataframe(
-        beri_nomor(df.rename(columns={
-            "nama": "Nama", "gedung": "Gedung", "divisi": "Divisi", "no_rekening": "No. Rekening",
-        }).fillna({"No. Rekening": "-"})),
-        width="stretch",
-    )
+    df = list_peserta_lengkap(eng)
+    tabel_peserta(df)
     belum = df[df["no_rekening"].isna() | (df["no_rekening"].astype(str).str.strip() == "")]["nama"].tolist()
     if belum:
-        st.caption(
-            f"⚠️ {len(belum)} peserta belum punya nomor rekening: {', '.join(belum)}. "
-            "Isi lewat panel Edit di bawah (di Excel akan tertulis “-” sampai diisi)."
-        )
+        with st.container(key="info_rek"):
+            with st.popover(f":material/warning: {len(belum)}"):
+                st.caption(
+                    f"{len(belum)} peserta belum punya nomor rekening: {', '.join(belum)}. "
+                    "Isi lewat panel Edit di bawah (di Excel akan tertulis “-” sampai diisi)."
+                )
 
     if not df.empty:
-        with st.expander("Edit Divisi / No. Rekening / Reset PIN / Hapus peserta"):
+        with st.expander("Edit Divisi / No. Rekening / Universitas & Jurusan / Reset PIN / Hapus peserta"):
             target = st.selectbox("Pilih peserta", df["nama"], key="target_kelola")
 
             opsi_divisi = list(DIVISI_GEDUNG.keys())
@@ -2666,6 +2798,21 @@ def halaman_kelola_peserta(eng):
                     else:
                         st.success("Nomor rekening diperbarui.")
                         st.rerun()
+
+            univ_lama = _kosong(df.loc[df["nama"] == target, "universitas"].values[0])
+            jur_lama = _kosong(df.loc[df["nama"] == target, "jurusan"].values[0])
+            univ_baru = st.text_input("Universitas", value="" if univ_lama == "-" else univ_lama,
+                                      max_chars=150, key=f"univ_baru_{target}")
+            jur_baru = st.text_input("Jurusan", value="" if jur_lama == "-" else jur_lama,
+                                     max_chars=150, key=f"jur_baru_{target}")
+            if st.button("Simpan Universitas & Jurusan"):
+                try:
+                    set_kampus(eng, target, univ_baru, jur_baru)
+                except SQLAlchemyError as e:
+                    st.error(pesan_db(e))
+                else:
+                    st.success("Universitas & jurusan diperbarui.")
+                    st.rerun()
 
             pin_baru = st.text_input("PIN baru (4-6 angka)", max_chars=6, key="pin_baru")
             hapus_absen_juga = st.checkbox(
@@ -5033,12 +5180,10 @@ def realtime_admin():
     url = str(secret("supabase_url") or "").strip().rstrip("/")
     anon = str(secret("supabase_anon_key") or "").strip()
     if not (url and anon):
-        st.caption("🔕 Realtime belum aktif (isi `supabase_url` dan `supabase_anon_key` di Secrets).")
-        return
+        return "🔕 Realtime belum aktif (isi `supabase_url` dan `supabase_anon_key` di Secrets)."
     with st.container(key="rt_hidden"):
         if st.button("segarkan", key="rt_refresh"):
             st.toast("Ada data absensi baru. Dashboard diperbarui.", icon="🔔")
-    st.caption("🔔 Realtime aktif: dashboard diperbarui otomatis saat ada absen/izin baru.")
     components.html(
         """<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
@@ -5062,6 +5207,7 @@ try {
 </script>""" % (json.dumps(url), json.dumps(anon)),
         height=0,
     )
+    return "🔔 Realtime aktif: dashboard diperbarui otomatis saat ada absen/izin baru."
 
 
 # ------------------------------------------------------------------
@@ -5157,12 +5303,26 @@ def halaman_beranda_admin(eng):
         f'<div class="db-k {kelas}{lebar}"><div class="db-k-n">{n}</div><div class="db-k-t">{esc(label)}</div></div>'
         for kelas, n, label, lebar in kartu
     ) + "</div>"
-    html += (
-        f'<div class="db-catatan">Sudah absen masuk: {r["sudah_absen"]} dari {r["aktif"]} peserta. '
-        f'Hadir = absen masuk sampai {BATAS_TEPAT_WAKTU:%H:%M}, Terlambat = sesudahnya. '
-        f'Diperbarui {r["waktu"]} WITA.</div>'
-    )
     st.markdown(html, unsafe_allow_html=True)
+    with st.container(key="info_catatan"):
+        with st.popover(":material/info:"):
+            st.caption(
+                f'Sudah absen masuk: {r["sudah_absen"]} dari {r["aktif"]} peserta. '
+                f'Hadir = absen masuk sampai {BATAS_TEPAT_WAKTU:%H:%M}, Terlambat = sesudahnya. '
+                f'Diperbarui {r["waktu"]} WITA.'
+            )
+
+
+CSS_INFO = """
+<style>
+/* tombol info kecil (popover): isi keterangan baru muncul saat ditekan */
+.st-key-info_sistem button, .st-key-info_catatan button, .st-key-info_rek button {
+  width: auto !important; min-height: 0 !important; height: 34px; padding: 0 12px !important; border-radius: 999px !important;
+  background: #eaf3fa !important; border: 1px solid #c9dcea !important; color: #0a5a8f !important; box-shadow: none !important;
+}
+.st-key-info_catatan, .st-key-info_rek { margin: 8px 0; }
+</style>
+"""
 
 
 # Menu admin: (nama menu, ikon Material, judul di header)
@@ -5239,8 +5399,12 @@ def halaman_admin(eng):
                 "sementara dan akan HILANG saat aplikasi restart/reboot. Isi `database_url` (Supabase/Postgres) "
                 "di Secrets agar data permanen."
             )
-        panel_status(eng)
-        realtime_admin()
+        st.markdown(CSS_INFO, unsafe_allow_html=True)
+        ket_realtime = realtime_admin()
+        with st.container(key="info_sistem"):
+            with st.popover(":material/info:"):
+                panel_status(eng)
+                st.caption(ket_realtime)
         if menu == "Beranda":
             halaman_beranda_admin(eng)
         elif menu == "Peserta":
