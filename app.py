@@ -5212,7 +5212,7 @@ def halaman_login(eng, hanya_peserta=False):
     st.markdown(CSS_AUTH_ADMIN, unsafe_allow_html=True)
     st.markdown(
         f"""<div class="auth-head">
-{'<img class="auth-logo-img" alt="Bank Sulselbar" src="data:image/png;base64,' + LOGO_BANK_B64 + '">' if LOGO_BANK_B64 else ""}
+{'<img class="auth-logo-img" alt="Bank Sulselbar Syariah First" src="data:image/png;base64,' + LOGO_ADMIN_B64 + '">' if LOGO_ADMIN_B64 else ""}
 <div class="auth-brand"><div class="auth-logo">{ic("fingerprint", 30)}</div>
 <div><div class="auth-title">{"Presensi PKL" if hanya_peserta else "Presensi"}</div><div class="auth-bank">Bank Sulselbar • Absensi PKL</div></div></div>
 <div class="auth-greet">Selamat Datang 👋</div>
