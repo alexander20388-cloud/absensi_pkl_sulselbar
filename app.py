@@ -1865,10 +1865,6 @@ CSS_ADMIN = """
 .admin-top { display: flex; align-items: center; gap: 14px; position: relative; z-index: 1; }
 .admin-logo { width: 50px; height: 50px; border-radius: 15px; background: rgba(255,255,255,.2);
   display: flex; align-items: center; justify-content: center; color: #fff; }
-.admin-brand { display: inline-flex; align-items: center; background: #fff; border-radius: 14px; padding: 6px 14px;
-  margin-top: 16px; position: relative; z-index: 1; box-shadow: 0 4px 14px rgba(3,30,52,.22); }
-.admin-brand img { display: block; height: 38px; width: auto; max-width: 100%; }
-.admin-head.has-brand { padding-bottom: 142px; }
 .admin-title { font-size: 25px; font-weight: 700; color: #fff; flex: 1; }
 .admin-sub { font-size: 13px; color: rgba(255,255,255,.82); margin-top: 2px; font-weight: 400; }
 .admin-out { width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.2);
@@ -1926,8 +1922,6 @@ CSS_ADMIN = """
 }
 @media (max-width: 600px) {
   .admin-head { padding: 28px 18px 80px; }
-  .admin-head.has-brand { padding-bottom: 138px; }
-  .admin-brand img { height: 34px; }
   .st-key-adminlogout { right: 18px; top: 28px; }
   .st-key-adminbody { padding: 16px 12px 22px; width: calc(100% - 20px) !important; margin-left: 10px; }
 }
@@ -5393,7 +5387,7 @@ CSS_DASHBOARD = """
 .db-judul-t { font-size: 17px; font-weight: 700; color: var(--navy); }
 .db-judul-s { font-size: 12px; font-weight: 600; color: var(--biru); text-align: right; }
 .db-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
-.db-k { grid-column: span 2; border-radius: 16px; padding: 12px 14px; }
+.db-k { grid-column: span 2; border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .db-k.lebar { grid-column: span 3; }
 .db-k-n { font-size: 28px; font-weight: 700; line-height: 1.1; }
 .db-k-t { font-size: 13px; font-weight: 600; color: var(--navy2); margin-top: 2px; }
@@ -5409,11 +5403,12 @@ CSS_DASHBOARD = """
 .st-key-kartu_db [data-testid="stElementContainer"] { grid-column: span 2; margin: 0 !important; width: auto !important; }
 .st-key-kartu_db .st-key-kartu_cuti, .st-key-kartu_db .st-key-kartu_belum { grid-column: span 3; }
 .st-key-adminbody .st-key-kartu_db button {
-  display: flex !important; flex-direction: column; align-items: flex-start !important; justify-content: center; text-align: left;
+  display: flex !important; flex-direction: column; align-items: center !important; justify-content: center; text-align: center;
   width: 100% !important; min-height: 0 !important; height: auto !important; padding: 12px 14px !important;
   border: 0 !important; border-radius: 16px !important; }
-.st-key-adminbody .st-key-kartu_db button::before { font-size: 28px; font-weight: 700; line-height: 1.1; }
-.st-key-adminbody .st-key-kartu_db button p { font-size: 13px !important; font-weight: 600 !important; color: var(--navy2) !important; margin: 2px 0 0 !important; text-align: left; }
+.st-key-adminbody .st-key-kartu_db button::before { font-size: 28px; font-weight: 700; line-height: 1.1; width: 100%; text-align: center; }
+.st-key-adminbody .st-key-kartu_db button > div { width: 100% !important; display: flex; justify-content: center; text-align: center; }
+.st-key-adminbody .st-key-kartu_db button p { font-size: 13px !important; font-weight: 600 !important; color: var(--navy2) !important; margin: 2px 0 0 !important; text-align: center !important; width: 100%; }
 .db-catatan { font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.6; }
 @media (max-width: 600px) {
   .db-hero-n { font-size: 34px; } .db-k-n { font-size: 24px; } .db-k { padding: 10px 12px; }
@@ -5624,14 +5619,12 @@ def halaman_admin(eng):
     # Tag pembungkus bergantian tiap menu dipilih: React memasang ulang elemen ini sehingga kotak centang kembali kosong (panel tertutup).
     tag = "div" if st.session_state.get("drawer_n", 0) % 2 == 0 else "section"
     st.markdown(
-        f"""<{tag} class="admin-head has-brand"><input type="checkbox" id="drtoggle" class="dr-chk" aria-hidden="true"><div class="admin-top">
+        f"""<{tag} class="admin-head"><input type="checkbox" id="drtoggle" class="dr-chk" aria-hidden="true"><div class="admin-top">
 <label for="drtoggle" class="admin-logo dr-open" aria-label="Buka menu">{ic("menu", 28)}</label>
 <div><div class="admin-title">{esc(judul)}</div><div class="admin-sub">Bank Sulselbar • Pengelolaan Absensi PKL</div></div>
 <div style="flex:1"></div>
 <div class="admin-out">{ic("logout", 24)}</div>
-</div>
-{'<div class="admin-brand"><img alt="Bank Sulselbar Syariah First" src="data:image/png;base64,' + LOGO_ADMIN_B64 + '"></div>' if LOGO_ADMIN_B64 else ""}
-</{tag}>""",
+</div></{tag}>""",
         unsafe_allow_html=True,
     )
     with st.container(key="adminlogout"):
