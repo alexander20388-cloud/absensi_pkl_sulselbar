@@ -1682,14 +1682,14 @@ html, body { height: auto !important; min-height: 100%; overflow-x: hidden; over
   border-color: var(--biru) !important; box-shadow: 0 0 0 3px rgba(10,90,143,.16) !important;
 }
 /* radio -> tombol pil */
-:is(.st-key-loginbody, .st-key-adminbody, .st-key-pagebody) [data-testid="stRadio"] [role="radiogroup"] > div { flex: 1 1 0; min-width: 0; }
-:is(.st-key-loginbody, .st-key-adminbody, .st-key-pagebody) [data-testid="stRadioOption"] { width: 100%; box-sizing: border-box; }
+:is(.st-key-loginbody, .st-key-adminbody, .st-key-pagebody) [data-testid="stRadio"] [role="radiogroup"] > div { flex: 1 0 auto; min-width: max-content; }
+:is(.st-key-loginbody, .st-key-adminbody, .st-key-pagebody) [data-testid="stRadioOption"] { width: auto; min-width: max-content; box-sizing: border-box; }
 :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadio"] [role="radiogroup"] {
-  background: var(--tint); border-radius: 14px; padding: 0; gap: 0; flex-wrap: nowrap; width: 100%; overflow: hidden;
+  background: var(--tint); border-radius: 14px; padding: 0; gap: 0; flex-wrap: nowrap; width: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
 }
 :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"] {
-  flex: 1 1 0; justify-content: center; align-items: center; border-radius: 14px; padding: 14px 8px; margin: 0 !important;
-  cursor: pointer; transition: background .15s ease; min-width: 0;
+  flex: 1 0 auto; justify-content: center; align-items: center; border-radius: 14px; padding: 14px 14px; margin: 0 !important;
+  cursor: pointer; transition: background .15s ease; min-width: max-content;
 }
 :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"] > div { width: 100%; justify-content: center; }
 :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"] > div > div:first-child { display: none; }
@@ -1715,6 +1715,7 @@ html, body { height: auto !important; min-height: 100%; overflow-x: hidden; over
 :is(.st-key-loginbody, .st-key-adminbody) button[kind="secondary"] *, :is(.st-key-loginbody, .st-key-adminbody) button[kind="secondaryFormSubmit"] *, .st-key-adminbody [data-testid="stDownloadButton"] button * { color: var(--biru) !important; }
 :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadio"], :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadio"] > div { width: 100%; }
 :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadio"] [role="radiogroup"] { display: flex; }
+:is(.st-key-loginbody, .st-key-adminbody, .st-key-pagebody) [data-testid="stElementContainer"]:has([data-testid="stRadio"]) { width: 100% !important; }
 
 /* kartu statistik, tabel, expander, alert */
 .st-key-adminbody [data-testid="stMetric"] { background: var(--tint); border-radius: 18px; padding: 14px 16px; }
@@ -1735,11 +1736,11 @@ html, body { height: auto !important; min-height: 100%; overflow-x: hidden; over
 .st-key-pagebody [data-testid="stRadio"], .st-key-pagebody [data-testid="stRadio"] > div { width: 100%; }
 .st-key-pagebody [data-testid="stRadio"] { margin-bottom: 8px; }
 .st-key-pagebody [data-testid="stRadio"] [role="radiogroup"] {
-  display: flex; background: var(--tint); border-radius: 14px; padding: 0; gap: 0; flex-wrap: nowrap; width: 100%; overflow: hidden;
+  display: flex; background: var(--tint); border-radius: 14px; padding: 0; gap: 0; flex-wrap: nowrap; width: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
 }
 .st-key-pagebody [data-testid="stRadioOption"] {
-  flex: 1 1 0; justify-content: center; align-items: center; border-radius: 14px; padding: 14px 8px; margin: 0 !important;
-  cursor: pointer; min-width: 0;
+  flex: 1 0 auto; justify-content: center; align-items: center; border-radius: 14px; padding: 14px 14px; margin: 0 !important;
+  cursor: pointer; min-width: max-content;
 }
 .st-key-pagebody [data-testid="stRadioOption"] > div { width: 100%; justify-content: center; }
 .st-key-pagebody [data-testid="stRadioOption"] > div > div:first-child { display: none; }
