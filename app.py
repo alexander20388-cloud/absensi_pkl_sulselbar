@@ -2996,6 +2996,7 @@ CSS_REKAP = """
 .st-key-adminbody .st-key-rekap_tabel button[kind="secondary"] p { font-size: 16px !important; font-weight: 700; line-height: 1; margin: 0 !important; }
 .rk-h { font-size: 10.5px; font-weight: 700; color: var(--muted); text-align: center; white-space: nowrap; }
 .rk-h.kiri { text-align: left; }
+.rk-h.rk-wrap { white-space: normal; line-height: 1.15; }          /* "Tidak Hadir" boleh turun ke dua baris di layar sempit */
 .rk-n { font-size: 12.5px; font-weight: 600; color: var(--navy); line-height: 1.2; white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
 .rk-v { font-size: 12.5px; color: var(--navy); text-align: center; white-space: nowrap; }
 .rk-sub { font-size: 12px; color: var(--muted); }
@@ -3063,16 +3064,18 @@ def hari_kerja_periode(tahun, bulan, sekarang=None):
 
 
 def absen_pertama(eng):
-    """{nama: tanggal absen pertama} (percobaan gagal lokasi tidak dihitung); patokan awal hitungan 'tidak hadir'."""
+    """{nama: tanggal absen pertama} (percobaan gagal lokasi tidak dihitung). Tidak lagi dipakai hitungan 'tidak hadir' rekap."""
     q = select(absensi_t.c.nama, func.min(absensi_t.c.tanggal)).where(absensi_t.c.status != "gagal_lokasi").group_by(absensi_t.c.nama)
     with eng.connect() as c:
         return {n: t for n, t in c.execute(q).all()}
 
 
 def rekap_peserta_bulan(eng, df, tahun, bulan, sekarang=None):
-    """Satu baris per peserta (terdaftar, ditambah nama yang hanya tersisa di riwayat). 'Tidak Hadir' = hari kerja tanpa
-    absen masuk, izin, atau cuti, dihitung sejak absen pertama peserta (bukan sejak didaftarkan, karena tanggal daftar
-    tidak disimpan); peserta yang belum pernah absen sama sekali tidak dihitung tidak hadir."""
+    """Satu baris per peserta (terdaftar, ditambah nama yang hanya tersisa di riwayat). 'Tidak Hadir' = hari kerja yang
+    sudah lewat tanpa absen masuk, izin, atau cuti, dihitung sejak awal bulan; aturannya sama dengan 'Tidak hadir' di Beranda
+    (jumlah per hari), hanya dijumlahkan untuk satu bulan. Berlaku untuk peserta yang masih terdaftar, termasuk yang belum
+    pernah absen. Nama yang hanya tersisa di riwayat (sudah dihapus) tidak dihitung, sama seperti Beranda.
+    Catatan: tanggal daftar tidak disimpan, jadi peserta yang didaftarkan di tengah bulan ikut dihitung sejak tanggal 1."""
     terdaftar = set(list_peserta(eng)["nama"])
     nama_semua = sorted(terdaftar | set(df["nama"].unique()))
     masuk = df[(df["status"] == "berhasil") & (df["jenis"] == "masuk")]
@@ -3081,16 +3084,14 @@ def rekap_peserta_bulan(eng, df, tahun, bulan, sekarang=None):
     izin, cuti = df[df["jenis"] == "izin"], df[df["jenis"] == "cuti"]
     tgl = lambda d, n: set(d.loc[d["nama"] == n, "tanggal"])
     hari_kerja = [d.isoformat() for d in hari_kerja_periode(tahun, bulan, sekarang)]
-    pertama = absen_pertama(eng)
     baris = []
     for nama in nama_semua:
         t_hadir, t_izin, t_cuti = tgl(masuk, nama), tgl(izin, nama), tgl(cuti, nama)
         diabsen = t_hadir | t_izin | t_cuti
-        mulai = pertama.get(nama)
         baris.append({
             "Nama": nama, "Hari Hadir": len(t_hadir), "Terlambat": len(tgl(masuk[masuk["telat"]], nama)),
             "Izin": len(t_izin), "Cuti": len(t_cuti),
-            "Tidak Hadir": sum(1 for d in hari_kerja if mulai and d >= mulai and d not in diabsen),
+            "Tidak Hadir": sum(1 for d in hari_kerja if d not in diabsen) if nama in terdaftar else 0,
             "Absen Pulang": len(tgl(pulang, nama)), "Total Uang Makan": int(pulang.loc[pulang["nama"] == nama, "uang_makan"].sum()),
             "Terdaftar": nama in terdaftar,
         })
@@ -3163,12 +3164,12 @@ def _html_kartu_rekap(aktif, r, label_periode):
 def _tabel_rekap_peserta(rekap, tahun, bulan):
     """Tabel ringkas peserta dengan kolom terakhir tombol ›. Klik membuka halaman detail peserta itu."""
     lebar = [3, 1, 1, 1, 1, 1, 2, 1]
-    judul = ["Nama", "Hadir", "Telat", "Izin", "Cuti", "Absen", "Uang", ""]
+    judul = ["Nama", "Hadir", "Telat", "Izin", "Cuti", "Tidak Hadir", "Uang", ""]
     # Tabel punya scroll sendiri (atas-bawah dan kiri-kanan) dengan tinggi dibatasi; halaman tidak ikut memanjang.
     with st.container(key="rekap_tabel", height=min(340, 40 + 35 * len(rekap))):
         for i, (kol, t) in enumerate(zip(st.columns(lebar), judul)):
-            kelas = "rk-h kiri" if i == 0 else "rk-h"
-            bantu = {"Absen": ' title="Tidak hadir"', "Telat": ' title="Terlambat"', "Uang": ' title="Uang makan"'}.get(t, "")
+            kelas = "rk-h kiri" if i == 0 else "rk-h rk-wrap" if t == "Tidak Hadir" else "rk-h"
+            bantu = {"Telat": ' title="Terlambat"', "Uang": ' title="Uang makan"'}.get(t, "")
             kol.markdown(f'<div class="{kelas}"{bantu}>{t}</div>', unsafe_allow_html=True)
         for i, r in enumerate(rekap.to_dict("records"), 1):
             kol = st.columns(lebar, vertical_alignment="center")
