@@ -939,11 +939,14 @@ def cek_lokasi(lat, lon, gedung):
 
 CSS_TABEL_RAPI = """<style>
 .tr-wrap { max-height: 360px; overflow: auto; border: 1px solid var(--garis, #d3e2ed); border-radius: 12px; margin: 4px 0 12px; -webkit-overflow-scrolling: touch; }
-.tr-wrap table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 280px; }
+.tr-wrap table { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; }
+.tr-wrap th:not(:last-child), .tr-wrap td:not(:last-child) { border-right: 1px solid var(--garis, #d3e2ed); }
 .tr-wrap th { position: sticky; top: 0; z-index: 2; background: #eef2ff; font-size: 10.5px; font-weight: 700; color: var(--muted, #6b8599);
   padding: 8px 8px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--garis, #d3e2ed); }
 .tr-wrap td { font-size: 12.5px; line-height: 1.3; color: var(--navy, #0b3a5e); padding: 7px 8px; vertical-align: middle;
-  border-bottom: 1px solid var(--garis, #d3e2ed); overflow-wrap: anywhere; word-break: break-word; min-width: 48px; }
+  border-bottom: 1px solid var(--garis, #d3e2ed); overflow-wrap: break-word; min-width: 48px; }
+.tr-wrap td.teks { white-space: normal; }
+.tr-wrap td.pendek { white-space: nowrap; }
 .tr-wrap tr:last-child td { border-bottom: 0; }
 .tr-wrap tbody tr:hover td { background: #f3f8fb; }
 .tr-wrap .num { text-align: center; white-space: nowrap; }
@@ -970,14 +973,21 @@ def tabel_rapi(df, width=None, hide_index=False, tinggi=360):
     if tampil_idx and df.index.name is None:        # indeks tanpa nama (mis. label baris): kepala kolomnya dikosongkan
         d.columns = [""] + [str(c) for c in d.columns[1:]]
     angka = [pd.api.types.is_numeric_dtype(d[c]) for c in d.columns]
+    # lebar kolom teks: teks pendek satu baris; teks panjang (nama, divisi) diberi ruang agar muat paling banyak 2 baris
+    lebar, pendek = [], []
+    for c, a in zip(d.columns, angka):
+        n = 0 if (a or d.empty) else int(d[c].map(lambda v: len(_sel(v))).max())
+        pendek.append((not a) and n <= 14)
+        lebar.append(0 if (a or n <= 14) else int(min(max(n * 3.8, 130), 230)))
     kepala = "".join(
-        f'<th class="{"num" if a else ""}">{esc(str(c))}</th>' for c, a in zip(d.columns, angka)
+        f'<th class="{"num" if a else ""}"' + (f' style="min-width:{w}px"' if w else "") + f'>{esc(str(c))}</th>'
+        for c, a, w in zip(d.columns, angka, lebar)
     )
     baris = []
     for rec in d.itertuples(index=False, name=None):
         sel = []
         for k, (v, a) in enumerate(zip(rec, angka)):
-            kelas = "idx" if (tampil_idx and k == 0) else ("num" if a else "")
+            kelas = "idx" if (tampil_idx and k == 0) else ("num" if a else ("pendek" if pendek[k] else "teks"))
             sel.append(f'<td class="{kelas}">{esc(_sel(v))}</td>')
         baris.append("<tr>" + "".join(sel) + "</tr>")
     st.markdown(
@@ -1882,7 +1892,9 @@ CSS_ADMIN = """
 .st-key-adminlogout [data-testid="stElementContainer"], .st-key-adminlogout [data-testid="stButton"] { height: 50px; width: 50px !important; }
 .st-key-adminlogout button { width: 50px !important; height: 50px !important; opacity: 0; cursor: pointer; padding: 0; }
 .st-box { background: #f3f8fb; border: 1px solid #d3e2ed; border-radius: 14px; padding: 10px 14px; font-size: 13px; line-height: 1.7; color: #0b3a5e; margin-bottom: 8px; }
-.st-key-rt_hidden { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.st-key-rt_hidden, .st-key-rt_hidden_js { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+/* elemen yang isinya hanya <style> tidak boleh memakan ruang (tiap elemen menambah jarak antar-elemen) */
+[data-testid="stElementContainer"]:has(> [data-testid="stMarkdownContainer"] > style:only-child) { display: none !important; }
 .st-key-adminbody {
   width: calc(100% - 36px) !important; margin: -44px 18px 0; background: #fff; border-radius: 26px;
   padding: 22px 22px 26px; position: relative; z-index: 2; box-shadow: 0 8px 28px rgba(6,63,107,.12);
@@ -2664,7 +2676,9 @@ CSS_PESERTA = """
 .st-key-tabel_peserta > * { border-bottom: 1px solid var(--garis); }
 .st-key-tabel_peserta > :has(.tp-h) { position: sticky; top: 0; z-index: 3; background: #eef2ff; }
 .st-key-tabel_peserta > :not(:has(.tp-h)):hover { background: #f3f8fb; }
-.st-key-tabel_peserta [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; min-width: 300px; gap: 6px !important; align-items: center; padding: 4px 6px; margin: 0; }
+.st-key-tabel_peserta [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; min-width: 300px; gap: 0 !important; align-items: stretch !important; padding: 0 2px; margin: 0; }
+.st-key-tabel_peserta :is([data-testid="stColumn"], [data-testid="column"]) { align-self: stretch !important; display: flex !important; flex-direction: column; justify-content: center; padding: 6px 6px !important; }
+.st-key-tabel_peserta :is([data-testid="stColumn"], [data-testid="column"]):not(:first-child) { border-left: 1px solid var(--garis); }
 .st-key-tabel_peserta [data-testid="stElementContainer"] { margin: 0 !important; }
 .st-key-tabel_peserta [data-testid="stMarkdownContainer"] { min-width: 0; margin: 0 !important; }
 .st-key-tabel_peserta [data-testid="stMarkdownContainer"] p { margin: 0 !important; }
@@ -2960,7 +2974,9 @@ CSS_REKAP = """
 .st-key-rekap_tabel > * { border-bottom: 1px solid var(--garis); }
 .st-key-rekap_tabel > :has(.rk-h) { position: sticky; top: 0; z-index: 3; background: #eef2ff; }
 .st-key-rekap_tabel > :not(:has(.rk-h)):hover { background: #f3f8fb; }
-.st-key-rekap_tabel [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; min-width: 300px; gap: 3px !important; align-items: center; padding: 2px 6px; margin: 0; }
+.st-key-rekap_tabel [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; min-width: 300px; gap: 0 !important; align-items: stretch !important; padding: 0 2px; margin: 0; }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]) { align-self: stretch !important; display: flex !important; flex-direction: column; justify-content: center; padding: 4px 3px !important; }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):not(:first-child) { border-left: 1px solid var(--garis); }
 .st-key-rekap_tabel [data-testid="stElementContainer"] { margin: 0 !important; }
 .st-key-rekap_tabel [data-testid="stMarkdownContainer"] { min-width: 0; overflow: hidden; margin: 0 !important; }
 .st-key-rekap_tabel [data-testid="stMarkdownContainer"] p { margin: 0 !important; }
@@ -5248,29 +5264,30 @@ def realtime_admin():
     with st.container(key="rt_hidden"):
         if st.button("segarkan", key="rt_refresh"):
             st.toast("Ada data absensi baru. Dashboard diperbarui.", icon="🔔")
-    components.html(
-        """<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script>
-let timer = null;
-function segarkan() {
-  clearTimeout(timer);
-  timer = setTimeout(function () {
+    with st.container(key="rt_hidden_js"):
+        components.html(
+            """<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+    <script>
+    let timer = null;
+    function segarkan() {
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        try {
+          var b = window.parent.document.querySelector('.st-key-rt_refresh button');
+          if (b) b.click();
+        } catch (e) { console.error(e); }
+      }, 800);
+    }
+    window.__segarkan = segarkan;
     try {
-      var b = window.parent.document.querySelector('.st-key-rt_refresh button');
-      if (b) b.click();
+      var sb = supabase.createClient(%s, %s);
+      sb.channel('dashboard-absensi')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifikasi' }, segarkan)
+        .subscribe();
     } catch (e) { console.error(e); }
-  }, 800);
-}
-window.__segarkan = segarkan;
-try {
-  var sb = supabase.createClient(%s, %s);
-  sb.channel('dashboard-absensi')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifikasi' }, segarkan)
-    .subscribe();
-} catch (e) { console.error(e); }
-</script>""" % (json.dumps(url), json.dumps(anon)),
-        height=0,
-    )
+    </script>""" % (json.dumps(url), json.dumps(anon)),
+            height=0,
+        )
     return "🔔 Realtime aktif: dashboard diperbarui otomatis saat ada absen/izin baru."
 
 
@@ -5298,6 +5315,16 @@ CSS_DASHBOARD = """
 .db-belum { background: #eaf0f5; } .db-belum .db-k-n { color: #3f6785; }
 .db-belum.merah { background: #fde2e2; } .db-belum.merah .db-k-n { color: #c0392b; }
 .db-libur { background: #fff4d6; color: #b45309; border-radius: 14px; padding: 10px 14px; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.st-key-kartu_db[data-testid="stVerticalBlock"], .st-key-kartu_db > [data-testid="stVerticalBlock"] {
+  display: grid !important; grid-template-columns: repeat(6, 1fr); gap: 10px !important; }
+.st-key-kartu_db [data-testid="stElementContainer"] { grid-column: span 2; margin: 0 !important; width: auto !important; }
+.st-key-kartu_db .st-key-kartu_cuti, .st-key-kartu_db .st-key-kartu_belum { grid-column: span 3; }
+.st-key-adminbody .st-key-kartu_db button {
+  display: flex !important; flex-direction: column; align-items: flex-start !important; justify-content: center; text-align: left;
+  width: 100% !important; min-height: 0 !important; height: auto !important; padding: 12px 14px !important;
+  border: 0 !important; border-radius: 16px !important; }
+.st-key-adminbody .st-key-kartu_db button::before { font-size: 28px; font-weight: 700; line-height: 1.1; }
+.st-key-adminbody .st-key-kartu_db button p { font-size: 13px !important; font-weight: 600 !important; color: var(--navy2) !important; margin: 2px 0 0 !important; text-align: left; }
 .db-catatan { font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.6; }
 @media (max-width: 600px) {
   .db-hero-n { font-size: 34px; } .db-k-n { font-size: 24px; } .db-k { padding: 10px 12px; }
@@ -5317,7 +5344,7 @@ def ringkasan_hari_ini(eng, sekarang=None):
     hari = sekarang.date()
     libur = hari_libur(hari)
     q = (
-        select(absensi_t.c.nama, absensi_t.c.jenis, absensi_t.c.jam)
+        select(absensi_t.c.nama, absensi_t.c.jenis, absensi_t.c.jam, absensi_t.c.alasan)
         .select_from(absensi_t.join(peserta_t, peserta_t.c.nama == absensi_t.c.nama))
         .where(and_(absensi_t.c.tanggal == hari.isoformat(), absensi_t.c.status != "gagal_lokasi",
                     absensi_t.c.jenis.in_(("masuk", "izin", "cuti"))))
@@ -5325,12 +5352,14 @@ def ringkasan_hari_ini(eng, sekarang=None):
     with eng.connect() as c:
         aktif = c.execute(select(func.count()).select_from(peserta_t)).scalar() or 0
         baris = c.execute(q).all()
-    status = {}
-    for nama, jenis, jam in baris:
+    status, jam_masuk, alasan_izin = {}, {}, {}
+    for nama, jenis, jam, alasan in baris:
         if jenis == "masuk":
             status[nama] = "terlambat" if terlambat(jam) else "tepat"
+            jam_masuk[nama] = jam
         elif nama not in status:
             status[nama] = jenis
+            alasan_izin[nama] = alasan
     hitung = {k: sum(1 for v in status.values() if v == k) for k in ("tepat", "terlambat", "izin", "cuti")}
     belum = 0 if libur else max(int(aktif) - len(status), 0)
     return {
@@ -5339,7 +5368,41 @@ def ringkasan_hari_ini(eng, sekarang=None):
         # sebelum jendela absen masuk tutup mereka baru "belum absen"; sesudahnya baru pantas disebut tidak hadir
         "label_belum": "Belum absen" if sekarang.time().replace(second=0, microsecond=0) <= JAM_MASUK_TUTUP else "Tidak hadir",
         "waktu": sekarang.strftime("%H:%M"),
+        "status": status, "jam_masuk": jam_masuk, "alasan": alasan_izin,      # untuk daftar nama saat kotak diketuk
     }
+
+
+def _daftar_kartu_beranda(eng, r, kode, label):
+    """Daftar nama di balik kotak yang diketuk di Beranda (hadir / terlambat / izin / cuti / belum absen)."""
+    try:
+        pes = list_peserta(eng)
+    except SQLAlchemyError as e:
+        st.error(pesan_db(e))
+        return
+    status, jam = r["status"], r["jam_masuk"]
+    if kode == "hadir":
+        pilih = [n for n in pes["nama"] if status.get(n) in ("tepat", "terlambat")]
+    elif kode == "telat":
+        pilih = [n for n in pes["nama"] if status.get(n) == "terlambat"]
+    elif kode in ("izin", "cuti"):
+        pilih = [n for n in pes["nama"] if status.get(n) == kode]
+    else:
+        pilih = [] if r["libur"] else [n for n in pes["nama"] if n not in status]
+    d = pes[pes["nama"].isin(pilih)].copy()
+    if kode in ("hadir", "telat"):
+        d["Jam masuk"] = d["nama"].map(lambda n: str(jam.get(n, "-")))
+        d = d.sort_values(["Jam masuk", "nama"])
+        if kode == "hadir":
+            d["Status"] = d["nama"].map(lambda n: "Terlambat" if status.get(n) == "terlambat" else "Tepat waktu")
+    elif kode in ("izin", "cuti"):
+        d["Keterangan"] = d["nama"].map(lambda n: (r["alasan"].get(n) or "-"))
+    d = d.rename(columns={"nama": "Nama", "divisi": "Divisi", "gedung": "Gedung"})
+    urut = [c for c in ("Nama", "Divisi", "Gedung", "Jam masuk", "Status", "Keterangan") if c in d.columns]
+    st.markdown(f"**{esc(label)} ({len(d)})**")
+    if d.empty:
+        st.caption("Belum ada.")
+    else:
+        tabel_rapi(beri_nomor(d[urut]))
 
 
 def halaman_beranda_admin(eng):
@@ -5350,10 +5413,12 @@ def halaman_beranda_admin(eng):
     except SQLAlchemyError as e:
         st.error(pesan_db(e))
         return
-    merah = " merah" if r["label_belum"] == "Tidak hadir" and r["belum"] else ""
+    merah = r["label_belum"] == "Tidak hadir" and bool(r["belum"])
+    # (kode, jumlah, label, warna latar, warna angka)
     kartu = [
-        ("db-hadir", r["tepat"], "Hadir", ""), ("db-telat", r["terlambat"], "Terlambat", ""), ("db-izin", r["izin"], "Izin", ""),
-        ("db-cuti", r["cuti"], "Cuti", " lebar"), (f"db-belum{merah}", r["belum"], r["label_belum"], " lebar"),
+        ("hadir", r["sudah_absen"], "Hadir", "#d9f7e8", "#12a15f"), ("telat", r["terlambat"], "Terlambat", "#fff4d6", "#b45309"),
+        ("izin", r["izin"], "Izin", "#dcecf7", "#0a5a8f"), ("cuti", r["cuti"], "Cuti", "#dff3f0", "#0e8a7d"),
+        ("belum", r["belum"], r["label_belum"], "#fde2e2" if merah else "#eaf0f5", "#c0392b" if merah else "#3f6785"),
     ]
     html = (
         f'<div class="db-hero"><div class="db-hero-n">{r["aktif"]}</div>'
@@ -5363,24 +5428,39 @@ def halaman_beranda_admin(eng):
     )
     if r["libur"]:
         html += '<div class="db-libur">Hari ini libur PKL (Sabtu/Minggu), tidak ada absen yang diharapkan.</div>'
-    html += '<div class="db-grid">' + "".join(
-        f'<div class="db-k {kelas}{lebar}"><div class="db-k-n">{n}</div><div class="db-k-t">{esc(label)}</div></div>'
-        for kelas, n, label, lebar in kartu
-    ) + "</div>"
     st.markdown(html, unsafe_allow_html=True)
+    pilih = st.session_state.get("db_kartu")
+    css = ["<style>"]
+    for kode, n, label, bg, fg in kartu:
+        cincin = f"box-shadow: 0 0 0 2px {fg} inset !important;" if pilih == kode else "box-shadow: none !important;"
+        css.append(
+            f'.st-key-adminbody .st-key-kartu_db .st-key-kartu_{kode} button {{ background: {bg} !important; {cincin} }}'
+            f'.st-key-adminbody .st-key-kartu_db .st-key-kartu_{kode} button::before {{ content: "{n}"; color: {fg}; }}'
+        )
+    css.append("</style>")
+    st.markdown("".join(css), unsafe_allow_html=True)
+    with st.container(key="kartu_db"):
+        for kode, n, label, bg, fg in kartu:
+            if st.button(label, key=f"kartu_{kode}", width="stretch"):
+                st.session_state["db_kartu"] = None if pilih == kode else kode
+                st.rerun()
+    st.caption("Ketuk salah satu kotak untuk melihat daftar namanya. Ketuk lagi untuk menutup.")
     with st.container(key="info_catatan"):
         with st.popover(":material/info:"):
             st.caption(
                 f'Sudah absen masuk: {r["sudah_absen"]} dari {r["aktif"]} peserta. '
-                f'Hadir = absen masuk sampai {BATAS_TEPAT_WAKTU:%H:%M}, Terlambat = sesudahnya. '
+                f'Hadir = semua yang sudah absen masuk (tepat waktu maupun terlambat). '
+                f'Terlambat = absen masuk sesudah {BATAS_TEPAT_WAKTU:%H:%M}. '
                 f'Diperbarui {r["waktu"]} WITA.'
             )
+    if pilih:
+        _daftar_kartu_beranda(eng, r, pilih, {k: lb for k, _, lb, _, _ in kartu}[pilih])
 
 
 CSS_INFO = """
 <style>
 /* iframe realtime (tinggi 0) jangan memakan ruang/jarak di halaman */
-.st-key-adminbody [data-testid="stElementContainer"]:has(iframe[height="0"]) { position: absolute !important; height: 0 !important; width: 0 !important; margin: 0 !important; overflow: hidden !important; }
+.st-key-adminbody [data-testid="stElementContainer"]:has(iframe[height="0"], iframe[style*="height: 0"]) { position: absolute !important; height: 0 !important; width: 0 !important; margin: 0 !important; overflow: hidden !important; }
 /* tombol keterangan: bulat kecil, rata kanan, serasi dengan kartu dashboard */
 .st-key-info_sistem, .st-key-info_catatan, .st-key-info_rek { display: flex; justify-content: flex-end; margin: 0 0 4px; }
 .st-key-info_catatan, .st-key-info_rek { margin: 8px 0 0; }
