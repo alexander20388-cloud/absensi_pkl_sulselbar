@@ -5219,10 +5219,12 @@ def halaman_login(eng, hanya_peserta=False):
                 st.warning("Belum ada peserta terdaftar. Hubungi admin untuk didaftarkan.")
             else:
                 with st.form("login_peserta", border=False):
-                    nama = st.selectbox("Nama peserta", df["nama"])
+                    nama = st.selectbox("Nama peserta", df["nama"], index=None, placeholder="Pilih nama peserta")
                     pin = st.text_input("PIN", type="password", max_chars=6, placeholder="Masukkan PIN kamu")
                     kirim = st.form_submit_button("Masuk", type="primary", width="stretch")
-                if kirim:
+                if kirim and not nama:
+                    st.error("Pilih nama peserta dulu.")
+                elif kirim:
                     status, menit = proses_login(eng, f"peserta:{nama}", lambda: cek_pin(eng, nama, pin))
                     if status == "ok":
                         st.session_state.peran = "user"
@@ -5238,10 +5240,12 @@ def halaman_login(eng, hanya_peserta=False):
                 st.warning("Belum ada pembimbing terdaftar. Hubungi admin untuk dibuatkan akun.")
             else:
                 with st.form("login_pembimbing", border=False):
-                    nama_pb = st.selectbox("Nama pembimbing", db["nama"])
+                    nama_pb = st.selectbox("Nama pembimbing", db["nama"], index=None, placeholder="Pilih nama pembimbing")
                     pin_pb = st.text_input("PIN", type="password", max_chars=8, placeholder="Masukkan PIN kamu")
                     kirim = st.form_submit_button("Masuk", type="primary", width="stretch")
-                if kirim:
+                if kirim and not nama_pb:
+                    st.error("Pilih nama pembimbing dulu.")
+                elif kirim:
                     status, menit = proses_login(eng, f"pembimbing:{nama_pb}", lambda: cek_pin_pembimbing(eng, nama_pb, pin_pb))
                     if status == "ok":
                         st.session_state.peran = "pembimbing"
