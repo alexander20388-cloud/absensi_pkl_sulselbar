@@ -805,6 +805,7 @@ def hapus_peserta(eng, nama, dengan_absensi=False, aktor="admin", peran="admin")
             paths = [r[0] for r in c.execute(select(absensi_t.c.foto_path).where(absensi_t.c.nama == nama))]
             n_absen = c.execute(delete(absensi_t).where(absensi_t.c.nama == nama)).rowcount
             n_log = c.execute(delete(logbook_t).where(logbook_t.c.nama == nama)).rowcount
+            c.execute(delete(login_gagal_t).where(login_gagal_t.c.kunci == f"peserta:{nama}"))
         if ada or n_absen or n_log:
             _audit(c, aktor, peran, "peserta.hapus", f"peserta:{nama}",
                    {"dengan_riwayat": bool(dengan_absensi), "absensi_dihapus": n_absen, "logbook_dihapus": n_log})
@@ -2626,6 +2627,7 @@ def _lb_daftar(eng, nama, peserta, now):
         except SQLAlchemyError as e:
             st.error(pesan_db(e))
         else:
+            notif("Logbook diperbarui dan diajukan ulang ke pembimbing.")
             st.rerun()
     if k2.button("Hapus", key=f"lb_hapus_{pilih}", width="stretch"):
         try:
@@ -2635,6 +2637,7 @@ def _lb_daftar(eng, nama, peserta, now):
         except SQLAlchemyError as e:
             st.error(pesan_db(e))
         else:
+            notif("Logbook dihapus.")
             st.rerun()
 
 
@@ -2812,6 +2815,7 @@ def form_tambah_peserta(eng):
                     f"{nama.strip()} ditambahkan ke Gedung {gedung}. Kasih tahu PIN-nya ke yang bersangkutan.{catatan}"
                 )
                 st.session_state["tambah_terbuka"] = False      # form disembunyikan lagi
+                notif(f"{nama.strip()} berhasil ditambahkan.")
                 st.rerun()
 
 
@@ -2853,7 +2857,7 @@ def halaman_kelola_peserta(eng):
                 )
 
     if not df.empty:
-        with st.expander("Edit Divisi / No. Rekening / Universitas/Sekolah, Jurusan & Kelas/Semester / Reset PIN / Hapus peserta"):
+        with st.expander("Edit Divisi / No. Rekening / Universitas/Sekolah, Jurusan & Kelas/Semester / Reset PIN"):
             target = st.selectbox("Pilih peserta", df["nama"], key="target_kelola")
 
             opsi_divisi = list(DIVISI_GEDUNG.keys())
@@ -2867,7 +2871,7 @@ def halaman_kelola_peserta(eng):
                 except SQLAlchemyError as e:
                     st.error(pesan_db(e))
                 else:
-                    st.success("Divisi & Gedung diperbarui.")
+                    notif(f"Divisi {target} diubah menjadi {divisi_baru} (Gedung {DIVISI_GEDUNG[divisi_baru]}).")
                     st.rerun()
 
             rek_lama = df.loc[df["nama"] == target, "no_rekening"].values[0]
@@ -2885,7 +2889,7 @@ def halaman_kelola_peserta(eng):
                     except SQLAlchemyError as e:
                         st.error(pesan_db(e))
                     else:
-                        st.success("Nomor rekening diperbarui.")
+                        notif(f"Nomor rekening {target} diperbarui.")
                         st.rerun()
 
             univ_lama = _kosong(df.loc[df["nama"] == target, "universitas"].values[0])
@@ -2903,38 +2907,20 @@ def halaman_kelola_peserta(eng):
                 except SQLAlchemyError as e:
                     st.error(pesan_db(e))
                 else:
-                    st.success("Universitas/sekolah, jurusan, dan kelas/semester diperbarui.")
+                    notif(f"Universitas/sekolah, jurusan, dan kelas/semester {target} diperbarui.")
                     st.rerun()
 
             pin_baru = st.text_input("PIN baru (4-6 angka)", max_chars=6, key="pin_baru")
-            hapus_absen_juga = st.checkbox(
-                "Saat menghapus peserta, hapus juga seluruh riwayat absensi dan logbooknya",
-                key="hapus_absen_juga",
-            )
-            c1, c2 = st.columns(2)
-            if c1.button("Reset PIN"):
+            if st.button("Reset PIN"):
                 if pin_baru.isdigit() and 4 <= len(pin_baru) <= 6:
                     try:
                         reset_pin(eng, target, pin_baru)
-                        st.success("PIN diperbarui.")
+                        notif(f"PIN {target} berhasil diperbarui.")
+                        st.rerun()
                     except SQLAlchemyError as e:
                         st.error(pesan_db(e))
                 else:
                     st.error("PIN harus 4-6 angka.")
-            if c2.button("Hapus peserta"):
-                try:
-                    hapus_peserta(eng, target, dengan_absensi=hapus_absen_juga)
-                except SQLAlchemyError as e:
-                    st.error(pesan_db(e))
-                else:
-                    if hapus_absen_juga:
-                        st.session_state["pesan_hapus"] = f"{target} dihapus beserta seluruh riwayat absensinya."
-                    else:
-                        st.session_state["pesan_hapus"] = (
-                            f"{target} dihapus dari daftar peserta. Riwayat absensinya masih tersimpan "
-                            "(hapus lewat bagian 'Hapus data absensi' di bawah kalau perlu)."
-                        )
-                    st.rerun()
 
     duplikat = [] if getattr(eng, "indeks_unik_ok", True) else cari_duplikat(eng)
     if duplikat:
@@ -2955,25 +2941,37 @@ def halaman_kelola_peserta(eng):
                     except SQLAlchemyError as e:
                         st.error(pesan_db(e))
                     else:
-                        st.success(f"{n} catatan ganda dihapus. Indeks anti-ganda "
-                                   + ("terpasang." if eng.indeks_unik_ok else "BELUM terpasang, cek lagi data."))
+                        notif(f"{n} catatan ganda dihapus. Indeks anti-ganda "
+                              + ("terpasang." if eng.indeks_unik_ok else "BELUM terpasang, cek lagi data."))
                         st.rerun()
 
-    with st.expander("🗑️ Hapus data absensi (tidak bisa dibatalkan)"):
-        nama_absen = daftar_nama_absensi(eng)
-        if not nama_absen:
-            st.info("Belum ada data absensi.")
+    with st.expander("🗑️ Hapus peserta dan data absensi (tidak bisa dibatalkan)"):
+        nama_semua = sorted(set(df["nama"]) | set(daftar_nama_absensi(eng)))
+        semua = "(SEMUA data absensi, peserta tetap ada)"
+        if not nama_semua:
+            st.info("Belum ada peserta maupun data absensi.")
         else:
-            semua = "(SEMUA peserta)"
-            pilihan = st.selectbox("Hapus absensi milik", [semua] + nama_absen, key="hapus_absen_pilihan")
+            pilihan = st.selectbox("Pilih peserta", [semua] + nama_semua, key="hapus_absen_pilihan")
+            if pilihan == semua:
+                st.caption("Seluruh riwayat absensi semua peserta dihapus beserta fotonya. Data peserta dan logbook tidak ikut terhapus.")
+            else:
+                st.caption(f"{pilihan} dihapus dari daftar peserta beserta seluruh riwayat absensi, logbook, dan foto buktinya "
+                           "(termasuk foto di Supabase Storage). Ulasan dan penilaian yang pernah ia kirim tetap tersimpan "
+                           "sebagai masukan tanpa nama.")
             konfirmasi = st.text_input("Ketik HAPUS (huruf besar) untuk konfirmasi", key="hapus_absen_konfirmasi")
-            if st.button("Hapus data absensi", key="tombol_hapus_absen"):
+            if st.button("Hapus", key="tombol_hapus_absen"):
                 if konfirmasi.strip() != "HAPUS":
                     st.error("Konfirmasi belum benar. Ketik persis: HAPUS")
                 else:
                     try:
-                        jumlah = hapus_absensi(eng, None if pilihan == semua else pilihan)
-                        st.success(f"{jumlah} data absensi (beserta fotonya) dihapus.")
+                        if pilihan == semua:
+                            jumlah = hapus_absensi(eng)
+                            notif(f"{jumlah} data absensi (beserta fotonya) dihapus.")
+                            st.rerun()
+                        else:
+                            hapus_peserta(eng, pilihan, dengan_absensi=True)
+                            notif(f"{pilihan} dihapus beserta seluruh riwayat absensi, logbook, dan fotonya.")
+                            st.rerun()
                     except SQLAlchemyError as e:
                         st.error(pesan_db(e))
 
@@ -4376,6 +4374,7 @@ def _tab_prediksi(eng, ml):
             except SQLAlchemyError as e:
                 st.error(pesan_db(e))
             else:
+                notif(f"Model versi {pilih} sekarang aktif.")
                 st.rerun()
 
     if aktif is None:
@@ -4499,6 +4498,7 @@ def ui_tinjau_logbook(eng, divisi_scope, aktor, peran):
                         except SQLAlchemyError as e:
                             st.error(pesan_db(e))
                         else:
+                            notif(f"Logbook {r.nama} {keputusan}.")
                             st.rerun()
             else:
                 st.caption(f"{r.status.capitalize()} oleh {r.ditinjau_oleh} pada {r.ditinjau_pada}"
@@ -4545,6 +4545,7 @@ def ui_paket_kerja(eng, divisi_scope, aktor, peran):
                 st.error(pesan_db(e))
             else:
                 st.session_state["pk_reset"] = True
+                notif(f"Paket kerja {kode.strip()} ditambahkan.")
                 st.rerun()
 
     paket = daftar_paket(eng, divisi)
@@ -4562,13 +4563,16 @@ def ui_paket_kerja(eng, divisi_scope, aktor, peran):
         selesai_b = d2.date_input("Selesai", value=cur["selesai"], key=f"pk_s_{pid}")
         est_b = st.number_input("Estimasi jam kerja", min_value=1.0, max_value=2000.0, value=float(cur["estimasi_jam"]), step=1.0, key=f"pk_e_{pid}")
         b1, b2, b3 = st.columns(3)
-        aksi = None
+        aksi, pesan_aksi = None, ""
         if b1.button("Simpan perubahan", key=f"pk_ubah_{pid}", type="primary", width="stretch"):
             aksi = lambda: ubah_paket(eng, int(pid), kode_b, nama_b, mulai_b, selesai_b, est_b, aktor, peran, divisi_scope)  # noqa: E731
+            pesan_aksi = f"Paket kerja {kode_b.strip()} diperbarui."
         if b2.button("Buka kembali" if cur["ditutup"] else "Tutup (selesai)", key=f"pk_tutup_{pid}", width="stretch"):
             aksi = lambda: tutup_paket(eng, int(pid), not bool(cur["ditutup"]), aktor, peran, divisi_scope)  # noqa: E731
+            pesan_aksi = f"Paket kerja {cur['kode']} " + ("dibuka kembali." if cur["ditutup"] else "ditutup (selesai).")
         if b3.button("Hapus", key=f"pk_hapus_{pid}", width="stretch"):
             aksi = lambda: hapus_paket(eng, int(pid), aktor, peran, divisi_scope)  # noqa: E731
+            pesan_aksi = f"Paket kerja {cur['kode']} dihapus."
         if aksi is not None:
             try:
                 aksi()
@@ -4577,6 +4581,7 @@ def ui_paket_kerja(eng, divisi_scope, aktor, peran):
             except SQLAlchemyError as e:
                 st.error(pesan_db(e))
             else:
+                notif(pesan_aksi)
                 st.rerun()
 
 
@@ -4724,6 +4729,7 @@ def ui_pembimbing(eng, aktor):
             except SQLAlchemyError as e:
                 st.error(pesan_db(e))
             else:
+                notif(f"Pembimbing {target} dihapus.")
                 st.rerun()
 
 
@@ -5150,12 +5156,24 @@ def halaman_umpan_balik(eng):
                 except SQLAlchemyError as e:
                     st.error(pesan_db(e))
                 else:
+                    notif(f"Status ulasan disimpan: {status_baru}.")
                     st.rerun()
 
 
 # ------------------------------------------------------------------
 # MAIN
 # ------------------------------------------------------------------
+def notif(teks, ikon="✅"):
+    """Antrikan pemberitahuan (toast) yang tampil di run berikutnya. Wajib dipakai sebelum st.rerun():
+    pesan st.success yang ditulis tepat sebelum rerun langsung hilang dan tidak sempat terbaca."""
+    st.session_state.setdefault("_notif", []).append((teks, ikon))
+
+
+def tampilkan_notif():
+    for teks, ikon in st.session_state.pop("_notif", []):
+        st.toast(teks, icon=ikon)
+
+
 def keluar():
     """Logout: hapus peran & data login, kembali ke layar login."""
     for k in ("peran", "nama_login", "admin_ok", "tab", "rekap_detail", "drawer_admin", "menu_admin"):
@@ -5633,6 +5651,7 @@ def main():
     pkl = mode_pkl()
     st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
+    tampilkan_notif()
     try:
         eng = get_engine()
     except SQLAlchemyError as e:
