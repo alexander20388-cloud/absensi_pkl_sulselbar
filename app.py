@@ -1418,7 +1418,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], footer { display: none !important; }
 [data-testid="stMainBlockContainer"], .block-container {
   max-width: 430px !important; padding: 0 0 130px 0 !important; position: relative;
-  background: #edf3f8; min-height: 100vh;
+  background: #edf3f8; min-height: 100vh; min-height: 100dvh;
 }
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { gap: 0 !important; }
 
@@ -1538,10 +1538,22 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
   color-scheme: light;
 }
 [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"],
-.stDeployButton, footer, [class*="viewerBadge"], [class*="StatusWidget"] { display: none !important; }
-[data-testid="stMainBlockContainer"], .block-container {
-  padding: 0 0 48px 0 !important; background: var(--bg); position: relative; min-height: 100vh;
+.stDeployButton, footer, [class*="viewerBadge"], [class*="StatusWidget"],
+[data-testid="stAppDeployButton"], [data-testid="manage-app-button"], [class*="_profileContainer"], [class*="_container_gzau3"],
+iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !important; }
+/* ---------- scroll: halaman selalu bisa digulir ke bawah (browser HP maupun WebView) ---------- */
+html, body { height: auto !important; min-height: 100%; overflow-x: hidden; overflow-y: auto !important; -webkit-overflow-scrolling: touch; }
+[data-testid="stApp"], [data-testid="stAppViewContainer"] { height: auto !important; min-height: 100dvh; overflow: visible !important; }
+[data-testid="stMain"], section.stMain, section.main {
+  overflow-y: auto !important; overflow-x: hidden !important; -webkit-overflow-scrolling: touch;
+  touch-action: pan-y; overscroll-behavior-y: auto;
 }
+[data-testid="stMainBlockContainer"], .block-container {
+  padding: 0 0 calc(48px + env(safe-area-inset-bottom, 0px)) 0 !important; background: var(--bg); position: relative;
+  min-height: 100vh; min-height: 100dvh;
+}
+/* saat keyboard HP terbuka (input fokus), beri ruang ekstra supaya tombol bisa digulir ke atas keyboard */
+[data-testid="stMainBlockContainer"]:has(input:focus), .block-container:has(input:focus) { padding-bottom: 45vh !important; }
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { gap: 0 !important; }
 
 /* ---------- petunjuk bawaan input: hilangkan "Press Enter to submit form", sisakan penghitung (0/6) ---------- */
@@ -1665,8 +1677,9 @@ CSS_AUTH_ADMIN = """
 /* Tata letak login mengikuti desain: bagian atas putih (~55% layar) dengan tepi bawah melengkung, bagian bawah biru,
    kartu form di perbatasan, teks footer lalu lengkung hijau lime. */
 [data-testid="stMainBlockContainer"], .block-container {
-  max-width: 460px !important; overflow: hidden;
+  max-width: 460px !important; overflow-x: clip; overflow-y: visible !important;   /* jangan 'hidden': mengunci gulir & menutup tombol */
   background: linear-gradient(180deg, #0a5a8f 0, #0a5a8f 480px, #063f6b 100%) !important;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important;
 }
 [data-testid="stMarkdownContainer"]:has(.auth-head), [data-testid="stMarkdownContainer"]:has(.auth-foot) { margin: 0 !important; }
 .auth-head { background: #fff; height: 478px; box-sizing: border-box; padding: 48px 30px 0; position: relative; z-index: 1; overflow: hidden; }
@@ -1715,7 +1728,7 @@ CSS_AUTH_ADMIN = """
   content: "\u2192"; position: absolute; right: 20px; top: 50%; transform: translateY(-52%); font-size: 20px; color: #fff;
 }
 .auth-foot {
-  position: relative; z-index: 1; height: 180px; box-sizing: border-box; padding-top: 36px; text-align: center;
+  position: relative; z-index: 1; height: 180px; box-sizing: border-box; padding-top: 36px; text-align: center; margin-bottom: 72px;
   color: rgba(255,255,255,.88); font-size: 11px; line-height: 16px;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 180' preserveAspectRatio='none'%3E%3Cpath d='M0 65C120 125 270 130 400 18V40C270 150 120 145 0 83Z' fill='%238cc63f'/%3E%3Cpath d='M0 86C120 148 270 153 400 43' fill='none' stroke='white' stroke-opacity='.9' stroke-width='1.4'/%3E%3C/svg%3E") center top / 100% 180px no-repeat;
 }
