@@ -1571,6 +1571,13 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
   border-color: var(--biru) !important; box-shadow: 0 0 0 3px rgba(10,90,143,.18) !important;
 }
 
+:is(.st-key-loginbody, .st-key-adminbody, .st-key-pagebody) [data-testid="stTextInputRootElement"],
+:is(.st-key-loginbody, .st-key-adminbody, .st-key-pagebody) [data-testid="stNumberInputContainer"] {
+  background: #e8f1fa !important; border: 1px solid transparent !important; border-radius: 15px !important;
+}
+:is(.st-key-loginbody, .st-key-adminbody, .st-key-pagebody) [data-testid="stTextInputRootElement"]:focus-within {
+  border-color: var(--biru) !important; box-shadow: 0 0 0 3px rgba(10,90,143,.16) !important;
+}
 /* radio -> tombol pil */
 :is(.st-key-loginbody, .st-key-adminbody, .st-key-pagebody) [data-testid="stRadio"] [role="radiogroup"] > div { flex: 1 1 0; min-width: 0; }
 :is(.st-key-loginbody, .st-key-adminbody, .st-key-pagebody) [data-testid="stRadioOption"] { width: 100%; box-sizing: border-box; }
@@ -1587,7 +1594,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 :is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"][data-selected="true"] {
   background: linear-gradient(135deg, var(--hijau), var(--hijau2)); box-shadow: 0 4px 12px rgba(107,176,47,.35);
 }
-:is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"][data-selected="true"] p { color: #fff; }
+:is(.st-key-loginbody, .st-key-adminbody) [data-testid="stRadioOption"][data-selected="true"] p { color: var(--navy); }
 
 /* tombol */
 :is(.st-key-loginbody, .st-key-adminbody) button[kind="primary"],
@@ -1637,7 +1644,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 .st-key-pagebody [data-testid="stRadioOption"][data-selected="true"] {
   background: linear-gradient(135deg, var(--hijau), var(--hijau2)); box-shadow: 0 4px 12px rgba(107,176,47,.35);
 }
-.st-key-pagebody [data-testid="stRadioOption"][data-selected="true"] p { color: #fff; }
+.st-key-pagebody [data-testid="stRadioOption"][data-selected="true"] p { color: var(--navy); }
 .st-key-pagebody [data-baseweb="textarea"], .st-key-pagebody [data-baseweb="base-input"] {
   background: #f3f8fb !important; border-color: var(--garis) !important; border-radius: 14px !important;
 }
@@ -1655,28 +1662,51 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 
 CSS_AUTH_ADMIN = """
 <style>
+/* Tata letak login mengikuti desain: bagian atas putih (~55% layar) dengan tepi bawah melengkung, bagian bawah biru,
+   kartu form di perbatasan, teks footer lalu lengkung hijau lime. */
 [data-testid="stMainBlockContainer"], .block-container {
-  max-width: 460px !important; background: linear-gradient(180deg, #0a5a8f 0%, #063f6b 100%) !important; overflow: hidden;
+  max-width: 460px !important; overflow: hidden;
+  background: linear-gradient(180deg, #0a5a8f 0, #0a5a8f 480px, #063f6b 100%) !important;
 }
-[data-testid="stMainBlockContainer"]::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 200px; z-index: 0; pointer-events: none;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 200' preserveAspectRatio='none'%3E%3Cpath d='M0 108C110 136 270 68 400 26V60C270 100 110 158 0 146Z' fill='%238cc63f'/%3E%3Cpath d='M0 150C110 162 270 104 400 64' fill='none' stroke='white' stroke-opacity='.85' stroke-width='1.6'/%3E%3C/svg%3E") bottom / 100% 100% no-repeat;
+[data-testid="stMarkdownContainer"]:has(.auth-head), [data-testid="stMarkdownContainer"]:has(.auth-foot) { margin: 0 !important; }
+.auth-head { background: #fff; height: 478px; box-sizing: border-box; padding: 48px 30px 0; position: relative; z-index: 1; overflow: hidden; }
+.auth-head::after {                                   /* tepi biru melengkung (busur) di bawah area putih */
+  content: ""; position: absolute; left: -10%; right: -10%; bottom: -1px; height: 44px; background: #0a5a8f;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
 }
-.auth-head { background: #fff; padding: 28px 24px 52px; position: relative; z-index: 1; }
-.auth-logo-img { display: block; width: 150px; max-width: 60%; height: auto; margin: 0 auto 24px; }
-.auth-brand { display: flex; align-items: center; gap: 12px; }
-.auth-logo { width: 50px; height: 50px; border-radius: 15px; background: var(--tint); color: var(--biru);
-  display: flex; align-items: center; justify-content: center; flex: 0 0 50px; }
-.auth-title { font-size: 25px; font-weight: 700; letter-spacing: .2px; color: var(--navy); line-height: 1.1; }
-.auth-bank { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
-.auth-greet { margin-top: 22px; font-size: 22px; font-weight: 700; color: var(--navy); }
-.auth-desc { margin-top: 4px; font-size: 13px; color: var(--muted); }
+.auth-logo-img { display: block; height: 120px; width: auto; max-width: 70%; object-fit: contain; margin: 0 auto 41px; }
+.auth-brand { display: flex; align-items: center; gap: 16px; }
+.auth-logo { width: 61px; height: 61px; border-radius: 17px; background: #e8f1fa; color: #0a5a8f;
+  display: flex; align-items: center; justify-content: center; flex: 0 0 61px; }
+.auth-title { font-size: 28px; font-weight: 700; color: #0a4f80; line-height: 1.1; }
+.auth-bank { font-size: 11px; color: #6a8499; margin-top: 4px; }
+.auth-greet { margin-top: 34px; font-size: 27px; font-weight: 700; color: #0a4f80; line-height: 1.2; }
+.auth-desc { margin-top: 6px; font-size: 13px; color: #5f7b92; }
 .st-key-loginbody {
-  width: calc(100% - 28px) !important; margin: -34px 14px 0; background: #fff; border-radius: 24px;
-  padding: 18px 18px 22px; position: relative; z-index: 2; box-shadow: 0 12px 30px rgba(3,30,52,.28);
+  width: calc(100% - 44px) !important; margin: -58px 22px 0; background: #fff; border-radius: 22px;
+  padding: 10px 19px 27px; position: relative; z-index: 2; box-shadow: 0 18px 24px -12px rgba(3,30,52,.35);
 }
 .st-key-loginbody [data-testid="stElementContainer"]:has([data-testid="stRadio"]) { width: 100% !important; }
-.auth-foot { position: fixed; left: 0; right: 0; bottom: 14px; text-align: center; color: rgba(255,255,255,.92); font-size: 12px; z-index: 1; }
+.st-key-loginbody [data-testid="stRadio"] [role="radiogroup"] { border-radius: 16px; padding: 5px; }
+.st-key-loginbody [data-testid="stRadio"] { margin-bottom: 8px; }
+.st-key-loginbody [data-baseweb="base-input"], .st-key-loginbody [data-baseweb="select"] > div { min-height: 54px; border-radius: 15px !important; }
+.st-key-loginbody [data-testid="stForm"] [data-testid="stVerticalBlock"] { gap: 14px !important; }
+.st-key-loginbody [data-testid="stWidgetLabel"] p { font-size: 14px; }
+.st-key-loginbody [data-testid="stTextInputRootElement"] { height: 54px; }
+.st-key-loginbody [data-testid="stTextInputRootElement"] input { height: 52px; font-size: 14px; }
+.st-key-loginbody [data-testid="stWidgetLabel"] { margin-bottom: 6px; }
+.st-key-loginbody [data-testid="stRadioOption"] { padding: 12px 8px; border-radius: 12px; }
+.st-key-loginbody button[kind="primaryFormSubmit"], .st-key-loginbody button[kind="primary"] {
+  position: relative; min-height: 60px !important; border-radius: 17px !important; font-size: 15px;
+}
+.st-key-loginbody button[kind="primaryFormSubmit"]::after, .st-key-loginbody button[kind="primary"]::after {
+  content: "\u2192"; position: absolute; right: 20px; top: 50%; transform: translateY(-52%); font-size: 20px; color: #fff;
+}
+.auth-foot {
+  position: relative; z-index: 1; height: 180px; box-sizing: border-box; padding-top: 36px; text-align: center;
+  color: rgba(255,255,255,.88); font-size: 11px; line-height: 16px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 180' preserveAspectRatio='none'%3E%3Cpath d='M0 65C120 125 270 130 400 18V40C270 150 120 145 0 83Z' fill='%238cc63f'/%3E%3Cpath d='M0 86C120 148 270 153 400 43' fill='none' stroke='white' stroke-opacity='.9' stroke-width='1.4'/%3E%3C/svg%3E") center top / 100% 180px no-repeat;
+}
 </style>
 """
 
