@@ -1,4 +1,5 @@
-"""Tes umpan balik peserta: rating sekali, ulasan tanpa nama, syarat seminggu, status oleh admin, dan tampilan hanya di aplikasi.
+"""Tes umpan balik peserta: rating sekali, ulasan bertaut ke akun (tanpa nama di tampilan admin), syarat seminggu,
+status oleh admin yang bisa dilihat pemberinya, dan tampilan hanya di aplikasi.
 Jalankan: pytest -q test_umpan_balik.py"""
 import json
 from datetime import date, timedelta
@@ -68,12 +69,15 @@ def test_rating_tidak_valid_ditolak(eng, bintang):
     assert A.rating_peserta(eng, "Andi") is None
 
 
-def test_rating_dengan_ulasan_ikut_tersimpan_tanpa_nama(eng):
+def test_rating_dengan_ulasan_ikut_tersimpan_bertaut_ke_akun_tanpa_nama_di_tampilan_admin(eng):
     A.simpan_rating(eng, "Andi", 5, ULASAN, "absen")
     df = A.daftar_ulasan(eng)
     assert list(df["isi"]) == [ULASAN] and list(df["divisi"]) == ["Divisi Umum"] and list(df["status"]) == ["baru"]
     kolom = {c["name"] for c in inspect(eng).get_columns("ulasan")}
-    assert not ({"nama", "peserta_id"} & kolom)              # tidak ada penghubung ke orangnya
+    assert "nama" not in kolom                                # nama tidak pernah disalin ke tabel ulasan
+    assert "peserta_id" in kolom                              # tetapi ulasan bertaut ke akun (agar pemberinya bisa melihat status)
+    assert "peserta_id" not in df.columns and "nama" not in df.columns      # tampilan admin tidak memuat penghubung
+    assert "peserta_id" not in df.to_csv(index=False)         # ekspor CSV juga tidak
     assert len(df["dibuat"].iloc[0]) == 10                    # hanya tanggal, bukan jam
 
 
@@ -116,6 +120,51 @@ def test_peserta_tidak_dikenal_ditolak(eng):
         A.simpan_ulasan(eng, "Hantu", ULASAN, "absen")
 
 
+# =================== ULASAN SAYA (peserta melihat tindak lanjut) ===================
+def test_peserta_hanya_melihat_ulasannya_sendiri(eng):
+    A.simpan_ulasan(eng, "Andi", ULASAN, "absen")
+    A.simpan_rating(eng, "Andi", 4, "Logbook sebaiknya bisa dilampiri foto", "logbook")
+    A.simpan_ulasan(eng, "Sari", "Rekap bulanan sebaiknya bisa diunduh", "lainnya")
+    milik_andi = A.ulasan_peserta(eng, "Andi")
+    milik_sari = A.ulasan_peserta(eng, "Sari")
+    assert {u["isi"] for u in milik_andi} == {ULASAN, "Logbook sebaiknya bisa dilampiri foto"}
+    assert [u["isi"] for u in milik_sari] == ["Rekap bulanan sebaiknya bisa diunduh"]
+    assert A.ulasan_peserta(eng, "Hantu") == []
+    assert milik_andi[0]["kategori"] == "logbook"             # terbaru dulu
+
+
+def test_peserta_melihat_status_dan_catatan_admin(eng):
+    A.simpan_ulasan(eng, "Andi", ULASAN, "absen")
+    assert A.ulasan_peserta(eng, "Andi")[0]["status"] == "baru"
+    uid = int(A.daftar_ulasan(eng)["id"].iloc[0])
+    A.ubah_status_ulasan(eng, uid, "selesai", "Tombol sudah dipindah di versi 1.2")
+    u = A.ulasan_peserta(eng, "Andi")[0]
+    assert u["status"] == "selesai" and u["catatan_admin"] == "Tombol sudah dipindah di versi 1.2"
+    assert A.ulasan_peserta(eng, "Sari") == []                # peserta lain tidak ikut melihat
+
+
+def test_ulasan_lama_tanpa_penghubung_tidak_muncul_di_profil_siapa_pun(eng):
+    with eng.begin() as c:                                    # meniru baris dari sebelum kolom peserta_id ada
+        c.execute(text("INSERT INTO ulasan (divisi, kategori, isi, dibuat, status) "
+                       "VALUES ('Divisi Umum', 'absen', 'ulasan lama sebelum fitur', '2026-10-01', 'baru')"))
+    assert A.ulasan_peserta(eng, "Andi") == [] and A.ulasan_peserta(eng, "Sari") == []
+    assert len(A.daftar_ulasan(eng)) == 1                     # admin tetap melihatnya
+
+
+def test_migrasi_menambah_kolom_peserta_id_pada_database_lama(eng):
+    with eng.begin() as c:
+        c.execute(text("DROP TABLE ulasan"))
+        c.execute(text("CREATE TABLE ulasan (id INTEGER PRIMARY KEY AUTOINCREMENT, divisi VARCHAR(100), "
+                       "kategori VARCHAR(20) NOT NULL, isi VARCHAR(500) NOT NULL, dibuat VARCHAR(10) NOT NULL, "
+                       "status VARCHAR(12) NOT NULL, catatan_admin VARCHAR(300))"))
+    assert "peserta_id" not in {c["name"] for c in inspect(eng).get_columns("ulasan")}
+    A._migrasi(eng)
+    A._migrasi(eng)                                           # aman diulang
+    assert "peserta_id" in {c["name"] for c in inspect(eng).get_columns("ulasan")}
+    A.simpan_ulasan(eng, "Andi", ULASAN, "absen")
+    assert len(A.ulasan_peserta(eng, "Andi")) == 1
+
+
 # =================== ADMIN ===================
 def test_ringkasan_rating(eng):
     assert A.ringkasan_rating(eng)["rata"] is None
@@ -156,17 +205,14 @@ def test_hapus_peserta_rating_tetap_sebagai_statistik_tapi_dilepas(eng):
     assert A.rating_peserta(eng, "Andi") is None
 
 
-# =================== DATABASE LAMA ===================
-def test_migrasi_membuat_tabel_umpan_balik_di_database_lama(tmp_path):
-    """Kasus yang terjadi di Supabase: tabel lama sudah ada, tabel baru belum, dan engine lama masih dipakai."""
-    from sqlalchemy import create_engine
-    eng = create_engine(f"sqlite:///{tmp_path / 'lama.db'}")
-    A.metadata.create_all(eng, tables=[t for t in A.metadata.sorted_tables if t.name not in ("rating_aplikasi", "ulasan")])
-    assert not {"rating_aplikasi", "ulasan"} & set(inspect(eng).get_table_names())
-    A._migrasi(eng)
-    assert {"rating_aplikasi", "ulasan"} <= set(inspect(eng).get_table_names())
-    A._migrasi(eng)                                          # aman diulang
-    assert A.ringkasan_rating(eng)["n"] == 0
+def test_hapus_peserta_ulasan_tetap_sebagai_masukan_tapi_dilepas(eng):
+    A.simpan_ulasan(eng, "Andi", ULASAN, "absen")
+    A.hapus_peserta(eng, "Andi")
+    assert len(A.daftar_ulasan(eng)) == 1                     # masukan tidak hilang
+    with eng.connect() as c:
+        assert c.execute(text("SELECT peserta_id FROM ulasan")).scalar() is None
+    A.add_peserta(eng, "Andi", "A", "Divisi Umum", "1234")    # nama yang sama didaftarkan lagi = akun baru
+    assert A.ulasan_peserta(eng, "Andi") == []                # tidak mewarisi ulasan akun lama
 
 
 # =================== TAMPILAN (AppTest) ===================
@@ -255,3 +301,20 @@ def test_peserta_baru_tidak_diarahkan_tapi_bisa_menilai_dari_profil(ui):
 def test_halaman_admin_umpan_balik_tampil(ui):
     A.simpan_rating(ui, "Andi", 5, ULASAN, "absen")
     tanpa_error(jalan(False, peran="admin", admin_ok=True, menu_admin="Umpan balik"))
+
+
+def test_profil_menampilkan_ulasan_saya_dengan_status_dan_tanggapan_admin(ui):
+    A.simpan_rating(ui, "Andi", 5, ULASAN, "absen")
+    uid = int(A.daftar_ulasan(ui)["id"].iloc[0])
+    A.ubah_status_ulasan(ui, uid, "diproses", "Sedang dibuat lebih besar")
+    at = jalan(True, peran="user", nama_login="Andi", tab="profil")
+    tanpa_error(at)
+    assert [e.label for e in at.expander if e.label.startswith("Ulasan saya")] == ["Ulasan saya (1)"]
+    assert any("Sedang diproses" in m.value for m in at.markdown)
+    assert any("Tanggapan admin: Sedang dibuat lebih besar" in c.value for c in at.caption)
+
+
+def test_profil_tanpa_ulasan_tidak_menampilkan_daftar(ui):
+    at = jalan(True, peran="user", nama_login="Andi", tab="profil")
+    tanpa_error(at)
+    assert [e for e in at.expander if e.label.startswith("Ulasan saya")] == []
