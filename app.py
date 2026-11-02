@@ -5525,7 +5525,6 @@ def halaman_beranda_admin(eng):
             if st.button(label, key=f"kartu_{kode}", width="stretch"):
                 st.session_state["db_kartu"] = None if pilih == kode else kode
                 st.rerun()
-    st.caption("Ketuk salah satu kotak untuk melihat daftar namanya. Ketuk lagi untuk menutup.")
     with st.container(key="info_catatan"):
         with st.popover(":material/info:"):
             st.caption(
