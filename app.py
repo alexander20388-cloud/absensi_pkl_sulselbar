@@ -5200,7 +5200,7 @@ def halaman_login(eng, hanya_peserta=False):
     """Layar pertama: pilih peran, lalu login. Desain mengikuti tema Presensi peserta.
     hanya_peserta=True (aplikasi PKL): langsung login peserta, tanpa pilihan Admin."""
     st.markdown(CSS_AUTH_ADMIN, unsafe_allow_html=True)
-    st.image("logo.png", width=300)
+    st.image("logo.jpeg", width=300)
     st.markdown(
         f"""<div class="auth-head">
 <div class="auth-brand"><div class="auth-logo">{ic("fingerprint", 30)}</div>
