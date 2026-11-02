@@ -229,6 +229,7 @@ peserta_t = Table(
     Column("no_rekening", String(40)),
     Column("universitas", String(150)),
     Column("jurusan", String(150)),
+    Column("kelas_semester", String(50)),
     Column("setuju_versi", String(20)),                         # versi pemberitahuan privasi yang disetujui
     Column("setuju_pada", String(19)),                          # YYYY-MM-DD HH:MM:SS (WITA)
 )
@@ -473,7 +474,8 @@ def _migrasi(eng):
     metadata.create_all(eng)
     perlu = {
         "peserta": [("no_rekening", "VARCHAR(40)"), ("setuju_versi", "VARCHAR(20)"), ("setuju_pada", "VARCHAR(19)"),
-                    ("universitas", "VARCHAR(150)"), ("jurusan", "VARCHAR(150)")],
+                    ("universitas", "VARCHAR(150)"), ("jurusan", "VARCHAR(150)"),
+                    ("kelas_semester", "VARCHAR(50)")],
         "absensi": [
             ("foto_path", "VARCHAR(200)"), ("alasan", "VARCHAR(300)"),
             ("peserta_id", "INTEGER REFERENCES peserta(id) ON DELETE SET NULL"),
@@ -702,12 +704,12 @@ def list_peserta(eng):
 
 
 def list_peserta_lengkap(eng):
-    """Seperti list_peserta, ditambah universitas & jurusan (dipakai halaman Kelola Peserta)."""
+    """Seperti list_peserta, ditambah universitas/sekolah, jurusan & kelas/semester (dipakai halaman Kelola Peserta)."""
     with eng.connect() as c:
         return pd.read_sql(
             select(
                 peserta_t.c.nama, peserta_t.c.gedung, peserta_t.c.divisi, peserta_t.c.no_rekening,
-                peserta_t.c.universitas, peserta_t.c.jurusan,
+                peserta_t.c.universitas, peserta_t.c.jurusan, peserta_t.c.kelas_semester,
             ).order_by(peserta_t.c.nama), c
         )
 
@@ -719,12 +721,13 @@ def get_peserta(eng, nama):
 
 @coba_ulang
 def add_peserta(eng, nama, gedung, divisi, pin, no_rekening=None, aktor="admin", peran="admin",
-                universitas=None, jurusan=None):
+                universitas=None, jurusan=None, kelas_semester=None):
     with eng.begin() as c:
         c.execute(insert(peserta_t).values(
             nama=nama.strip(), gedung=gedung, divisi=divisi.strip(), pin_hash=proyek.hash_pin_kuat(pin),
             no_rekening=(no_rekening or None),
             universitas=((universitas or "").strip() or None), jurusan=((jurusan or "").strip() or None),
+            kelas_semester=((kelas_semester or "").strip() or None),
         ))
         _audit(c, aktor, peran, "peserta.tambah", f"peserta:{nama.strip()}",
                {"divisi": divisi.strip(), "gedung": gedung, "rekening_diisi": bool(no_rekening)})
@@ -747,10 +750,11 @@ def set_rekening(eng, nama, no_rekening, aktor="admin", peran="admin"):
 
 
 @coba_ulang
-def set_kampus(eng, nama, universitas, jurusan, aktor="admin", peran="admin"):
+def set_kampus(eng, nama, universitas, jurusan, kelas_semester=None, aktor="admin", peran="admin"):
     with eng.begin() as c:
         r = c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(
             universitas=((universitas or "").strip() or None), jurusan=((jurusan or "").strip() or None),
+            kelas_semester=((kelas_semester or "").strip() or None),
         ))
         if r.rowcount:
             _audit(c, aktor, peran, "peserta.ubah_kampus", f"peserta:{nama}", {})
@@ -2740,7 +2744,8 @@ def halaman_profil_peserta(df, nama):
     st.subheader("Profil Peserta")
     baris = [
         ("Nama", data["nama"]), ("Divisi", data["divisi"]), ("Gedung", data["gedung"]),
-        ("No. Rekening", data["no_rekening"]), ("Universitas", data["universitas"]), ("Jurusan", data["jurusan"]),
+        ("No. Rekening", data["no_rekening"]), ("Universitas/Sekolah", data["universitas"]), ("Jurusan", data["jurusan"]),
+        ("Kelas/Semester", data["kelas_semester"]),
     ]
     st.markdown(
         "".join(
@@ -2776,8 +2781,9 @@ def form_tambah_peserta(eng):
         nama = st.text_input("Nama peserta")
         divisi = st.selectbox("Divisi", list(DIVISI_GEDUNG.keys()))
         gedung = DIVISI_GEDUNG[divisi]
-        univ = st.text_input("Universitas", max_chars=150)
+        univ = st.text_input("Universitas/Sekolah", max_chars=150)
         jurusan = st.text_input("Jurusan", max_chars=150)
+        kelas_sem = st.text_input("Kelas/Semester", max_chars=50, placeholder="contoh: Semester 6 atau Kelas XI")
         no_rek = st.text_input("Nomor rekening", placeholder="contoh: 130-210-000554616-9", max_chars=30)
         pin = st.text_input("PIN (4-6 angka)", max_chars=6)
         kirim = st.form_submit_button("Simpan Peserta", width="stretch")
@@ -2795,7 +2801,7 @@ def form_tambah_peserta(eng):
             st.error("PIN harus 4-6 angka.")
         else:
             try:
-                add_peserta(eng, nama, gedung, divisi, pin, rek_rapi, universitas=univ, jurusan=jurusan)
+                add_peserta(eng, nama, gedung, divisi, pin, rek_rapi, universitas=univ, jurusan=jurusan, kelas_semester=kelas_sem)
             except IntegrityError:
                 st.error("Nama itu sudah terdaftar.")
             except SQLAlchemyError as e:
@@ -2847,7 +2853,7 @@ def halaman_kelola_peserta(eng):
                 )
 
     if not df.empty:
-        with st.expander("Edit Divisi / No. Rekening / Universitas & Jurusan / Reset PIN / Hapus peserta"):
+        with st.expander("Edit Divisi / No. Rekening / Universitas/Sekolah, Jurusan & Kelas/Semester / Reset PIN / Hapus peserta"):
             target = st.selectbox("Pilih peserta", df["nama"], key="target_kelola")
 
             opsi_divisi = list(DIVISI_GEDUNG.keys())
@@ -2884,17 +2890,20 @@ def halaman_kelola_peserta(eng):
 
             univ_lama = _kosong(df.loc[df["nama"] == target, "universitas"].values[0])
             jur_lama = _kosong(df.loc[df["nama"] == target, "jurusan"].values[0])
-            univ_baru = st.text_input("Universitas", value="" if univ_lama == "-" else univ_lama,
+            ks_lama = _kosong(df.loc[df["nama"] == target, "kelas_semester"].values[0])
+            univ_baru = st.text_input("Universitas/Sekolah", value="" if univ_lama == "-" else univ_lama,
                                       max_chars=150, key=f"univ_baru_{target}")
             jur_baru = st.text_input("Jurusan", value="" if jur_lama == "-" else jur_lama,
                                      max_chars=150, key=f"jur_baru_{target}")
-            if st.button("Simpan Universitas & Jurusan"):
+            ks_baru = st.text_input("Kelas/Semester", value="" if ks_lama == "-" else ks_lama,
+                                    max_chars=50, key=f"ks_baru_{target}")
+            if st.button("Simpan Universitas/Sekolah, Jurusan & Kelas/Semester"):
                 try:
-                    set_kampus(eng, target, univ_baru, jur_baru)
+                    set_kampus(eng, target, univ_baru, jur_baru, ks_baru)
                 except SQLAlchemyError as e:
                     st.error(pesan_db(e))
                 else:
-                    st.success("Universitas & jurusan diperbarui.")
+                    st.success("Universitas/sekolah, jurusan, dan kelas/semester diperbarui.")
                     st.rerun()
 
             pin_baru = st.text_input("PIN baru (4-6 angka)", max_chars=6, key="pin_baru")
