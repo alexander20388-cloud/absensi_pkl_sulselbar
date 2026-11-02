@@ -937,6 +937,57 @@ def cek_lokasi(lat, lon, gedung):
     return jarak <= RADIUS_METER, jarak
 
 
+CSS_TABEL_RAPI = """<style>
+.tr-wrap { max-height: 360px; overflow: auto; border: 1px solid var(--garis, #d3e2ed); border-radius: 12px; margin: 4px 0 12px; -webkit-overflow-scrolling: touch; }
+.tr-wrap table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 280px; }
+.tr-wrap th { position: sticky; top: 0; z-index: 2; background: #eef2ff; font-size: 10.5px; font-weight: 700; color: var(--muted, #6b8599);
+  padding: 8px 8px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--garis, #d3e2ed); }
+.tr-wrap td { font-size: 12.5px; line-height: 1.3; color: var(--navy, #0b3a5e); padding: 7px 8px; vertical-align: middle;
+  border-bottom: 1px solid var(--garis, #d3e2ed); overflow-wrap: anywhere; word-break: break-word; min-width: 48px; }
+.tr-wrap tr:last-child td { border-bottom: 0; }
+.tr-wrap tbody tr:hover td { background: #f3f8fb; }
+.tr-wrap .num { text-align: center; white-space: nowrap; }
+.tr-wrap td.idx { color: var(--muted, #6b8599); text-align: center; min-width: 28px; white-space: nowrap; }
+</style>"""
+
+
+def _sel(v):
+    """Teks sel tabel: kosong/NaN jadi '-', desimal dirapikan."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return "-"
+    if isinstance(v, float):
+        return str(int(v)) if v == int(v) else f"{v:.4f}".rstrip("0").rstrip(".")
+    return str(v)
+
+
+def tabel_rapi(df, width=None, hide_index=False, tinggi=360):
+    """Tabel bergaya tabel Rekap untuk semua halaman: header menempel, garis tipis, teks membungkus (tidak terpotong),
+    gulir sendiri bila panjang/lebar. Pengganti st.dataframe (argumen width/hide_index diterima agar pemanggilan lama tetap jalan)."""
+    if df is None or len(df.columns) == 0:
+        return
+    tampil_idx = (not hide_index) and (df.index.name is not None or not isinstance(df.index, pd.RangeIndex))
+    d = df.reset_index() if tampil_idx else df
+    if tampil_idx and df.index.name is None:        # indeks tanpa nama (mis. label baris): kepala kolomnya dikosongkan
+        d.columns = [""] + [str(c) for c in d.columns[1:]]
+    angka = [pd.api.types.is_numeric_dtype(d[c]) for c in d.columns]
+    kepala = "".join(
+        f'<th class="{"num" if a else ""}">{esc(str(c))}</th>' for c, a in zip(d.columns, angka)
+    )
+    baris = []
+    for rec in d.itertuples(index=False, name=None):
+        sel = []
+        for k, (v, a) in enumerate(zip(rec, angka)):
+            kelas = "idx" if (tampil_idx and k == 0) else ("num" if a else "")
+            sel.append(f'<td class="{kelas}">{esc(_sel(v))}</td>')
+        baris.append("<tr>" + "".join(sel) + "</tr>")
+    st.markdown(
+        CSS_TABEL_RAPI
+        + f'<div class="tr-wrap" style="max-height:{int(tinggi)}px"><table><thead><tr>{kepala}</tr></thead>'
+        + f'<tbody>{"".join(baris)}</tbody></table></div>',
+        unsafe_allow_html=True,
+    )
+
+
 def beri_nomor(df):
     """Nomor urut tabel mulai dari 1 (bukan 0)."""
     df = df.copy()
@@ -2607,28 +2658,39 @@ def tab_logbook(eng, nama, peserta):
 # ------------------------------------------------------------------
 CSS_PESERTA = """
 <style>
-/* tabel peserta: baris dibuat dari kolom, tidak boleh bertumpuk di layar HP, teks membungkus (tidak terpotong) */
-.st-key-tabel_peserta { background: #fff; border: 1px solid #d3e2ed; border-radius: 16px; padding: 4px 8px; }
-.st-key-tabel_peserta [data-testid="stVerticalBlock"] { gap: 0 !important; }
-.st-key-tabel_peserta [data-testid="stHorizontalBlock"] {
-  flex-wrap: nowrap !important; gap: 6px !important; border-bottom: 1px solid #e3edf4; padding: 7px 2px; align-items: center;
-}
-.st-key-tabel_peserta [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
-.st-key-tabel_peserta [data-testid="stColumn"]:nth-child(1) { flex: 0.7 1 0 !important; }
-.st-key-tabel_peserta [data-testid="stColumn"]:nth-child(2) { flex: 2.4 1 0 !important; }
-.st-key-tabel_peserta [data-testid="stColumn"]:nth-child(3) { flex: 1 1 0 !important; }
-.st-key-tabel_peserta [data-testid="stColumn"]:nth-child(4) { flex: 2.9 1 0 !important; }
-.tp-h { font-size: 12px; font-weight: 700; color: #3f6785; text-transform: uppercase; letter-spacing: .3px; }
-.tp-c { font-size: 13px; line-height: 1.35; color: #0b3a5e; overflow-wrap: anywhere; word-break: break-word; }
-.st-key-tabel_peserta button {
-  min-height: 0 !important; height: auto !important; padding: 0 !important; justify-content: flex-start !important;
+/* tabel peserta: gaya sama dengan tabel Rekap (header menempel, garis tipis, gulir sendiri) */
+.st-key-tabel_peserta, .st-key-tabel_peserta > [data-testid="stVerticalBlock"] { overflow: auto !important; gap: 0 !important; row-gap: 0 !important; }
+.st-key-tabel_peserta { border: 1px solid var(--garis); border-radius: 12px; padding: 0 4px; }
+.st-key-tabel_peserta > * { border-bottom: 1px solid var(--garis); }
+.st-key-tabel_peserta > :has(.tp-h) { position: sticky; top: 0; z-index: 3; background: #eef2ff; }
+.st-key-tabel_peserta > :not(:has(.tp-h)):hover { background: #f3f8fb; }
+.st-key-tabel_peserta [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; min-width: 300px; gap: 6px !important; align-items: center; padding: 4px 6px; margin: 0; }
+.st-key-tabel_peserta [data-testid="stElementContainer"] { margin: 0 !important; }
+.st-key-tabel_peserta [data-testid="stMarkdownContainer"] { min-width: 0; margin: 0 !important; }
+.st-key-tabel_peserta [data-testid="stMarkdownContainer"] p { margin: 0 !important; }
+.st-key-tabel_peserta :is([data-testid="stColumn"], [data-testid="column"]) { width: auto !important; min-width: 0 !important; flex: 1 1 0 !important; }
+.st-key-tabel_peserta :is([data-testid="stColumn"], [data-testid="column"]):nth-child(1) { flex: 0.55 1 0 !important; }
+.st-key-tabel_peserta :is([data-testid="stColumn"], [data-testid="column"]):nth-child(2) { flex: 2.6 1 0 !important; }
+.st-key-tabel_peserta :is([data-testid="stColumn"], [data-testid="column"]):nth-child(3) { flex: 1.1 1 0 !important; }
+.st-key-tabel_peserta :is([data-testid="stColumn"], [data-testid="column"]):nth-child(4) { flex: 3 1 0 !important; }
+.st-key-tabel_peserta :is([data-testid="stColumn"], [data-testid="column"]):last-child { flex: 0 0 28px !important; }
+.tp-h { font-size: 10.5px; font-weight: 700; color: var(--muted); white-space: nowrap; text-transform: uppercase; letter-spacing: .3px; }
+.tp-h.tengah, .tp-c.tengah { text-align: center; }
+.tp-c { font-size: 12.5px; line-height: 1.3; color: var(--navy); overflow-wrap: anywhere; word-break: break-word; }
+/* nama (tombol): tampil seperti teks nama di tabel Rekap, bisa turun baris, tidak terpotong */
+.st-key-adminbody .st-key-tabel_peserta button[kind="tertiary"] {
+  min-height: 0 !important; height: auto !important; padding: 0 !important; width: 100% !important; justify-content: flex-start !important;
   text-align: left !important; background: transparent !important; border: 0 !important; box-shadow: none !important;
 }
-.st-key-tabel_peserta button p {
+.st-key-adminbody .st-key-tabel_peserta button[kind="tertiary"] p {
   white-space: normal !important; overflow-wrap: anywhere; word-break: break-word; text-align: left !important;
-  font-size: 13px !important; font-weight: 700 !important; line-height: 1.35 !important; color: #0a5a8f !important;
-  text-decoration: underline; text-decoration-color: rgba(10,90,143,.35);
+  font-size: 12.5px !important; font-weight: 600 !important; line-height: 1.3 !important; color: var(--navy) !important; margin: 0 !important;
 }
+.st-key-adminbody .st-key-tabel_peserta button[kind="secondary"] {
+  min-height: 26px !important; height: 26px !important; padding: 0 !important; width: 100% !important;
+  border-radius: 8px !important; border: 1px solid var(--garis) !important; background: var(--tint) !important; box-shadow: none !important;
+}
+.st-key-adminbody .st-key-tabel_peserta button[kind="secondary"] p { font-size: 16px !important; font-weight: 700; line-height: 1; margin: 0 !important; }
 .pf-baris { padding: 10px 0; border-bottom: 1px solid #e3edf4; }
 .pf-baris:last-child { border-bottom: 0; }
 .pf-l { font-size: 12px; font-weight: 600; color: #6b8599; }
@@ -2671,20 +2733,22 @@ def halaman_profil_peserta(df, nama):
 
 
 def tabel_peserta(df):
-    """Tabel peserta: semua teks membungkus (tidak ada yang terpotong); menekan nama membuka profil peserta."""
-    lebar = [0.7, 2.4, 1, 2.9]
-    with st.container(key="tabel_peserta"):
-        kepala = st.columns(lebar, vertical_alignment="center")
-        for kol, teks in zip(kepala, ["No", "Nama", "Gedung", "Divisi"]):
+    """Tabel peserta bergaya tabel Rekap: teks membungkus (tidak terpotong), nama/tombol › membuka halaman profil."""
+    lebar = [0.55, 2.6, 1.1, 3, 0.4]
+    with st.container(key="tabel_peserta", height=min(440, 44 + 52 * len(df))):
+        kepala = st.columns(lebar)
+        for i, (kol, teks) in enumerate(zip(kepala, ["No", "Nama", "Gedung", "Divisi", ""])):
             kol.markdown(f'<div class="tp-h">{teks}</div>', unsafe_allow_html=True)
         for no, r in enumerate(df.to_dict("records"), start=1):
             kol = st.columns(lebar, vertical_alignment="center")
             kol[0].markdown(f'<div class="tp-c">{no}</div>', unsafe_allow_html=True)
-            if kol[1].button(str(r["nama"]), key=f"profil_{no}", type="tertiary"):
-                st.session_state["profil_peserta"] = r["nama"]
-                st.rerun()
+            buka = kol[1].button(str(r["nama"]), key=f"profil_{no}", type="tertiary")
             kol[2].markdown(f'<div class="tp-c">{esc(_kosong(r["gedung"]))}</div>', unsafe_allow_html=True)
             kol[3].markdown(f'<div class="tp-c">{esc(_kosong(r["divisi"]))}</div>', unsafe_allow_html=True)
+            buka = kol[4].button("›", key=f"profil_p_{no}", help=f"Profil {r['nama']}") or buka
+            if buka:
+                st.session_state["profil_peserta"] = r["nama"]
+                st.rerun()
 
 
 def form_tambah_peserta(eng):
@@ -2852,7 +2916,7 @@ def halaman_kelola_peserta(eng):
                 "Yang dipertahankan adalah catatan paling awal; sisanya dihapus beserta fotonya. "
                 "Setelah itu indeks anti-ganda dipasang otomatis."
             )
-            st.dataframe(beri_nomor(pd.DataFrame(duplikat, columns=["Nama", "Tanggal", "Jenis", "Jumlah"])), width="stretch")
+            tabel_rapi(beri_nomor(pd.DataFrame(duplikat, columns=["Nama", "Tanggal", "Jenis", "Jumlah"])), width="stretch")
             ok_rapikan = st.text_input("Ketik RAPIKAN (huruf besar) untuk konfirmasi", key="rapikan_konfirmasi")
             if st.button("Rapikan absensi ganda", key="tombol_rapikan"):
                 if ok_rapikan.strip() != "RAPIKAN":
@@ -3127,7 +3191,7 @@ def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
     if tabel.empty:
         st.info("Tidak ada absen yang berhasil, izin, atau cuti untuk peserta ini di bulan tersebut.")
     else:
-        st.dataframe(beri_nomor(tabel.drop(columns="_tgl")), width="stretch")
+        tabel_rapi(beri_nomor(tabel.drop(columns="_tgl")), width="stretch")
         tgl_foto = list(tabel.loc[tabel["Status"].isin(["Hadir", "Terlambat"]), "_tgl"])
         pilih = st.selectbox("Lihat bukti foto: pilih tanggal", tgl_foto, index=None, placeholder="Pilih tanggal",
                              format_func=lambda t: date.fromisoformat(t).strftime("%d/%m/%Y"), key=f"rk_foto_{nama}_{tahun}_{bulan}")
@@ -3975,12 +4039,12 @@ def halaman_analitik(eng):
             ekstrem = j[(j["jarak"] > iqr[3]) | (j["jarak"] < iqr[2])].sort_values("jarak", ascending=False).head(10)
             if len(ekstrem):
                 st.caption("Absen berhasil dengan jarak ekstrem (10 teratas), layak dicek bila berulang pada peserta yang sama:")
-                st.dataframe(beri_nomor(ekstrem[["nama", "tanggal", "jam", "jenis", "hasil", "jarak", "gedung"]].rename(columns={
+                tabel_rapi(beri_nomor(ekstrem[["nama", "tanggal", "jam", "jenis", "hasil", "jarak", "gedung"]].rename(columns={
                     "nama": "Nama", "tanggal": "Tanggal", "jam": "Jam", "jenis": "Jenis",
                     "hasil": "Hasil", "jarak": "Jarak (m)", "gedung": "Gedung"})), width="stretch")
 
     st.subheader("Ringkasan per peserta")
-    st.dataframe(beri_nomor(eda["per_peserta"].rename(columns={
+    tabel_rapi(beri_nomor(eda["per_peserta"].rename(columns={
         "nama": "Nama", "hari_hadir": "Hari hadir", "terlambat": "Terlambat"})), width="stretch")
 
     st.subheader("Dataset untuk analisis lanjutan")
@@ -4170,7 +4234,7 @@ def _ringkas_model(m):
     )
     cm = uji.get("confusion_matrix")
     if cm:
-        st.dataframe(pd.DataFrame(cm, index=["Aktual: tidak terlambat", "Aktual: terlambat"],
+        tabel_rapi(pd.DataFrame(cm, index=["Aktual: tidak terlambat", "Aktual: terlambat"],
                                   columns=["Prediksi: tidak terlambat", "Prediksi: terlambat"]), width="stretch")
     import ml_absensi as ml
     penting = pd.DataFrame({"Kepentingan": k.get("kepentingan", {})})
@@ -4211,7 +4275,7 @@ def _tab_anomali(eng, ml):
             "nama": "Nama", "tanggal": "Tanggal", "jam": "Jam", "jenis": "Jenis", "hasil": "Hasil",
             "jarak": "Jarak (m)", "akurasi": "Akurasi (m)", "skor": "Skor", "alasan": "Alasan"})
         tampil[["Jarak (m)", "Akurasi (m)", "Skor"]] = tampil[["Jarak (m)", "Akurasi (m)", "Skor"]].round(0)
-        st.dataframe(beri_nomor(tampil), width="stretch")
+        tabel_rapi(beri_nomor(tampil), width="stretch")
 
     import altair as alt
     import numpy as np
@@ -4272,7 +4336,7 @@ def _tab_prediksi(eng, ml):
             "F1 uji": round((v["metrik"].get("uji") or {}).get("f1", 0), 2),
             "ROC-AUC": (v["metrik"].get("uji") or {}).get("roc_auc"), "Aktif": "✅" if v["aktif"] else "",
         } for v in versi])
-        st.dataframe(tabel, width="stretch", hide_index=True)
+        tabel_rapi(tabel, width="stretch", hide_index=True)
         c1, c2 = st.columns([2, 1])
         pilih = c1.selectbox("Aktifkan versi", [v["id"] for v in versi], format_func=lambda i: f"Versi {i}", key="model_pilih")
         if c2.button("Aktifkan", key="model_aktifkan"):
@@ -4299,7 +4363,7 @@ def _tab_prediksi(eng, ml):
                "bukan untuk menghukum.")
     tinggi = int((df["risiko"] == "Tinggi").sum())
     st.metric("Peserta berisiko tinggi", tinggi)
-    st.dataframe(beri_nomor(pd.DataFrame({
+    tabel_rapi(beri_nomor(pd.DataFrame({
         "Nama": df["nama"], "Divisi": df["divisi"], "Probabilitas terlambat (%)": (df["probabilitas"] * 100).round(0).astype(int),
         "Risiko": df["risiko"], "Faktor": df["faktor"],
     })), width="stretch")
@@ -4325,7 +4389,7 @@ def _tab_monitoring(eng, ml):
     st.subheader(f"Drift fitur (PSI), {r['n_terbaru']} data terbaru vs data latih")
     ikon = {"Stabil": "🟢", "Waspada": "🟠", "Drift": "🔴", "-": "⚪"}
     d = r["drift"]
-    st.dataframe(pd.DataFrame({
+    tabel_rapi(pd.DataFrame({
         "Fitur": d["label"], "PSI": d["psi"].round(3), "Status": [f"{ikon[s]} {s}" for s in d["status"]],
     }), width="stretch", hide_index=True)
     st.caption("PSI < 0,1 stabil, 0,1 sampai 0,25 waspada, >= 0,25 drift (pola data sudah berbeda dari saat model dilatih).")
@@ -4426,7 +4490,7 @@ def ui_paket_kerja(eng, divisi_scope, aktor, peran):
                              rencana=(hasil["rencana"] * 100).round(0), progres=(hasil["progres"] * 100).round(0),
                              spi=hasil["spi"].round(2))[["kode", "nama", "mulai", "selesai", "estimasi_jam", "jam_disetujui",
                                                          "rencana", "progres", "spi", "status"]]
-        st.dataframe(tabel.rename(columns={"kode": "Kode", "nama": "Paket", "mulai": "Mulai", "selesai": "Selesai",
+        tabel_rapi(tabel.rename(columns={"kode": "Kode", "nama": "Paket", "mulai": "Mulai", "selesai": "Selesai",
                                            "estimasi_jam": "Estimasi jam", "jam_disetujui": "Jam disetujui",
                                            "rencana": "Rencana %", "progres": "Progres %", "spi": "SPI", "status": "Status"}),
                      width="stretch", hide_index=True)
@@ -4520,7 +4584,7 @@ def ui_anggaran(eng, aktor):
     ).rename(columns={"divisi": "Divisi", "peserta": "Peserta", "anggaran": "Anggaran", "realisasi": "Realisasi", "serapan_pct": "Serapan",
                       "sisa_anggaran": "Sisa", "proyeksi": "Proyeksi", "proyeksi_maks": "Batas atas", "selisih": "Selisih",
                       "status": "Status", "sumber": "Dasar proyeksi"})
-    st.dataframe(tampil, width="stretch", hide_index=True)
+    tabel_rapi(tampil, width="stretch", hide_index=True)
     st.caption("Proyeksi = realisasi hari-hari yang sudah selesai + rata-rata harian x hari kerja tersisa. Batas atas = semua peserta hadir "
                "tiap hari tersisa. Selisih = anggaran dikurangi proyeksi (negatif = diperkirakan melebihi). Realisasi per divisi "
                "memakai divisi peserta SAAT absen; riwayat sebelum fitur ini memakai divisi peserta saat ini.")
@@ -4564,7 +4628,7 @@ def ui_anggaran(eng, aktor):
         else:
             st.caption("Estimasi dasar = peserta x hari kerja x tarif x tingkat kehadiran (rata-rata 3 bulan terakhir; bila belum ada riwayat "
                        "dipakai asumsi 90%), lalu ditambah cadangan dan dibulatkan ke atas Rp10.000.")
-            st.dataframe(saran.assign(
+            tabel_rapi(saran.assign(
                 tingkat_kehadiran=(saran["tingkat_kehadiran"] * 100).round(0).astype(int).astype(str) + "%",
                 estimasi_dasar=saran["estimasi_dasar"].map(rupiah), cadangan=saran["cadangan"].map(rupiah), saran=saran["saran"].map(rupiah),
                 asumsi_kehadiran=saran["asumsi_kehadiran"].map({True: "asumsi", False: "riwayat"}),
@@ -4609,7 +4673,7 @@ def ui_pembimbing(eng, aktor):
     if df.empty:
         st.info("Belum ada pembimbing.")
         return
-    st.dataframe(df.rename(columns={"nama": "Nama", "divisi": "Divisi", "dibuat": "Dibuat"}), width="stretch", hide_index=True)
+    tabel_rapi(df.rename(columns={"nama": "Nama", "divisi": "Divisi", "dibuat": "Dibuat"}), width="stretch", hide_index=True)
     with st.expander("Reset PIN atau hapus pembimbing"):
         target = st.selectbox("Pilih pembimbing", df["nama"], key="pb_target")
         pin_baru = st.text_input("PIN baru (6-8 angka)", max_chars=8, type="password", key="pb_pin_baru")
@@ -4654,7 +4718,7 @@ def ui_audit(eng):
     if df.empty:
         st.info("Belum ada catatan audit pada filter ini.")
         return
-    st.dataframe(df.rename(columns={"id": "ID", "waktu": "Waktu (WITA)", "aktor": "Aktor", "peran": "Peran", "aksi": "Aksi",
+    tabel_rapi(df.rename(columns={"id": "ID", "waktu": "Waktu (WITA)", "aktor": "Aktor", "peran": "Peran", "aksi": "Aksi",
                                     "objek": "Objek", "detail": "Detail"}), width="stretch", hide_index=True)
     st.download_button("⬇️ Audit (CSV)", df.to_csv(index=False).encode("utf-8"), file_name="audit_log.csv", mime="text/csv", key="au_csv")
 
@@ -4992,7 +5056,7 @@ def halaman_umpan_balik(eng):
     k3.metric("Ulasan masuk", len(semua))
     if ring["n"]:
         urut = (5, 4, 3, 2, 1)
-        st.dataframe(pd.DataFrame({"Penilaian": [_bintang(b) for b in urut], "Jumlah": [ring["sebaran"][b] for b in urut]}),
+        tabel_rapi(pd.DataFrame({"Penilaian": [_bintang(b) for b in urut], "Jumlah": [ring["sebaran"][b] for b in urut]}),
                      width="stretch", hide_index=True)
     if semua.empty:
         st.info("Belum ada ulasan.")
@@ -5315,12 +5379,24 @@ def halaman_beranda_admin(eng):
 
 CSS_INFO = """
 <style>
-/* tombol info kecil (popover): isi keterangan baru muncul saat ditekan */
-.st-key-info_sistem button, .st-key-info_catatan button, .st-key-info_rek button {
-  width: auto !important; min-height: 0 !important; height: 34px; padding: 0 12px !important; border-radius: 999px !important;
-  background: #eaf3fa !important; border: 1px solid #c9dcea !important; color: #0a5a8f !important; box-shadow: none !important;
+/* iframe realtime (tinggi 0) jangan memakan ruang/jarak di halaman */
+.st-key-adminbody [data-testid="stElementContainer"]:has(iframe[height="0"]) { position: absolute !important; height: 0 !important; width: 0 !important; margin: 0 !important; overflow: hidden !important; }
+/* tombol keterangan: bulat kecil, rata kanan, serasi dengan kartu dashboard */
+.st-key-info_sistem, .st-key-info_catatan, .st-key-info_rek { display: flex; justify-content: flex-end; margin: 0 0 4px; }
+.st-key-info_catatan, .st-key-info_rek { margin: 8px 0 0; }
+.st-key-adminbody .st-key-info_sistem button, .st-key-adminbody .st-key-info_catatan button, .st-key-adminbody .st-key-info_rek button {
+  width: auto !important; min-width: 0 !important; min-height: 0 !important; height: 34px !important; padding: 0 11px !important; gap: 4px;
+  border-radius: 999px !important; background: var(--tint, #eaf3fa) !important; border: 0 !important; color: var(--biru, #0a5a8f) !important;
+  box-shadow: none !important; font-size: 13px !important; font-weight: 700 !important;
 }
-.st-key-info_catatan, .st-key-info_rek { margin: 8px 0; }
+.st-key-adminbody .st-key-info_sistem button:hover, .st-key-adminbody .st-key-info_catatan button:hover, .st-key-adminbody .st-key-info_rek button:hover {
+  background: #d7e8f5 !important;
+}
+.st-key-info_sistem button:has(> [data-testid="stMarkdownContainer"]) > [data-testid="stIconMaterial"]:last-child,
+.st-key-info_catatan button:has(> [data-testid="stMarkdownContainer"]) > [data-testid="stIconMaterial"]:last-child,
+.st-key-info_rek button:has(> [data-testid="stMarkdownContainer"]) > [data-testid="stIconMaterial"]:last-child { display: none !important; }
+.st-key-info_sistem [data-testid="stMarkdownContainer"] p, .st-key-info_catatan [data-testid="stMarkdownContainer"] p,
+.st-key-info_rek [data-testid="stMarkdownContainer"] p { margin: 0 !important; font-size: 13px !important; color: var(--biru, #0a5a8f) !important; }
 </style>
 """
 
@@ -5401,11 +5477,11 @@ def halaman_admin(eng):
             )
         st.markdown(CSS_INFO, unsafe_allow_html=True)
         ket_realtime = realtime_admin()
-        with st.container(key="info_sistem"):
-            with st.popover(":material/info:"):
-                panel_status(eng)
-                st.caption(ket_realtime)
         if menu == "Beranda":
+            with st.container(key="info_sistem"):       # tombol keterangan sistem: hanya di Beranda
+                with st.popover(":material/info:", help="Status sistem"):
+                    panel_status(eng)
+                    st.caption(ket_realtime)
             halaman_beranda_admin(eng)
         elif menu == "Peserta":
             halaman_kelola_peserta(eng)
