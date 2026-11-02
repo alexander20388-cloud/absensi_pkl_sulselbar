@@ -1639,6 +1639,15 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !important; }
 /* ---------- scroll: halaman selalu bisa digulir ke bawah (browser HP maupun WebView) ---------- */
 html, body { height: auto !important; min-height: 100%; overflow-x: hidden; overflow-y: auto !important; -webkit-overflow-scrolling: touch; }
+/* HP / WebView: bilah gulir klasik memakan lebar di sisi kanan sehingga latar biru tua tampak sebagai garis. Gulir tetap berfungsi. */
+@media (max-width: 600px) {
+  html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"], section.stMain, section.main {
+    scrollbar-width: none !important; scrollbar-gutter: auto !important; -ms-overflow-style: none;
+  }
+  html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stAppViewContainer"]::-webkit-scrollbar,
+  [data-testid="stMain"]::-webkit-scrollbar, section.stMain::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
+  [data-testid="stMain"], section.stMain, [data-testid="stMainBlockContainer"], .block-container { width: 100% !important; max-width: 100vw; box-sizing: border-box; }
+}
 [data-testid="stApp"], [data-testid="stAppViewContainer"] { height: auto !important; min-height: 100dvh; overflow: visible !important; }
 [data-testid="stMain"], section.stMain, section.main {
   overflow-y: auto !important; overflow-x: hidden !important; -webkit-overflow-scrolling: touch;
