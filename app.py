@@ -273,8 +273,9 @@ notifikasi_t = Table(
 
 
 # Umpan balik peserta (hanya dikumpulkan lewat aplikasi Android). Rating terikat ke peserta supaya hanya bisa diberikan
-# SEKALI; ulasan/saran sengaja TIDAK memuat nama atau peserta_id (hanya divisi dan tanggal) dan tidak masuk audit,
-# supaya tidak bisa ditelusuri ke orangnya. Tanggal saja (bukan jam) agar tidak bisa dicocokkan lewat waktu kirim.
+# SEKALI. Ulasan/saran juga terikat ke peserta (peserta_id) supaya pemberinya bisa melihat status tindak lanjut dan
+# catatan admin di menu Profil. Halaman admin dan ekspor CSV tetap hanya menampilkan divisi dan tanggal (tanpa nama
+# atau peserta_id). Ulasan lama (sebelum kolom peserta_id ada) tidak bertaut ke siapa pun. Tidak masuk audit saat dibuat.
 rating_aplikasi_t = Table(
     "rating_aplikasi", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
@@ -286,6 +287,7 @@ rating_aplikasi_t = Table(
 ulasan_t = Table(
     "ulasan", metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("peserta_id", Integer, ForeignKey("peserta.id", ondelete="SET NULL")),   # NULL: ulasan lama / peserta sudah dihapus
     Column("divisi", String(100)),
     Column("kategori", String(20), nullable=False),             # absen / logbook / tampilan / lainnya
     Column("isi", String(500), nullable=False),
@@ -477,6 +479,7 @@ def _migrasi(eng):
             ("peserta_id", "INTEGER REFERENCES peserta(id) ON DELETE SET NULL"),
             ("divisi", "VARCHAR(100)"),
         ],
+        "ulasan": [("peserta_id", "INTEGER REFERENCES peserta(id) ON DELETE SET NULL")],
     }
     insp = inspect(eng)
     if eng.dialect.name == "postgresql":      # hash scrypt lebih panjang dari 64 karakter (SQLite tidak membatasi panjang)
@@ -790,8 +793,9 @@ def hapus_peserta(eng, nama, dengan_absensi=False, aktor="admin", peran="admin")
         c.execute(update(absensi_t).where(absensi_t.c.nama == nama).values(peserta_id=None))
         c.execute(update(logbook_t).where(logbook_t.c.nama == nama).values(peserta_id=None))
         pid = c.execute(select(peserta_t.c.id).where(peserta_t.c.nama == nama)).scalar()
-        if pid is not None:                                     # rating tetap sebagai statistik, tetapi dilepas dari peserta
+        if pid is not None:                                     # rating dan ulasan tetap sebagai masukan, tetapi dilepas dari peserta
             c.execute(update(rating_aplikasi_t).where(rating_aplikasi_t.c.peserta_id == pid).values(peserta_id=None))
+            c.execute(update(ulasan_t).where(ulasan_t.c.peserta_id == pid).values(peserta_id=None))
         ada = c.execute(delete(peserta_t).where(peserta_t.c.nama == nama)).rowcount
         if dengan_absensi:
             paths = [r[0] for r in c.execute(select(absensi_t.c.foto_path).where(absensi_t.c.nama == nama))]
@@ -4829,7 +4833,7 @@ HARI_MINTA_UMPAN_BALIK = 7              # peserta diarahkan ke form setelah seki
 KATEGORI_ULASAN = {"absen": "Absen", "logbook": "Logbook", "tampilan": "Tampilan", "lainnya": "Lainnya"}
 STATUS_ULASAN = ("baru", "diproses", "selesai")
 ULASAN_MIN, ULASAN_MAKS = 10, 500
-ULASAN_MAKS_PER_SESI = 3                # penahan spam ringan; ulasan tanpa nama jadi tidak bisa dibatasi per peserta di DB
+ULASAN_MAKS_PER_SESI = 3                # penahan spam ringan per sesi (belum dibatasi per peserta di DB)
 
 
 def di_aplikasi():
@@ -4889,7 +4893,7 @@ def validasi_ulasan(isi, kategori, wajib=True):
 
 @coba_ulang
 def simpan_rating(eng, nama, bintang, isi="", kategori="lainnya", now=None):
-    """Rating SEKALI seumur akun (tidak bisa diubah). Ulasan opsional ikut disimpan, tanpa nama. Salah -> ValueError."""
+    """Rating SEKALI seumur akun (tidak bisa diubah). Ulasan opsional ikut disimpan dan bertaut ke peserta. Salah -> ValueError."""
     if isinstance(bintang, bool) or not isinstance(bintang, int) or not 1 <= bintang <= 5:
         raise ValueError("Penilaian harus 1 sampai 5 bintang.")
     salah = validasi_ulasan(isi, kategori, wajib=False)
@@ -4903,23 +4907,25 @@ def simpan_rating(eng, nama, bintang, isi="", kategori="lainnya", now=None):
                 raise ValueError("Data kamu tidak ditemukan.")
             c.execute(insert(rating_aplikasi_t).values(peserta_id=pes[0], bintang=bintang, dibuat=tanggal))
             if (isi or "").strip():
-                c.execute(insert(ulasan_t).values(divisi=pes[1], kategori=kategori, isi=isi.strip(), dibuat=tanggal, status="baru"))
+                c.execute(insert(ulasan_t).values(peserta_id=pes[0], divisi=pes[1], kategori=kategori, isi=isi.strip(),
+                                                  dibuat=tanggal, status="baru"))
     except IntegrityError:
         raise ValueError("Kamu sudah memberi penilaian. Terima kasih!") from None
 
 
 @coba_ulang
 def simpan_ulasan(eng, nama, isi, kategori, now=None):
-    """Ulasan atau saran dari Profil (boleh berkali-kali). Hanya divisi dan tanggal yang disimpan, tanpa nama."""
+    """Ulasan atau saran dari Profil (boleh berkali-kali). Bertaut ke peserta lewat peserta_id; nama tidak disalin ke tabel ulasan."""
     salah = validasi_ulasan(isi, kategori)
     if salah:
         raise ValueError(" ".join(salah))
     tanggal = (now or datetime.now(WITA)).strftime("%Y-%m-%d")
     with eng.begin() as c:
-        pes = c.execute(select(peserta_t.c.divisi).where(peserta_t.c.nama == nama)).first()
+        pes = c.execute(select(peserta_t.c.id, peserta_t.c.divisi).where(peserta_t.c.nama == nama)).first()
         if pes is None:
             raise ValueError("Data kamu tidak ditemukan.")
-        c.execute(insert(ulasan_t).values(divisi=pes[0], kategori=kategori, isi=isi.strip(), dibuat=tanggal, status="baru"))
+        c.execute(insert(ulasan_t).values(peserta_id=pes[0], divisi=pes[1], kategori=kategori, isi=isi.strip(),
+                                          dibuat=tanggal, status="baru"))
 
 
 def ringkasan_rating(eng):
@@ -4936,16 +4942,32 @@ def ringkasan_rating(eng):
 
 
 def daftar_ulasan(eng, status=None, limit=500):
-    q = select(ulasan_t).order_by(ulasan_t.c.id.desc()).limit(limit)
+    """Untuk admin. peserta_id sengaja tidak ikut dipilih supaya tidak muncul di layar maupun CSV."""
+    q = (select(ulasan_t.c.id, ulasan_t.c.divisi, ulasan_t.c.kategori, ulasan_t.c.isi, ulasan_t.c.dibuat,
+                ulasan_t.c.status, ulasan_t.c.catatan_admin)
+         .order_by(ulasan_t.c.id.desc()).limit(limit))
     if status:
         q = q.where(ulasan_t.c.status == status)
     with eng.connect() as c:
         return pd.read_sql(q, c)
 
 
+STATUS_ULASAN_PESERTA = {"baru": "Diterima", "diproses": "Sedang diproses", "selesai": "Selesai"}
+
+
+def ulasan_peserta(eng, nama, limit=50):
+    """Ulasan milik peserta sendiri beserta status dan catatan admin, terbaru dulu. Ulasan lama tidak muncul (tidak bertaut)."""
+    q = (select(ulasan_t.c.kategori, ulasan_t.c.isi, ulasan_t.c.dibuat, ulasan_t.c.status, ulasan_t.c.catatan_admin)
+         .select_from(ulasan_t.join(peserta_t, peserta_t.c.id == ulasan_t.c.peserta_id))
+         .where(peserta_t.c.nama == nama)
+         .order_by(ulasan_t.c.id.desc()).limit(limit))
+    with eng.connect() as c:
+        return [dict(r._mapping) for r in c.execute(q)]
+
+
 @coba_ulang
 def ubah_status_ulasan(eng, ulasan_id, status, catatan="", aktor="admin"):
-    """Admin menandai tindak lanjut ulasan (baru, diproses, selesai). Tercatat di audit; ulasan itu sendiri tanpa nama."""
+    """Admin menandai tindak lanjut ulasan (baru, diproses, selesai). Tercatat di audit. Status dan catatan terlihat oleh pemberi ulasan di Profil."""
     if status not in STATUS_ULASAN:
         raise ValueError("Status tidak dikenal.")
     catatan = (catatan or "").strip()[:300]
@@ -4988,7 +5010,8 @@ def _form_umpan_balik(eng, nama, kunci, minta_rating, boleh_lewati):
     kategori = st.selectbox("Tentang apa?", list(KATEGORI_ULASAN), format_func=KATEGORI_ULASAN.get, key=k_kat)
     isi = st.text_area("Ulasan dan saran" + (" (boleh dikosongkan)" if minta_rating else ""), max_chars=ULASAN_MAKS,
                        height=120, key=k_isi, placeholder="Ceritakan yang sudah enak dipakai atau yang masih menyulitkan.")
-    st.caption("Ulasan disimpan tanpa namamu (hanya divisi dan tanggal).")
+    st.caption("Ulasan terhubung ke akunmu supaya kamu bisa melihat tindak lanjutnya di Profil. "
+               "Di halaman admin, ulasan hanya tampil dengan divisi dan tanggal, tanpa namamu.")
     if boleh_lewati:
         kol_kirim, kol_lewati = st.columns(2)
     else:
@@ -5029,7 +5052,7 @@ def halaman_minta_umpan_balik(eng, nama):
     header_halaman("Ulasan dan saran", "Bantu kami memperbaiki aplikasi")
     with st.container(key="pagebody"):
         st.write("Kamu sudah lebih dari seminggu memakai aplikasi ini. Boleh beri penilaian dan saran? "
-                 "Hanya sebentar, dan hanya diminta satu kali. Setelah ini, ulasan dan saran bisa kamu tulis kapan saja di menu Profil.")
+                 "Hanya sebentar, dan hanya diminta satu kali. Setelah ini, ulasan dan saran bisa kamu tulis kapan saja di menu Profil, dan status tindak lanjutnya bisa kamu lihat di sana.")
         if _form_umpan_balik(eng, nama, "awal", minta_rating=True, boleh_lewati=True):
             st.session_state[f"umpan_perlu:{nama}"] = False
             st.session_state["pesan_umpan"] = "Terima kasih atas penilaian dan sarannya!"
@@ -5051,6 +5074,21 @@ def _profil_umpan_balik(eng, nama):
             st.session_state[f"umpan_perlu:{nama}"] = False
             st.session_state["pesan_umpan"] = "Terima kasih! Masukanmu sudah kami terima."
             st.rerun()
+        try:
+            milikku = ulasan_peserta(eng, nama)
+        except SQLAlchemyError as e:
+            st.error(pesan_db(e))
+            return
+        if milikku:
+            with st.expander(f"Ulasan saya ({len(milikku)})"):
+                for u in milikku:
+                    with st.container(border=True):
+                        st.markdown(f"**{esc(KATEGORI_ULASAN.get(u['kategori'], u['kategori']))}** · {esc(u['dibuat'])} · "
+                                    f"{esc(STATUS_ULASAN_PESERTA.get(u['status'], u['status']))}")
+                        st.write(u["isi"])
+                        tanggapan = u["catatan_admin"]
+                        if isinstance(tanggapan, str) and tanggapan.strip():
+                            st.caption("Tanggapan admin: " + tanggapan.strip())
 
 
 def halaman_umpan_balik(eng):
@@ -5058,7 +5096,8 @@ def halaman_umpan_balik(eng):
     st.header("💬 Umpan Balik Peserta")
     if not admin_login():
         return
-    st.caption("Dikumpulkan lewat aplikasi Android. Ulasan tersimpan tanpa nama (hanya divisi dan tanggal). "
+    st.caption("Dikumpulkan lewat aplikasi Android. Di halaman ini ulasan hanya tampil dengan divisi dan tanggal, tanpa nama "
+               "pengirim. Status dan catatan yang kamu isi akan terlihat oleh pemberi ulasan di menu Profilnya. "
                "Rating hanya ditampilkan sebagai angka gabungan.")
     try:
         ring = ringkasan_rating(eng)
@@ -5091,7 +5130,7 @@ def halaman_umpan_balik(eng):
             kol_status, kol_catatan = st.columns([1, 2])
             status_baru = kol_status.selectbox("Status", STATUS_ULASAN, index=STATUS_ULASAN.index(u.status), key=f"ub_st_{u.id}")
             catatan_lama = u.catatan_admin if isinstance(u.catatan_admin, str) else ""
-            catatan = kol_catatan.text_input("Catatan tindak lanjut", value=catatan_lama, max_chars=300, key=f"ub_cat_{u.id}")
+            catatan = kol_catatan.text_input("Catatan tindak lanjut (terlihat oleh pemberi ulasan)", value=catatan_lama, max_chars=300, key=f"ub_cat_{u.id}")
             if st.button("Simpan", key=f"ub_simpan_{u.id}"):
                 try:
                     ubah_status_ulasan(eng, int(u.id), status_baru, catatan)
