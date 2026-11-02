@@ -1676,6 +1676,10 @@ CSS_AUTH_ADMIN = """
 <style>
 /* Tata letak login mengikuti desain: bagian atas putih (~55% layar) dengan tepi bawah melengkung, bagian bawah biru,
    kartu form di perbatasan, teks footer lalu lengkung hijau lime. */
+/* seluruh latar halaman login biru tua sampai bawah (warna akhir gradasi), supaya tidak ada pita terang di bawah kartu */
+html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"], section.stMain {
+  background: #063f6b !important;
+}
 [data-testid="stMainBlockContainer"], .block-container {
   max-width: 460px !important; overflow-x: clip; overflow-y: visible !important;   /* jangan 'hidden': mengunci gulir & menutup tombol */
   background: linear-gradient(180deg, #0a5a8f 0, #0a5a8f 480px, #063f6b 100%) !important;
