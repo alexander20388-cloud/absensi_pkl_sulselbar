@@ -1790,6 +1790,12 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
   background: linear-gradient(90deg, #e9eff5 0, #e9eff5 calc(50% - 230px), #063f6b calc(50% - 230px),
               #063f6b calc(50% + 230px), #e9eff5 calc(50% + 230px), #e9eff5 100%) !important;
 }
+/* sembunyikan bilah gulir di halaman login (gulir tetap jalan): bilah menyempitkan area sehingga kontainer bergeser ~7px dari garis tengah latar */
+html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"], section.stMain {
+  scrollbar-width: none !important; -ms-overflow-style: none;
+}
+html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit-scrollbar, [data-testid="stAppViewContainer"]::-webkit-scrollbar,
+[data-testid="stMain"]::-webkit-scrollbar, section.stMain::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
 [data-testid="stMainBlockContainer"], .block-container {
   max-width: 460px !important; overflow-x: clip; overflow-y: visible !important;   /* jangan 'hidden': mengunci gulir & menutup tombol */
   background: linear-gradient(180deg, #0a5a8f 0, #0a5a8f 480px, #063f6b 100%) !important;
