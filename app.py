@@ -5679,13 +5679,6 @@ def main():
         )
         st.stop()
 
-    if not st.session_state.get("skema_ok"):
-        try:
-            _migrasi(eng)       # tambah kolom yang belum ada (aman dijalankan berulang)
-        except SQLAlchemyError as e:
-            st.error(pesan_db(e))
-            st.stop()
-        st.session_state.skema_ok = True
 
     peran = st.session_state.get("peran")
     nama = st.session_state.get("nama_login")
