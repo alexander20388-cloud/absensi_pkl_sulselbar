@@ -443,13 +443,6 @@ def _sqlite_bisa_tulis(path):
         return False
 
 
-def _batas_kunci(c, detik=10):
-    """Postgres: batalkan (jangan menunggu selamanya) bila kunci tabel tidak kunjung didapat. Hanya berlaku di
-    transaksi ini (SET LOCAL), jadi aman untuk pooler Supabase mode transaksi. SQLite: tidak melakukan apa-apa."""
-    if c.dialect.name == "postgresql":
-        c.execute(text(f"SET LOCAL lock_timeout = '{int(detik)}s'"))
-
-
 def _pasang_indeks(eng):
     """Pasang indeks gabungan dan indeks unik anti-absen-ganda pada database yang sudah ada (create_all tidak
     menambah indeks ke tabel lama). Mengembalikan True kalau indeks unik terpasang; False kalau gagal
@@ -458,7 +451,6 @@ def _pasang_indeks(eng):
     if NAMA_INDEKS_GABUNGAN not in ada:
         try:
             with eng.begin() as c:
-                _batas_kunci(c)
                 c.execute(text(f"CREATE INDEX IF NOT EXISTS {NAMA_INDEKS_GABUNGAN} ON absensi (nama, tanggal)"))
         except SQLAlchemyError:
             pass
@@ -466,7 +458,6 @@ def _pasang_indeks(eng):
         return True
     try:
         with eng.begin() as c:
-            _batas_kunci(c)
             c.execute(text(
                 f"CREATE UNIQUE INDEX IF NOT EXISTS {NAMA_INDEKS_UNIK} "
                 "ON absensi (nama, tanggal, jenis) WHERE status <> 'gagal_lokasi'"
@@ -497,53 +488,32 @@ def _migrasi(eng):
         for k in insp.get_columns("peserta"):
             if k["name"] == "pin_hash" and (getattr(k["type"], "length", None) or 0) < 200:
                 with eng.begin() as c:
-                    _batas_kunci(c)
                     c.execute(text("ALTER TABLE peserta ALTER COLUMN pin_hash TYPE VARCHAR(200)"))
     for tabel, daftar in perlu.items():
         ada = {k["name"] for k in insp.get_columns(tabel)}
         for kolom, tipe in daftar:
             if kolom not in ada:
                 with eng.begin() as c:
-                    _batas_kunci(c)
                     c.execute(text(f"ALTER TABLE {tabel} ADD COLUMN {kolom} {tipe}"))
-    # Isi peserta_id dan snapshot divisi untuk riwayat lama (hanya yang namanya masih terdaftar).
-    # Dicek dulu dengan SELECT ... LIMIT 1: UPDATE (yang menyisir seluruh tabel dan menahan kunci) hanya dijalankan
-    # bila memang ada baris yang perlu diisi. Syarat p.divisi IS NOT NULL mencegah baris yang tidak mungkin terisi
-    # ikut terpilih terus setiap kali.
-    kondisi_peserta = "peserta_id IS NULL AND EXISTS (SELECT 1 FROM peserta p WHERE p.nama = absensi.nama)"
-    kondisi_divisi = ("divisi IS NULL AND EXISTS "
-                      "(SELECT 1 FROM peserta p WHERE p.nama = absensi.nama AND p.divisi IS NOT NULL)")
-    with eng.connect() as c:
-        perlu_peserta = c.execute(text(f"SELECT 1 FROM absensi WHERE {kondisi_peserta} LIMIT 1")).first() is not None
-        perlu_divisi = c.execute(text(f"SELECT 1 FROM absensi WHERE {kondisi_divisi} LIMIT 1")).first() is not None
-    if perlu_peserta:
-        with eng.begin() as c:
-            _batas_kunci(c)
-            c.execute(text(
-                "UPDATE absensi SET peserta_id = (SELECT p.id FROM peserta p WHERE p.nama = absensi.nama) "
-                f"WHERE {kondisi_peserta}"
-            ))
-    if perlu_divisi:
-        with eng.begin() as c:    # snapshot divisi riwayat lama: divisi peserta SAAT INI (satu-satunya data yang tersedia)
-            _batas_kunci(c)
-            c.execute(text(
-                "UPDATE absensi SET divisi = (SELECT p.divisi FROM peserta p WHERE p.nama = absensi.nama) "
-                f"WHERE {kondisi_divisi}"
-            ))
+    with eng.begin() as c:    # isi peserta_id untuk riwayat lama (hanya yang namanya masih terdaftar)
+        c.execute(text(
+            "UPDATE absensi SET peserta_id = (SELECT p.id FROM peserta p WHERE p.nama = absensi.nama) "
+            "WHERE peserta_id IS NULL AND EXISTS (SELECT 1 FROM peserta p WHERE p.nama = absensi.nama)"
+        ))
+    with eng.begin() as c:    # snapshot divisi untuk riwayat lama: divisi peserta SAAT INI (satu-satunya data yang tersedia)
+        c.execute(text(
+            "UPDATE absensi SET divisi = (SELECT p.divisi FROM peserta p WHERE p.nama = absensi.nama) "
+            "WHERE divisi IS NULL AND EXISTS (SELECT 1 FROM peserta p WHERE p.nama = absensi.nama)"
+        ))
     eng.indeks_unik_ok = _pasang_indeks(eng)
 
 
 @st.cache_resource
-def get_engine(versi_skema=10):
+def get_engine(versi_skema=9):
     url = url_database()
     sementara = False
     if url:
-        # connect_timeout: tanpa ini, database yang lambat/di-pause membuat SEMUA sesi menggantung (get_engine
-        # di-cache dan Streamlit mengunci fungsi cache selama dikerjakan). Dengan batas waktu, sesi gagal cepat.
-        eng = create_engine(
-            url, pool_pre_ping=True, pool_recycle=300, pool_timeout=15,
-            connect_args={"connect_timeout": 10},
-        )
+        eng = create_engine(url, pool_pre_ping=True, pool_recycle=300)
     else:
         # nama file baru (v2) supaya tidak bentrok dengan database versi lama
         path = "absensi_pkl_v2.db"
@@ -5710,9 +5680,13 @@ def main():
         )
         st.stop()
 
-    # Migrasi skema TIDAK dijalankan per sesi: get_engine() sudah menjalankannya sekali per proses. Menjalankannya di
-    # tiap sesi membuat sesi yang datang bersamaan saling menunggu kunci database (halaman loading terus).
-    # Kalau skema berubah, naikkan versi_skema di get_engine supaya migrasi jalan lagi.
+    if not st.session_state.get("skema_ok"):
+        try:
+            _migrasi(eng)       # tambah kolom yang belum ada (aman dijalankan berulang)
+        except SQLAlchemyError as e:
+            st.error(pesan_db(e))
+            st.stop()
+        st.session_state.skema_ok = True
 
     peran = st.session_state.get("peran")
     nama = st.session_state.get("nama_login")
