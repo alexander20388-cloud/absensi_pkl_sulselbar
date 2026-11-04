@@ -508,12 +508,16 @@ def _migrasi(eng):
     eng.indeks_unik_ok = _pasang_indeks(eng)
 
 
-@st.cache_resource
-def get_engine(versi_skema=9):
+@st.cache_resource(show_spinner=False)
+def get_engine(versi_skema=10):
     url = url_database()
     sementara = False
     if url:
-        eng = create_engine(url, pool_pre_ping=True, pool_recycle=300)
+        eng = create_engine(
+            url, pool_pre_ping=True, pool_recycle=300,
+            pool_size=5, max_overflow=5,
+            connect_args={"connect_timeout": 10},   # jangan menggantung selamanya kalau koneksi macet
+        )
     else:
         # nama file baru (v2) supaya tidak bentrok dengan database versi lama
         path = "absensi_pkl_v2.db"
@@ -529,11 +533,9 @@ def get_engine(versi_skema=9):
             f"sqlite:///{path}",
             connect_args={"check_same_thread": False, "timeout": 15},
         )
-    metadata.create_all(eng)
-    _migrasi(eng)
+    _migrasi(eng)          # sudah termasuk create_all; hanya sekali per proses karena fungsi ini di-cache
     eng.db_sementara = sementara
     return eng
-
 
 def coba_ulang(fn):
     """Fungsi tulis ke DB: kalau koneksi terputus (OperationalError), reset koneksi lalu coba sekali lagi."""
