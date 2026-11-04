@@ -2966,33 +2966,45 @@ def halaman_kelola_peserta(eng):
 
     with st.expander("🗑️ Hapus peserta dan data absensi (tidak bisa dibatalkan)"):
         nama_semua = sorted(set(df["nama"]) | set(daftar_nama_absensi(eng)))
-        semua = "(SEMUA data absensi, peserta tetap ada)"
         if not nama_semua:
             st.info("Belum ada peserta maupun data absensi.")
         else:
-            pilihan = st.selectbox("Pilih peserta", [semua] + nama_semua, key="hapus_absen_pilihan")
-            if pilihan == semua:
-                st.caption("Seluruh riwayat absensi semua peserta dihapus beserta fotonya. Data peserta dan logbook tidak ikut terhapus.")
-            else:
-                st.caption(f"{pilihan} dihapus dari daftar peserta beserta seluruh riwayat absensi, logbook, dan foto buktinya "
-                           "(termasuk foto di Supabase Storage). Ulasan dan penilaian yang pernah ia kirim tetap tersimpan "
-                           "sebagai masukan tanpa nama.")
+            def _pilih_semua_hapus():
+                for n in nama_semua:
+                    st.session_state[f"hapus_cb::{n}"] = st.session_state["hapus_pilih_semua"]
+
+            st.checkbox("Pilih semua", key="hapus_pilih_semua", on_change=_pilih_semua_hapus)
+            with st.container(height=260):
+                for n in nama_semua:
+                    st.checkbox(n, key=f"hapus_cb::{n}")
+            terpilih = [n for n in nama_semua if st.session_state.get(f"hapus_cb::{n}")]
+            st.caption(f"{len(terpilih)} peserta dipilih. Yang dipilih dihapus dari daftar peserta beserta seluruh riwayat "
+                       "absensi, logbook, dan foto buktinya (termasuk foto di Supabase Storage). Ulasan dan penilaian yang "
+                       "pernah dikirim tetap tersimpan sebagai masukan tanpa nama.")
             konfirmasi = st.text_input("Ketik HAPUS (huruf besar) untuk konfirmasi", key="hapus_absen_konfirmasi")
             if st.button("Hapus", key="tombol_hapus_absen"):
-                if konfirmasi.strip() != "HAPUS":
+                if not terpilih:
+                    st.error("Belum ada peserta yang dipilih.")
+                elif konfirmasi.strip() != "HAPUS":
                     st.error("Konfirmasi belum benar. Ketik persis: HAPUS")
                 else:
-                    try:
-                        if pilihan == semua:
-                            jumlah = hapus_absensi(eng)
-                            notif(f"{jumlah} data absensi (beserta fotonya) dihapus.")
-                            st.rerun()
-                        else:
-                            hapus_peserta(eng, pilihan, dengan_absensi=True)
-                            notif(f"{pilihan} dihapus beserta seluruh riwayat absensi, logbook, dan fotonya.")
-                            st.rerun()
-                    except SQLAlchemyError as e:
-                        st.error(pesan_db(e))
+                    berhasil, gagal = [], []
+                    for n in terpilih:
+                        try:
+                            hapus_peserta(eng, n, dengan_absensi=True)
+                            berhasil.append(n)
+                        except SQLAlchemyError as e:
+                            gagal.append((n, pesan_db(e)))
+                    for n in berhasil:
+                        st.session_state.pop(f"hapus_cb::{n}", None)
+                    st.session_state.pop("hapus_pilih_semua", None)
+                    if berhasil:
+                        notif(f"{len(berhasil)} peserta dihapus beserta seluruh riwayat absensi, logbook, dan fotonya.")
+                    if gagal:
+                        for n, pesan in gagal:
+                            st.error(f"{n}: {pesan}")
+                    else:
+                        st.rerun()
 
 
 # ------------------------------------------------------------------
