@@ -5876,13 +5876,26 @@ def halaman_admin(eng):
             halaman_foto(eng)
 
 
+@st.cache_resource(show_spinner=False)
+def _status_splash_awal():
+    """Pasang layar pembuka ke index.html (sekali per proses server). 'sudah' = sudah terpasang sebelum proses ini mulai."""
+    try:
+        import splash_awal
+        return splash_awal.pasang()
+    except Exception:
+        return "gagal"
+
+
 def main():
     pkl = mode_pkl()
     st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
     if not st.session_state.get("_splash_selesai"):
         st.session_state["_splash_selesai"] = True
-        st.markdown(CSS_SPLASH.replace("__LOGO__", LOGO_ADMIN_B64), unsafe_allow_html=True)   # layar pembuka: aplikasi & website, sekali per sesi
+        # Layar pembuka utama disisipkan ke index.html Streamlit (tampil sebelum loading bawaan). Hanya kalau itu belum
+        # terpasang sejak awal (mis. baru dipasang sekarang atau tidak bisa ditulis), pakai cadangan lewat CSS di bawah ini.
+        if _status_splash_awal() != "sudah":
+            st.markdown(CSS_SPLASH.replace("__LOGO__", LOGO_ADMIN_B64), unsafe_allow_html=True)
     tampilkan_notif()
     try:
         eng = get_engine()
