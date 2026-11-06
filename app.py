@@ -1358,7 +1358,7 @@ def beri_keterangan_foto(img, baris):
         ukuran -= 1
     font = _font_foto(ukuran)
     jarak = int(ukuran * 1.22)
-    tebal = max(1, round(ukuran / 11))                      # tebal garis tepi gelap di sekeliling huruf
+    tebal = max(1, round(ukuran / 16))                      # tebal garis tepi gelap di sekeliling huruf
     posisi = [(lebar - margin - ukur.textlength(b, font=font), margin + i * jarak, b) for i, b in enumerate(baris)]
 
     bayang = Image.new("L", img.size, 0)                   # bayangan lembut di belakang huruf
@@ -1366,7 +1366,7 @@ def beri_keterangan_foto(img, baris):
     geser = max(1, ukuran // 14)
     for x, y, b in posisi:
         gambar.text((x + geser, y + geser), b, font=font, fill=255, stroke_width=tebal)
-    bayang = bayang.filter(ImageFilter.GaussianBlur(max(1.0, ukuran / 12))).point(lambda v: min(255, int(v * 1.6)))
+    bayang = bayang.filter(ImageFilter.GaussianBlur(max(1.0, ukuran / 10))).point(lambda v: min(255, int(v * 1.3)))
     img.paste(Image.new("RGB", img.size, (0, 0, 0)), (0, 0), bayang)
 
     gambar = ImageDraw.Draw(img)
@@ -1376,14 +1376,14 @@ def beri_keterangan_foto(img, baris):
 
 
 def kompres_foto(data: bytes, keterangan=None) -> bytes:
-    """Kecilkan foto (maks 640px, JPEG q70) supaya database tidak cepat penuh. keterangan = daftar baris tulisan yang
+    """Kecilkan foto (maks 640px, JPEG q80) supaya database tidak cepat penuh. keterangan = daftar baris tulisan yang
     dicetak di dalam foto (lihat teks_foto); dicetak SETELAH dikecilkan agar tulisannya tetap tajam."""
     img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
     img.thumbnail((640, 640))
     if keterangan:
         beri_keterangan_foto(img, keterangan)
     out = io.BytesIO()
-    img.save(out, format="JPEG", quality=70, optimize=True)
+    img.save(out, format="JPEG", quality=80, optimize=True)
     return out.getvalue()
 
 # ------------------------------------------------------------------
