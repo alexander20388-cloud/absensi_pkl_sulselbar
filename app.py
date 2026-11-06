@@ -1762,6 +1762,9 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 .stDeployButton, footer, [class*="viewerBadge"], [class*="StatusWidget"],
 [data-testid="stAppDeployButton"], [data-testid="manage-app-button"], [class*="_profileContainer"], [class*="_container_gzau3"],
 iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !important; }
+/* ---------- loading: Streamlit meredupkan (opacity ~0.33) elemen lama selama skrip dijalankan ulang, sehingga halaman sebelumnya tampak
+   tembus pandang sebelum halaman baru muncul. Nonaktifkan redup itu: konten lama tetap solid lalu langsung diganti halaman baru. ---------- */
+[data-stale="true"], [data-stale="true"] * { opacity: 1 !important; transition: none !important; }
 /* ---------- scroll: halaman selalu bisa digulir ke bawah (browser HP maupun WebView) ---------- */
 html, body { height: auto !important; min-height: 100%; overflow-x: hidden; overflow-y: auto !important; -webkit-overflow-scrolling: touch; }
 /* HP / WebView: bilah gulir klasik memakan lebar di sisi kanan sehingga latar biru tua tampak sebagai garis. Gulir tetap berfungsi. */
