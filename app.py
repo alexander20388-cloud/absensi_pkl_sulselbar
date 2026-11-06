@@ -1762,9 +1762,6 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-tes
 .stDeployButton, footer, [class*="viewerBadge"], [class*="StatusWidget"],
 [data-testid="stAppDeployButton"], [data-testid="manage-app-button"], [class*="_profileContainer"], [class*="_container_gzau3"],
 iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !important; }
-/* ---------- loading: Streamlit meredupkan (opacity ~0.33) elemen lama selama skrip dijalankan ulang, sehingga halaman sebelumnya tampak
-   tembus pandang sebelum halaman baru muncul. Nonaktifkan redup itu: konten lama tetap solid lalu langsung diganti halaman baru. ---------- */
-[data-stale="true"], [data-stale="true"] * { opacity: 1 !important; transition: none !important; }
 /* ---------- loading (pindah halaman ataupun tidak): layar ditutup PUTIH solid sampai skrip selesai, lalu halaman muncul utuh. Jeda 0,15 dtk
    supaya proses yang sangat cepat tidak berkedip. Dipasang di <html> supaya tidak terpengaruh latar biru/gradasi halaman. ---------- */
 html::after {
