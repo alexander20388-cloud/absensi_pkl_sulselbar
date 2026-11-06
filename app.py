@@ -5357,6 +5357,31 @@ def mode_pkl():
         return False
 
 
+def _aktifkan_ketik_selectbox():
+    """Di HP/WebView, Streamlit mengunci kotak pilihan (readonly + tanpa keyboard) sehingga nama tidak bisa dicari dengan mengetik.
+    Skrip kecil ini (iframe tinggi 0, satu asal dengan halaman) melepas kuncinya supaya fitur cari bawaan selectbox bisa dipakai."""
+    components.html(
+        """<script>
+(function () {
+  var d; try { d = window.parent.document; } catch (e) { return; }
+  function lepas() {
+    var daftar = d.querySelectorAll('[data-testid="stSelectbox"] input');
+    for (var i = 0; i < daftar.length; i++) {
+      var el = daftar[i];
+      if (el.hasAttribute('readonly')) { el.removeAttribute('readonly'); }
+      if (el.readOnly) { el.readOnly = false; }
+      if (el.getAttribute('inputmode') !== 'search') { el.setAttribute('inputmode', 'search'); }
+      if (el.getAttribute('autocomplete') !== 'off') { el.setAttribute('autocomplete', 'off'); }
+    }
+  }
+  lepas();
+  setInterval(lepas, 400);
+})();
+</script>""",
+        height=0,
+    )
+
+
 def halaman_login(eng, hanya_peserta=False):
     """Layar pertama: pilih peran, lalu login. Desain mengikuti tema Presensi peserta.
     hanya_peserta=True (aplikasi PKL): langsung login peserta, tanpa pilihan Admin."""
@@ -5387,7 +5412,8 @@ def halaman_login(eng, hanya_peserta=False):
                 st.warning("Belum ada peserta terdaftar. Hubungi admin untuk didaftarkan.")
             else:
                 with st.form("login_peserta", border=False):
-                    nama = st.selectbox("Nama peserta", df["nama"], index=None, placeholder="Pilih nama peserta")
+                    nama = st.selectbox("Nama peserta", df["nama"], index=None, placeholder="Ketik atau pilih nama peserta")
+                    _aktifkan_ketik_selectbox()
                     pin = st.text_input("PIN", type="password", max_chars=6, placeholder="Masukkan PIN kamu")
                     kirim = st.form_submit_button("Masuk", type="primary", width="stretch")
                 if kirim and not nama:
