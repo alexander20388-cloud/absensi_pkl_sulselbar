@@ -1765,18 +1765,17 @@ iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !
 /* ---------- loading: Streamlit meredupkan (opacity ~0.33) elemen lama selama skrip dijalankan ulang, sehingga halaman sebelumnya tampak
    tembus pandang sebelum halaman baru muncul. Nonaktifkan redup itu: konten lama tetap solid lalu langsung diganti halaman baru. ---------- */
 [data-stale="true"], [data-stale="true"] * { opacity: 1 !important; transition: none !important; }
-/* ---------- pindah halaman: Streamlit menggambar elemen satu per satu selama skrip berjalan, jadi halaman baru sempat tampil setengah jadi.
-   Selama skrip masih berjalan LEBIH dari 0,25 detik, isi halaman disembunyikan (tata letak tetap), lalu muncul utuh begitu selesai.
-   Proses cepat (<0,25 dtk) tidak berkedip. Bilah tipis di atas menandakan sedang memuat. ---------- */
-[data-testid="stMainBlockContainer"] { opacity: 1; transition: opacity .18s ease-out; }
-[data-testid="stApp"][data-test-script-state="running"] [data-testid="stMainBlockContainer"] {
-  opacity: 0 !important; transition: opacity 0s linear .25s; pointer-events: none;
+/* ---------- loading (pindah halaman ataupun tidak): layar ditutup PUTIH solid sampai skrip selesai, lalu halaman muncul utuh. Jeda 0,15 dtk
+   supaya proses yang sangat cepat tidak berkedip. Dipasang di <html> supaya tidak terpengaruh latar biru/gradasi halaman. ---------- */
+html::after {
+  content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; transition: opacity .15s ease;
 }
-[data-testid="stApp"]::before {
+html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: opacity 0s linear .15s; }
+html::before {
   content: ""; position: fixed; top: 0; left: 0; height: 3px; width: 0; z-index: 99999; pointer-events: none;
   background: linear-gradient(90deg, #8cc63f, #0a5a8f); opacity: 0;
 }
-[data-testid="stApp"][data-test-script-state="running"]::before { opacity: 1; width: 85%; transition: width 6s cubic-bezier(.1,.7,.2,1) .25s, opacity 0s .25s; }
+html:has([data-testid="stApp"][data-test-script-state="running"])::before { opacity: 1; width: 85%; transition: width 6s cubic-bezier(.1,.7,.2,1) .15s, opacity 0s .15s; }
 /* ---------- scroll: halaman selalu bisa digulir ke bawah (browser HP maupun WebView) ---------- */
 html, body { height: auto !important; min-height: 100%; overflow-x: hidden; overflow-y: auto !important; -webkit-overflow-scrolling: touch; }
 /* HP / WebView: bilah gulir klasik memakan lebar di sisi kanan sehingga latar biru tua tampak sebagai garis. Gulir tetap berfungsi. */
@@ -1995,7 +1994,6 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
 }
 </style>
 """
-
 
 CSS_ADMIN = """
 <style>
