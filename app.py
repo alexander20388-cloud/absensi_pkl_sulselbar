@@ -1708,7 +1708,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 
 /* ---------- navigasi bawah ---------- */
 .st-key-bottomnav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: min(430px, 100%);
-  background: #fff; z-index: 999; padding: 8px 6px 12px; border-radius: 22px 22px 0 0;
+  background: #fff; z-index: 999; padding: 8px 6px calc(12px + env(safe-area-inset-bottom, 0px)); border-radius: 22px 22px 0 0;
   box-shadow: 0 -6px 24px rgba(6,63,107,.10); }
 .st-key-bottomnav [data-testid="stHorizontalBlock"] { gap: 0 !important; align-items: flex-end; }
 .nv { text-align: center; color: #8da3b5; font-size: 12px; padding-top: 6px; min-height: 52px; }
@@ -2540,17 +2540,10 @@ CSS_NAV_NAIK = f"""
 
 
 def nav_perlu_naik():
+    """Bilah navigasi tidak lagi diangkat (laptop/web = tepat di dasar layar, tanpa jarak; HP mengikuti tepi bawah/safe-area).
+    Masih bisa dipaksa naik dengan ?angkat=1 bila ikon 'Manage app' Streamlit Cloud menutupi tombol."""
     try:
-        pilihan = str(st.query_params.get("angkat", "")).strip()
-    except Exception:
-        pilihan = ""
-    if pilihan in ("0", "1"):
-        return pilihan == "1"
-    try:
-        if "PresensiPKLApp" in (st.context.headers.get("user-agent") or ""):
-            return False                                   # aplikasi Android: ikon sudah dihilangkan oleh aplikasinya
-        host = (st.context.headers.get("host") or "").lower().split(":")[0]
-        return host.endswith(".streamlit.app")
+        return str(st.query_params.get("angkat", "")).strip() == "1"
     except Exception:
         return False
 
