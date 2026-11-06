@@ -1745,6 +1745,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 
 
 
+
 CSS_TEMA = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -1926,7 +1927,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
 [data-testid="stMarkdownContainer"]:has(.auth-head), [data-testid="stMarkdownContainer"]:has(.auth-foot) { margin: 0 !important; }
 .auth-head { background: #fff; height: 478px; box-sizing: border-box; padding: 48px 30px 0; position: relative; z-index: 1; overflow: hidden; }
 .auth-head::after {                                   /* tepi biru melengkung (busur) di bawah area putih */
-  content: ""; position: absolute; left: -10%; right: -10%; bottom: -1px; height: 44px; background: #0a5a8f;
+  content: ""; position: absolute; left: -10%; right: -10%; bottom: -1px; height: 92px; background: #0a5a8f;
   border-radius: 50% 50% 0 0 / 100% 100% 0 0;
 }
 .auth-logo-img { display: block; width: 78%; max-width: 300px; height: auto; margin: 26px auto 66px; }
@@ -1976,6 +1977,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
 }
 </style>
 """
+
 
 CSS_ADMIN = """
 <style>
