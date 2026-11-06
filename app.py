@@ -1329,45 +1329,49 @@ def teks_foto(now, gedung):
 
 @lru_cache(maxsize=64)
 def _font_foto(ukuran):
-    """Font bawaan Pillow (ada di semua server, jadi tampilan sama di mana pun); cadangan: font sistem."""
-    try:
-        return ImageFont.load_default(size=ukuran)
-    except (TypeError, OSError):
-        pass
-    for nama in ("DejaVuSans.ttf", "LiberationSans-Regular.ttf", "Arial.ttf"):
+    """Font tebal (DejaVu Sans Bold) yang disertakan di folder fonts/ supaya tampilan sama di server mana pun;
+    cadangan: font sistem, lalu font bawaan Pillow."""
+    folder = os.path.dirname(os.path.abspath(__file__))
+    for nama in (os.path.join(folder, "fonts", "DejaVuSans-Bold.ttf"), "DejaVuSans-Bold.ttf",
+                 "LiberationSans-Bold.ttf", "Arial Bold.ttf", "arialbd.ttf"):
         try:
             return ImageFont.truetype(nama, ukuran)
         except OSError:
             continue
-    return ImageFont.load_default()
+    try:
+        return ImageFont.load_default(size=ukuran)
+    except (TypeError, OSError):
+        return ImageFont.load_default()
 
 
 def beri_keterangan_foto(img, baris):
-    """Cetak `baris` rata kanan di pojok kanan atas foto: putih dengan bayangan lembut. Ukuran huruf menyesuaikan
-    lebar foto supaya baris terpanjang tetap muat. Mengubah `img` (RGB) langsung dan mengembalikannya."""
+    """Cetak `baris` rata kanan di pojok kanan atas foto: putih bersih, font tebal, dengan garis tepi tipis gelap +
+    bayangan halus supaya tetap jelas di latar terang maupun gelap. Ukuran huruf menyesuaikan lebar foto supaya
+    baris terpanjang tetap muat. Mengubah `img` (RGB) langsung dan mengembalikannya."""
     if not baris:
         return img
     lebar, _ = img.size
     margin = max(8, int(lebar * 0.04))
     ukur = ImageDraw.Draw(img)
-    ukuran = max(10, int(lebar * 0.075))
-    while ukuran > 10 and max(ukur.textlength(b, font=_font_foto(ukuran)) for b in baris) > lebar - 2 * margin:
+    ukuran = max(9, int(lebar * 0.05))
+    while ukuran > 9 and max(ukur.textlength(b, font=_font_foto(ukuran)) for b in baris) > lebar - 2 * margin:
         ukuran -= 1
     font = _font_foto(ukuran)
-    jarak = int(ukuran * 1.18)
+    jarak = int(ukuran * 1.22)
+    tebal = max(1, round(ukuran / 11))                      # tebal garis tepi gelap di sekeliling huruf
     posisi = [(lebar - margin - ukur.textlength(b, font=font), margin + i * jarak, b) for i, b in enumerate(baris)]
 
-    bayang = Image.new("L", img.size, 0)                   # bayangan: teks digeser sedikit, diburamkan, lalu dihitamkan
+    bayang = Image.new("L", img.size, 0)                   # bayangan lembut di belakang huruf
     gambar = ImageDraw.Draw(bayang)
-    geser = max(1, ukuran // 18)
+    geser = max(1, ukuran // 14)
     for x, y, b in posisi:
-        gambar.text((x + geser, y + geser), b, font=font, fill=255)
-    bayang = bayang.filter(ImageFilter.GaussianBlur(max(1.0, ukuran / 14))).point(lambda v: min(255, v * 2))
+        gambar.text((x + geser, y + geser), b, font=font, fill=255, stroke_width=tebal)
+    bayang = bayang.filter(ImageFilter.GaussianBlur(max(1.0, ukuran / 12))).point(lambda v: min(255, int(v * 1.6)))
     img.paste(Image.new("RGB", img.size, (0, 0, 0)), (0, 0), bayang)
 
     gambar = ImageDraw.Draw(img)
-    for x, y, b in posisi:
-        gambar.text((x, y), b, font=font, fill=(255, 255, 255))
+    for x, y, b in posisi:                                   # garis tepi gelap dulu, lalu isi putih murni di atasnya
+        gambar.text((x, y), b, font=font, fill=(255, 255, 255), stroke_width=tebal, stroke_fill=(0, 0, 0))
     return img
 
 
