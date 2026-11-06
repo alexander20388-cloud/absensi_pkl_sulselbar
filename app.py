@@ -1765,7 +1765,7 @@ iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !
 /* ---------- loading (pindah halaman ataupun tidak): layar ditutup PUTIH solid sampai skrip selesai, lalu halaman muncul utuh. Jeda 0,15 dtk
    supaya proses yang sangat cepat tidak berkedip. Dipasang di <html> supaya tidak terpengaruh latar biru/gradasi halaman. ---------- */
 html::after {
-  content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; transition: opacity .15s ease;
+  content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; transition: opacity 0s ease;
 }
 html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: opacity 0s linear .15s; }
 html::before {
