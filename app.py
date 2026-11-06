@@ -1765,12 +1765,12 @@ iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !
 /* ---------- loading: Streamlit meredupkan (opacity ~0.33) elemen lama selama skrip dijalankan ulang, sehingga halaman sebelumnya tampak
    tembus pandang sebelum halaman baru muncul. Nonaktifkan redup itu: konten lama tetap solid lalu langsung diganti halaman baru. ---------- */
 [data-stale="true"], [data-stale="true"] * { opacity: 1 !important; transition: none !important; }
-/* ---------- memuat tanpa pindah halaman (mis. setelah foto absen): selubung PUTIH tipis memudarkan layar, bilah loading tetap di atas.
-   Dipasang di <html> (bukan di stApp) supaya tidak terpengaruh latar biru/gradasi halaman. ---------- */
+/* ---------- loading (pindah halaman ataupun tidak): layar ditutup PUTIH solid sampai skrip selesai, lalu halaman muncul utuh. Jeda 0,15 dtk
+   supaya proses yang sangat cepat tidak berkedip. Dipasang di <html> supaya tidak terpengaruh latar biru/gradasi halaman. ---------- */
 html::after {
-  content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; transition: opacity .2s ease;
+  content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; transition: opacity .15s ease;
 }
-html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: .82; pointer-events: auto; transition: opacity .2s ease .15s; }
+html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: opacity 0s linear .15s; }
 html::before {
   content: ""; position: fixed; top: 0; left: 0; height: 3px; width: 0; z-index: 99999; pointer-events: none;
   background: linear-gradient(90deg, #8cc63f, #0a5a8f); opacity: 0;
@@ -1994,19 +1994,6 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
 }
 </style>
 """
-
-
-# Dipasang HANYA pada eksekusi yang berpindah halaman: isi halaman disembunyikan dan layar ditutup putih sampai halaman baru selesai
-# digambar (tidak tampak setengah jadi). Bilah loading di atas tetap tampil (CSS_TEMA).
-CSS_PINDAH = """
-<style>
-[data-testid="stApp"][data-test-script-state="running"] [data-testid="stMainBlockContainer"] {
-  opacity: 0 !important; transition: opacity 0s linear .1s !important; pointer-events: none;
-}
-html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1 !important; transition: opacity 0s linear .1s !important; }
-</style>
-"""
-
 
 CSS_ADMIN = """
 <style>
@@ -5847,12 +5834,6 @@ def main():
     pkl = mode_pkl()
     st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
-    # Deteksi pindah halaman: kunci halaman berubah dibanding eksekusi sebelumnya (tab peserta, menu admin, detail rekap, login/logout).
-    hal = (st.session_state.get("peran"), st.session_state.get("tab"), st.session_state.get("menu_admin"),
-           bool(st.session_state.get("rekap_detail")))
-    if st.session_state.get("_hal_terakhir") not in (None, hal):
-        st.markdown(CSS_PINDAH, unsafe_allow_html=True)
-    st.session_state["_hal_terakhir"] = hal
     tampilkan_notif()
     try:
         eng = get_engine()
