@@ -48,6 +48,8 @@ from sqlalchemy import (
     Column, ForeignKey, Index, Integer, String, Float, LargeBinary, MetaData, Table, Text, UniqueConstraint,
     create_engine, select, insert, update, delete, func, and_, or_, inspect, text,
 )
+from sqlalchemy import event
+from streamlit.errors import StreamlitAPIException
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from streamlit_js_eval import get_geolocation
@@ -575,6 +577,7 @@ def get_engine(versi_skema=9):
     metadata.create_all(eng)
     _migrasi(eng)
     eng.db_sementara = sementara
+    event.listen(eng, "before_cursor_execute", _pantau_tulis)
     return eng
 
 
@@ -1765,12 +1768,6 @@ iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !
 /* ---------- loading: Streamlit meredupkan (opacity ~0.33) elemen lama selama skrip dijalankan ulang, sehingga halaman sebelumnya tampak
    tembus pandang sebelum halaman baru muncul. Nonaktifkan redup itu: konten lama tetap solid lalu langsung diganti halaman baru. ---------- */
 [data-stale="true"], [data-stale="true"] * { opacity: 1 !important; transition: none !important; }
-/* ---------- loading (pindah halaman ataupun tidak): layar ditutup PUTIH solid sampai skrip selesai, lalu halaman muncul utuh. Jeda 0,15 dtk
-   supaya proses yang sangat cepat tidak berkedip. Dipasang di <html> supaya tidak terpengaruh latar biru/gradasi halaman. ---------- */
-html::after {
-  content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; transition: opacity .15s ease;
-}
-html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: opacity 0s linear .15s; }
 html::before {
   content: ""; position: fixed; top: 0; left: 0; height: 3px; width: 0; z-index: 99999; pointer-events: none;
   background: linear-gradient(90deg, #8cc63f, #0a5a8f); opacity: 0;
@@ -1995,6 +1992,38 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
 </style>
 """
 
+# Loading putih solid. TIDAK dipasang di CSS_TEMA: hanya dipasang (tampilkan_loading) saat pindah antar halaman utama
+# (login / PKL / pembimbing / admin) dan saat ada perubahan data di database. Selebihnya halaman berganti tanpa layar putih.
+CSS_LOADING = """
+<style>
+html::after {
+  content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; transition: opacity .15s ease;
+}
+html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: opacity 0s linear .1s; }
+</style>
+"""
+
+
+def tampilkan_loading():
+    """Pasang layar loading putih untuk eksekusi yang sedang berjalan (sekali per eksekusi). Aman dipanggil di mana saja."""
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        if get_script_run_ctx(suppress_warning=True) is None:      # bukan dari eksekusi skrip (mis. utas latar): abaikan
+            return
+        if st.session_state.get("_loading_dipasang"):
+            return
+        st.session_state["_loading_dipasang"] = True
+        st.markdown(CSS_LOADING, unsafe_allow_html=True)
+    except Exception:
+        pass
+
+
+def _pantau_tulis(conn, cursor, statement, parameters, context, executemany):
+    """Hook SQLAlchemy: setiap perintah yang MENGUBAH data (INSERT/UPDATE/DELETE) memasang layar loading."""
+    if statement.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE", "REPLAC"):
+        tampilkan_loading()
+
+
 CSS_ADMIN = """
 <style>
 [data-testid="stMainBlockContainer"], .block-container { max-width: 1100px !important; }
@@ -2125,6 +2154,15 @@ def pindah_tab(tab):
     st.session_state.tab = tab
 
 
+def rerun_halaman():
+    """Muat ulang hanya bagian halaman peserta (fragmen) kalau dipanggil dari dalamnya; di luar fragmen = muat ulang penuh.
+    Dipakai untuk pindah tab sehingga tidak ada layar putih / loading halaman penuh."""
+    try:
+        st.rerun(scope="fragment")
+    except StreamlitAPIException:
+        st.rerun()
+
+
 def tombol_overlay(key, html, tab=None, toast=None):
     """Tampilan custom (HTML) + tombol transparan di atasnya supaya bisa diklik."""
     with st.container(key=f"ov_{key}"):
@@ -2134,7 +2172,7 @@ def tombol_overlay(key, html, tab=None, toast=None):
                 if tab == "absen":
                     st.session_state.pop("mode_absen", None)   # pilihan awal ikut kondisi hari ini
                 st.session_state.tab = tab
-                st.rerun()
+                rerun_halaman()
             if toast:
                 st.toast(toast, icon="ℹ️")
 
@@ -2580,6 +2618,14 @@ def halaman_peserta(eng, nama):
             st.toast(pesan_umpan)
     if nav_perlu_naik():
         st.markdown(CSS_NAV_NAIK, unsafe_allow_html=True)
+    _isi_peserta(eng, nama, peserta)
+
+
+@st.fragment
+def _isi_peserta(eng, nama, peserta):
+    """Isi halaman peserta (tab + navigasi bawah) sebagai fragmen: pindah tab dan interaksi di dalam tab hanya memuat ulang
+    bagian ini, bukan seluruh aplikasi. Perubahan data tetap memakai st.rerun() penuh."""
+    st.session_state["_loading_dipasang"] = False          # fragmen berjalan tanpa main(): siapkan ulang penanda loading
     tab = st.session_state.get("tab", "beranda")
     if tab == "absen":
         tab_absen(eng, nama, peserta)
@@ -2830,7 +2876,7 @@ def tab_logbook(eng, nama, peserta):
     with st.container(key="pagebody"):
         if st.button("← Beranda", key="lb_kembali"):
             st.session_state.tab = "beranda"
-            st.rerun()
+            rerun_halaman()
         sub = st.radio("Bagian", ["Tulis", "Daftar", "Progres"], horizontal=True, key="lb_sub", label_visibility="collapsed")
         if sub == "Tulis":
             _lb_tulis(eng, nama, peserta, now)
@@ -5834,6 +5880,12 @@ def main():
     pkl = mode_pkl()
     st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
+    st.session_state["_loading_dipasang"] = False
+    # Pindah antar halaman utama (login / PKL / pembimbing / admin) = peran berubah (login, logout).
+    peran_kini = st.session_state.get("peran")
+    if "_peran_terakhir" in st.session_state and st.session_state["_peran_terakhir"] != peran_kini:
+        tampilkan_loading()
+    st.session_state["_peran_terakhir"] = peran_kini
     tampilkan_notif()
     try:
         eng = get_engine()
