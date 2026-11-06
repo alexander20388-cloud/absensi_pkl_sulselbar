@@ -1927,7 +1927,10 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
 [data-testid="stMarkdownContainer"]:has(.auth-head), [data-testid="stMarkdownContainer"]:has(.auth-foot) { margin: 0 !important; }
 .auth-head { background: #fff; height: 478px; box-sizing: border-box; padding: 48px 30px 0; position: relative; z-index: 1; overflow: hidden; }
 .auth-head::after {                                   /* tepi biru melengkung (busur) di bawah area putih */
-  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 80px; background: #0a5a8f;
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 96px; background-color: #0a5a8f;   /* biru naik sampai tepat di bawah teks 'Silakan masuk...' (gap ~13px) */
+  /* garis hijau lengkung (sama gayanya dengan lengkung di footer) tepat di atas kartu */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 96' preserveAspectRatio='none'%3E%3Cpath d='M0 28C120 54 270 56 400 8V19C270 68 120 64 0 38Z' fill='%238cc63f'/%3E%3Cpath d='M0 38C120 64 270 68 400 19' fill='none' stroke='white' stroke-opacity='.9' stroke-width='1.2'/%3E%3C/svg%3E");
+  background-size: 100% 96px; background-repeat: no-repeat; background-position: center top;
   border-radius: 0;
 }
 .auth-logo-img { display: block; width: 78%; max-width: 300px; height: auto; margin: 26px auto 66px; }
@@ -1939,7 +1942,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
 .auth-greet { margin-top: 34px; font-size: 27px; font-weight: 700; color: #0a4f80; line-height: 1.2; }
 .auth-desc { margin-top: 6px; font-size: 13px; color: #5f7b92; }
 .st-key-loginbody {
-  width: calc(100% - 44px) !important; margin: -58px 22px 0; background: #fff; border-radius: 22px;
+  width: calc(100% - 44px) !important; margin: -30px 22px 0; background: #fff; border-radius: 22px;
   padding: 10px 19px 27px; position: relative; z-index: 2; box-shadow: 0 18px 24px -12px rgba(3,30,52,.35);
 }
 .st-key-loginbody [data-testid="stElementContainer"]:has([data-testid="stRadio"]) { width: 100% !important; }
