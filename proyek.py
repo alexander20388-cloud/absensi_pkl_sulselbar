@@ -30,17 +30,20 @@ HARI_LIBUR_DEFAULT = (5, 6)          # Sabtu, Minggu (sama dengan HARI_LIBUR di 
 # ------------------------------------------------------------------
 # 1. KALENDER KERJA
 # ------------------------------------------------------------------
-def hari_kerja_antara(mulai: date, selesai: date, hari_libur=HARI_LIBUR_DEFAULT) -> list[date]:
-    """Semua hari kerja dari `mulai` sampai `selesai` (keduanya termasuk)."""
+def hari_kerja_antara(mulai: date, selesai: date, hari_libur=HARI_LIBUR_DEFAULT, libur_khusus=()) -> list[date]:
+    """Semua hari kerja dari `mulai` sampai `selesai` (keduanya termasuk).
+
+    hari_libur   : nomor hari mingguan yang libur (5, 6 = Sabtu, Minggu).
+    libur_khusus : kumpulan tanggal 'YYYY-MM-DD' libur nasional/cuti bersama (list/set/dict kunci tanggal)."""
     if selesai < mulai:
         return []
-    return [mulai + timedelta(days=i) for i in range((selesai - mulai).days + 1)
-            if (mulai + timedelta(days=i)).weekday() not in hari_libur]
+    hari = (mulai + timedelta(days=i) for i in range((selesai - mulai).days + 1))
+    return [d for d in hari if d.weekday() not in hari_libur and d.isoformat() not in libur_khusus]
 
 
-def hari_kerja_bulan(tahun: int, bulan: int, hari_libur=HARI_LIBUR_DEFAULT) -> list[date]:
+def hari_kerja_bulan(tahun: int, bulan: int, hari_libur=HARI_LIBUR_DEFAULT, libur_khusus=()) -> list[date]:
     akhir = calendar.monthrange(tahun, bulan)[1]
-    return hari_kerja_antara(date(tahun, bulan, 1), date(tahun, bulan, akhir), hari_libur)
+    return hari_kerja_antara(date(tahun, bulan, 1), date(tahun, bulan, akhir), hari_libur, libur_khusus)
 
 
 def bulan_sebelumnya(tahun: int, bulan: int, n: int = 1) -> tuple[int, int]:
@@ -151,7 +154,7 @@ def validasi_paket(kode, nama, mulai, selesai, estimasi_jam) -> list[str]:
 
 
 def progres_paket(paket: pd.DataFrame, jam_disetujui: dict, hari_ini: date,
-                  hari_libur=HARI_LIBUR_DEFAULT) -> pd.DataFrame:
+                  hari_libur=HARI_LIBUR_DEFAULT, libur_khusus=()) -> pd.DataFrame:
     """Progres tiap paket kerja terhadap rencana jadwal.
 
     Rencana (%) = hari kerja yang sudah lewat / total hari kerja paket.
@@ -161,7 +164,7 @@ def progres_paket(paket: pd.DataFrame, jam_disetujui: dict, hari_ini: date,
     """
     baris = []
     for p in paket.to_dict("records"):
-        hk = hari_kerja_antara(p["mulai"], p["selesai"], hari_libur)
+        hk = hari_kerja_antara(p["mulai"], p["selesai"], hari_libur, libur_khusus)
         total = len(hk)
         lewat = len([d for d in hk if d <= hari_ini])
         rencana = (lewat / total) if total else (1.0 if hari_ini >= p["selesai"] else 0.0)
@@ -217,14 +220,15 @@ def grafik_gantt(df: pd.DataFrame, hari_ini: date):
 # 4. LOGBOOK
 # ------------------------------------------------------------------
 def validasi_logbook(tanggal: date, hari_ini: date, uraian: str, durasi: float, jam_lain: float = 0.0,
-                     hari_libur=HARI_LIBUR_DEFAULT, maks_mundur: int = 14, maks_per_hari: float = 12.0) -> list[str]:
+                     hari_libur=HARI_LIBUR_DEFAULT, maks_mundur: int = 14, maks_per_hari: float = 12.0,
+                     libur_khusus=()) -> list[str]:
     """Daftar pesan kesalahan (kosong = valid)."""
     errs = []
     if tanggal > hari_ini:
         errs.append("Tanggal tidak boleh di masa depan.")
     elif (hari_ini - tanggal).days > maks_mundur:
         errs.append(f"Logbook hanya bisa diisi sampai {maks_mundur} hari ke belakang.")
-    if tanggal.weekday() in hari_libur:
+    if tanggal.weekday() in hari_libur or tanggal.isoformat() in libur_khusus:
         errs.append("Tanggal itu hari libur PKL.")
     u = (uraian or "").strip()
     if len(u) < 15:

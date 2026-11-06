@@ -28,7 +28,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
-from functools import wraps
+from functools import lru_cache, wraps
 from copy import copy
 from datetime import datetime, date, time as dtime, timedelta, timezone
 from math import radians, sin, cos, sqrt, atan2
@@ -43,7 +43,7 @@ from openpyxl.styles import Alignment
 from openpyxl.worksheet.properties import PageSetupProperties
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 from sqlalchemy import (
     Column, ForeignKey, Index, Integer, String, Float, LargeBinary, MetaData, Table, Text, UniqueConstraint,
     create_engine, select, insert, update, delete, func, and_, or_, inspect, text,
@@ -101,7 +101,50 @@ JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(12, 30)
 JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
 # Hari libur PKL (0=Senin ... 5=Sabtu, 6=Minggu). Pada hari ini TIDAK bisa absen masuk, pulang, izin, maupun cuti.
 HARI_LIBUR = (5, 6)
-HARI_LIBUR_KHUSUS = ()       # tanggal 'YYYY-MM-DD' libur nasional/cuti bersama; hanya dipakai rekap agar tidak dihitung 'tidak hadir'
+
+# Libur nasional dan cuti bersama (tanggal 'YYYY-MM-DD' -> nama). Pada tanggal ini absen masuk, pulang, izin, dan cuti ditolak,
+# logbook tidak bisa diisi, dan hari itu tidak dihitung sebagai hari kerja (rekap, proyeksi anggaran, jadwal paket kerja).
+# Sumber: SKB 3 Menteri (Menag, Menaker, MenPANRB). 2026: No. 1497/2025, 2/2025, 5/2025. 2027: No. 1205/2026, 3/2026, 2/2026.
+# Tanggal yang jatuh pada Sabtu/Minggu tetap dicantumkan supaya daftarnya sama dengan SKB.
+# Tahun berikutnya: tambahkan daftar baru di sini setelah SKB-nya terbit (biasanya September tahun sebelumnya).
+LIBUR_NASIONAL = {
+    # 2026
+    "2026-01-01": "Tahun Baru 2026 Masehi", "2026-01-16": "Isra Mikraj Nabi Muhammad SAW",
+    "2026-02-17": "Tahun Baru Imlek 2577 Kongzili", "2026-03-19": "Hari Suci Nyepi (Tahun Baru Saka 1948)",
+    "2026-03-21": "Idulfitri 1447 Hijriah", "2026-03-22": "Idulfitri 1447 Hijriah",
+    "2026-04-03": "Wafat Yesus Kristus", "2026-04-05": "Kebangkitan Yesus Kristus (Paskah)",
+    "2026-05-01": "Hari Buruh Internasional", "2026-05-14": "Kenaikan Yesus Kristus",
+    "2026-05-27": "Iduladha 1447 Hijriah", "2026-05-31": "Hari Raya Waisak 2570 BE",
+    "2026-06-01": "Hari Lahir Pancasila", "2026-06-16": "Tahun Baru Islam 1448 Hijriah",
+    "2026-08-17": "Proklamasi Kemerdekaan", "2026-08-25": "Maulid Nabi Muhammad SAW",
+    "2026-12-25": "Kelahiran Yesus Kristus (Natal)",
+    # 2027
+    "2027-01-01": "Tahun Baru 2027 Masehi", "2027-01-05": "Isra Mikraj Nabi Muhammad SAW",
+    "2027-02-06": "Tahun Baru Imlek 2578 Kongzili", "2027-03-08": "Hari Suci Nyepi (Tahun Baru Saka 1949)",
+    "2027-03-10": "Idulfitri 1448 Hijriah", "2027-03-11": "Idulfitri 1448 Hijriah",
+    "2027-03-26": "Wafat Yesus Kristus", "2027-03-28": "Kebangkitan Yesus Kristus (Paskah)",
+    "2027-05-01": "Hari Buruh Internasional", "2027-05-06": "Kenaikan Yesus Kristus",
+    "2027-05-17": "Iduladha 1448 Hijriah", "2027-05-20": "Hari Raya Waisak 2571 BE",
+    "2027-06-01": "Hari Lahir Pancasila", "2027-06-06": "Tahun Baru Islam 1449 Hijriah",
+    "2027-08-15": "Maulid Nabi Muhammad SAW", "2027-08-17": "Proklamasi Kemerdekaan",
+    "2027-12-25": "Kelahiran Yesus Kristus (Natal)", "2027-12-26": "Isra Mikraj Nabi Muhammad SAW 1449 Hijriah",
+}
+# Cuti bersama bersifat wajib bagi ASN dan fakultatif bagi swasta. Ubah IKUT_CUTI_BERSAMA menjadi False bila PKL
+# tetap masuk pada cuti bersama (hanya libur nasional yang diliburkan).
+IKUT_CUTI_BERSAMA = True
+CUTI_BERSAMA = {
+    # 2026
+    "2026-02-16": "Cuti Bersama Tahun Baru Imlek", "2026-03-18": "Cuti Bersama Hari Suci Nyepi",
+    "2026-03-20": "Cuti Bersama Idulfitri", "2026-03-23": "Cuti Bersama Idulfitri", "2026-03-24": "Cuti Bersama Idulfitri",
+    "2026-05-15": "Cuti Bersama Kenaikan Yesus Kristus", "2026-05-28": "Cuti Bersama Iduladha",
+    "2026-12-24": "Cuti Bersama Natal",
+    # 2027
+    "2027-02-05": "Cuti Bersama Tahun Baru Imlek", "2027-03-09": "Cuti Bersama Idulfitri",
+    "2027-03-12": "Cuti Bersama Idulfitri", "2027-03-15": "Cuti Bersama Idulfitri",
+    "2027-03-25": "Cuti Bersama Wafat Yesus Kristus", "2027-05-18": "Cuti Bersama Iduladha",
+    "2027-05-19": "Cuti Bersama Waisak", "2027-12-24": "Cuti Bersama Natal",
+}
+HARI_LIBUR_KHUSUS = {**LIBUR_NASIONAL, **(CUTI_BERSAMA if IKUT_CUTI_BERSAMA else {})}
 # Masuk sampai jam ini = tidak terlambat; setelahnya (sampai JAM_MASUK_TUTUP) = terlambat, tetap bisa absen pulang & dapat uang makan.
 BATAS_TEPAT_WAKTU = dtime(8, 0)
 KET_TEPAT_WAKTU, KET_TERLAMBAT = "Tidak terlambat", "Terlambat"      # tulisan di aplikasi & kolom Keterangan Excel
@@ -844,12 +887,22 @@ def dalam_jendela(now, buka, tutup):
     return buka <= t <= tutup
 
 
+def nama_libur(tgl):
+    """Nama libur nasional/cuti bersama pada tanggal itu (date/datetime), atau None kalau bukan tanggal merah."""
+    return HARI_LIBUR_KHUSUS.get(tgl.strftime("%Y-%m-%d"))
+
+
 def hari_libur(tgl):
-    """True kalau tanggal (date/datetime) jatuh di hari libur PKL (Sabtu/Minggu)."""
-    return tgl.weekday() in HARI_LIBUR
+    """True kalau tanggal (date/datetime) jatuh di hari libur PKL: Sabtu/Minggu atau libur nasional/cuti bersama."""
+    return tgl.weekday() in HARI_LIBUR or nama_libur(tgl) is not None
 
 
 def pesan_libur(tgl):
+    if tgl.weekday() not in HARI_LIBUR:
+        nama = nama_libur(tgl)
+        if nama:
+            return (f"{tgl_indonesia(tgl)} libur: {nama}. Absen masuk, pulang, izin, dan cuti "
+                    "tidak bisa dilakukan pada hari libur nasional dan cuti bersama.")
     return (f"Hari {HARI_ID[tgl.weekday()]} adalah hari libur PKL. Absen masuk, pulang, izin, dan cuti "
             "tidak bisa dilakukan pada hari Sabtu dan Minggu.")
 
@@ -1167,7 +1220,10 @@ def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir):
             elif iso in izin and tgl.weekday() < 5:
                 teks = f"Tidak hadir (izin: {izin[iso]})"
             else:
-                teks = "Libur " if tgl.weekday() >= 5 else "Tidak hadir"
+                if tgl.weekday() >= 5:
+                    teks = "Libur "
+                else:
+                    teks = f"Libur: {nama_libur(tgl)}" if nama_libur(tgl) else "Tidak hadir"
             if teks.startswith(("Cuti", "Tidak hadir (")):
                 ws[f"C{r}"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                 ws[f"B{r}"].alignment = Alignment(horizontal="center", vertical="center")
@@ -1256,10 +1312,72 @@ def excel_template_bytes(eng, df_bulan, tahun, bulan, daftar_nama):
 
 
 
-def kompres_foto(data: bytes) -> bytes:
-    """Kecilkan foto (maks 640px, JPEG q70) supaya database tidak cepat penuh."""
+# ---------- keterangan tulisan di dalam foto absen (tanggal-jam + alamat), seperti aplikasi kamera stempel waktu ----------
+BULAN_FOTO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+# Alamat yang dicetak di foto, per gedung (satu baris per elemen). Sesuaikan bila alamat Gedung B berbeda dari Gedung A.
+ALAMAT_FOTO = {
+    "A": ("Jalan Cendrawasih No. 18", "Makassar", "South Sulawesi 90125", "Indonesia"),
+    "B": ("Jalan Cendrawasih No. 18", "Makassar", "South Sulawesi 90125", "Indonesia"),
+}
+
+
+def teks_foto(now, gedung):
+    """Baris tulisan untuk foto: '6 Nov 2026 at 10.33.54' lalu alamat gedung peserta."""
+    waktu = f"{now.day} {BULAN_FOTO[now.month - 1]} {now.year} at {now.strftime('%H.%M.%S')}"
+    return [waktu, *ALAMAT_FOTO.get(gedung, ALAMAT_FOTO["A"])]
+
+
+@lru_cache(maxsize=64)
+def _font_foto(ukuran):
+    """Font bawaan Pillow (ada di semua server, jadi tampilan sama di mana pun); cadangan: font sistem."""
+    try:
+        return ImageFont.load_default(size=ukuran)
+    except (TypeError, OSError):
+        pass
+    for nama in ("DejaVuSans.ttf", "LiberationSans-Regular.ttf", "Arial.ttf"):
+        try:
+            return ImageFont.truetype(nama, ukuran)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def beri_keterangan_foto(img, baris):
+    """Cetak `baris` rata kanan di pojok kanan atas foto: putih dengan bayangan lembut. Ukuran huruf menyesuaikan
+    lebar foto supaya baris terpanjang tetap muat. Mengubah `img` (RGB) langsung dan mengembalikannya."""
+    if not baris:
+        return img
+    lebar, _ = img.size
+    margin = max(8, int(lebar * 0.04))
+    ukur = ImageDraw.Draw(img)
+    ukuran = max(10, int(lebar * 0.075))
+    while ukuran > 10 and max(ukur.textlength(b, font=_font_foto(ukuran)) for b in baris) > lebar - 2 * margin:
+        ukuran -= 1
+    font = _font_foto(ukuran)
+    jarak = int(ukuran * 1.18)
+    posisi = [(lebar - margin - ukur.textlength(b, font=font), margin + i * jarak, b) for i, b in enumerate(baris)]
+
+    bayang = Image.new("L", img.size, 0)                   # bayangan: teks digeser sedikit, diburamkan, lalu dihitamkan
+    gambar = ImageDraw.Draw(bayang)
+    geser = max(1, ukuran // 18)
+    for x, y, b in posisi:
+        gambar.text((x + geser, y + geser), b, font=font, fill=255)
+    bayang = bayang.filter(ImageFilter.GaussianBlur(max(1.0, ukuran / 14))).point(lambda v: min(255, v * 2))
+    img.paste(Image.new("RGB", img.size, (0, 0, 0)), (0, 0), bayang)
+
+    gambar = ImageDraw.Draw(img)
+    for x, y, b in posisi:
+        gambar.text((x, y), b, font=font, fill=(255, 255, 255))
+    return img
+
+
+def kompres_foto(data: bytes, keterangan=None) -> bytes:
+    """Kecilkan foto (maks 640px, JPEG q70) supaya database tidak cepat penuh. keterangan = daftar baris tulisan yang
+    dicetak di dalam foto (lihat teks_foto); dicetak SETELAH dikecilkan agar tulisannya tetap tajam."""
     img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
     img.thumbnail((640, 640))
+    if keterangan:
+        beri_keterangan_foto(img, keterangan)
     out = io.BytesIO()
     img.save(out, format="JPEG", quality=70, optimize=True)
     return out.getvalue()
@@ -2031,7 +2149,9 @@ def teks_status_hari(now, sh, html=True):
     jendela_pulang = f"{f(JAM_PULANG_BUKA)}-{f(JAM_PULANG_TUTUP)}"
     t = now.time().replace(second=0, microsecond=0)
     if hari_libur(now):
-        return "Hari libur", f"{HARI_ID[now.weekday()]} libur PKL. Absen masuk, pulang, izin, dan cuti tidak tersedia."
+        nama = nama_libur(now) if now.weekday() not in HARI_LIBUR else None
+        ket = f"Libur: {esc(nama)}." if nama else f"{HARI_ID[now.weekday()]} libur PKL."
+        return "Hari libur", f"{ket} Absen masuk, pulang, izin, dan cuti tidak tersedia."
     if sh["masuk"] is None and sh["cuti"] is not None:
         return "Cuti hari ini", esc(str(sh["cuti"]["alasan"] or "-"))
     if sh["masuk"] is None:
@@ -2138,7 +2258,7 @@ def proses_absen(eng, nama, peserta, jenis, foto_bytes, lat, lon, akurasi=None, 
 
     foto_simpan, path_foto, di_storage = None, None, False
     if cocok:                                                    # foto HANYA disimpan kalau absen berhasil
-        foto_kecil = kompres_foto(foto_bytes)
+        foto_kecil = kompres_foto(foto_bytes, teks_foto(now, gedung))
         nama_berkas = re.sub(r"[^A-Za-z0-9]+", "_", nama).strip("_") or "peserta"
         path_foto = f"{tanggal}/{nama_berkas}_{jenis}_{jam.replace(':', '')}.jpg"
         di_storage = simpan_foto_storage(path_foto, foto_kecil)   # False kalau Storage belum diatur / gagal
@@ -2184,8 +2304,10 @@ def proses_tidak_hadir(eng, nama, jenis, tgl, alasan, now=None):
     if hari_libur(now):
         return _hasil("warning", pesan_libur(now), alasan="libur")
     if hari_libur(tgl):
-        return _hasil("error", f"{tgl_indonesia(tgl)} jatuh pada hari libur (Sabtu/Minggu), jadi tidak perlu "
-                               f"mengajukan {jenis}. Pilih hari kerja (Senin sampai Jumat).")
+        sebab = nama_libur(tgl) if tgl.weekday() not in HARI_LIBUR else None
+        sebab = f"libur: {sebab}" if sebab else "libur (Sabtu/Minggu)"
+        return _hasil("error", f"{tgl_indonesia(tgl)} jatuh pada hari {sebab}, jadi tidak perlu "
+                               f"mengajukan {jenis}. Pilih hari kerja.")
     if len(teks) < 5:
         return _hasil("error", f"Alasan {jenis} wajib diisi (minimal 5 karakter).")
     if tgl < now.date() or tgl > now.date() + timedelta(days=30):
@@ -3054,7 +3176,7 @@ CSS_REKAP = """
 </style>
 """
 
-HARI_LIBUR_KHUSUS_NOTE = "Hari libur nasional/cuti bersama dihitung sebagai hari kerja kecuali diisi di HARI_LIBUR_KHUSUS (app.py)."
+HARI_LIBUR_KHUSUS_NOTE = "Libur nasional dan cuti bersama (daftar LIBUR_NASIONAL dan CUTI_BERSAMA di app.py) tidak dihitung sebagai hari kerja."
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
@@ -3560,7 +3682,7 @@ def progres_divisi(eng, divisi, hari_ini=None):
     paket = daftar_paket(eng, divisi)
     if paket.empty:
         return paket
-    return proyek.progres_paket(paket, jam_disetujui_per_paket(eng, divisi), hari_ini or datetime.now(WITA).date(), HARI_LIBUR)
+    return proyek.progres_paket(paket, jam_disetujui_per_paket(eng, divisi), hari_ini or datetime.now(WITA).date(), HARI_LIBUR, HARI_LIBUR_KHUSUS)
 
 
 # ---------- logbook ----------
@@ -3587,7 +3709,8 @@ def tambah_logbook(eng, nama, tanggal, uraian, durasi, paket_id=None, now=None):
         pes = c.execute(select(peserta_t.c.id, peserta_t.c.divisi).where(peserta_t.c.nama == nama)).first()
         if pes is None:
             raise ValueError("Peserta tidak ditemukan.")
-        errs = proyek.validasi_logbook(tanggal, now.date(), uraian, float(durasi), _jam_logbook_hari(c, nama, tanggal.isoformat()), HARI_LIBUR)
+        errs = proyek.validasi_logbook(tanggal, now.date(), uraian, float(durasi), _jam_logbook_hari(c, nama, tanggal.isoformat()), HARI_LIBUR,
+                                     libur_khusus=HARI_LIBUR_KHUSUS)
         salah_paket = _cek_paket_divisi(c, paket_id, pes[1])
         if salah_paket:
             errs.append(salah_paket)
@@ -3617,7 +3740,8 @@ def ubah_logbook(eng, logbook_id, nama, uraian, durasi, paket_id=None, now=None)
     with eng.begin() as c:
         lama = _logbook_milik(c, logbook_id, nama)
         errs = proyek.validasi_logbook(_tgl(lama["tanggal"]), now.date(), uraian, float(durasi),
-                                       _jam_logbook_hari(c, nama, lama["tanggal"], kecuali_id=logbook_id), HARI_LIBUR, maks_mundur=10_000)
+                                       _jam_logbook_hari(c, nama, lama["tanggal"], kecuali_id=logbook_id), HARI_LIBUR, maks_mundur=10_000,
+                                       libur_khusus=HARI_LIBUR_KHUSUS)
         salah_paket = _cek_paket_divisi(c, paket_id, lama["divisi"])
         if salah_paket:
             errs.append(salah_paket)
@@ -3764,7 +3888,7 @@ def tingkat_kehadiran_historis(eng, tahun, bulan, n_bulan=3):
     for k in range(1, n_bulan + 1):
         t, b = proyek.bulan_sebelumnya(tahun, bulan, k)
         awal, akhir = _rentang_bulan(t, b)
-        hk = len(proyek.hari_kerja_bulan(t, b, HARI_LIBUR))
+        hk = len(proyek.hari_kerja_bulan(t, b, HARI_LIBUR, HARI_LIBUR_KHUSUS))
         q = select(absensi_t.c.divisi, absensi_t.c.nama, absensi_t.c.jenis).where(and_(
             absensi_t.c.status == "berhasil", absensi_t.c.jenis.in_(["masuk", "pulang"]),
             absensi_t.c.tanggal >= awal.isoformat(), absensi_t.c.tanggal <= akhir.isoformat()))
@@ -3781,7 +3905,7 @@ def tingkat_kehadiran_historis(eng, tahun, bulan, n_bulan=3):
 def saran_anggaran_bulan(eng, tahun, bulan, cadangan_pct=10.0):
     peserta_n, tingkat = jumlah_peserta_per_divisi(eng), tingkat_kehadiran_historis(eng, tahun, bulan)
     stats = {d: {"n_peserta": n, "tingkat_kehadiran": tingkat.get(d)} for d, n in peserta_n.items()}
-    return proyek.saran_anggaran(stats, len(proyek.hari_kerja_bulan(tahun, bulan, HARI_LIBUR)), UANG_MAKAN, cadangan_pct)
+    return proyek.saran_anggaran(stats, len(proyek.hari_kerja_bulan(tahun, bulan, HARI_LIBUR, HARI_LIBUR_KHUSUS)), UANG_MAKAN, cadangan_pct)
 
 
 def terapkan_saran_anggaran(eng, tahun, bulan, aktor="admin", peran="admin", timpa=False, cadangan_pct=10.0):
@@ -3798,7 +3922,7 @@ def terapkan_saran_anggaran(eng, tahun, bulan, aktor="admin", peran="admin", tim
 def ringkasan_anggaran(eng, tahun, bulan, now=None):
     """Anggaran vs realisasi vs proyeksi per divisi. Mengembalikan (DataFrame, meta)."""
     now = now or datetime.now(WITA)
-    hk = proyek.hari_kerja_bulan(tahun, bulan, HARI_LIBUR)
+    hk = proyek.hari_kerja_bulan(tahun, bulan, HARI_LIBUR, HARI_LIBUR_KHUSUS)
     selesai_hari_ini = now.time() >= JAM_PULANG_TUTUP
     real = realisasi_harian(eng, tahun, bulan)
     per_divisi = {d: dict(zip(g["tanggal"], g["jumlah"].astype(int))) for d, g in real.groupby("divisi")} if len(real) else {}
@@ -5531,7 +5655,9 @@ def halaman_beranda_admin(eng):
         f'<div class="db-judul-s">{esc(tgl_indonesia(r["tanggal"]))}</div></div>'
     )
     if r["libur"]:
-        html += '<div class="db-libur">Hari ini libur PKL (Sabtu/Minggu), tidak ada absen yang diharapkan.</div>'
+        nama_l = nama_libur(r["tanggal"]) if r["tanggal"].weekday() not in HARI_LIBUR else None
+        ket_l = f"libur: {esc(nama_l)}" if nama_l else "libur PKL (Sabtu/Minggu)"
+        html += f'<div class="db-libur">Hari ini {ket_l}, tidak ada absen yang diharapkan.</div>'
     st.markdown(html, unsafe_allow_html=True)
     pilih = st.session_state.get("db_kartu")
     css = ["<style>"]

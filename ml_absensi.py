@@ -28,7 +28,7 @@ from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-BATAS_MENIT = 19 * 60 + 10      # terlambat kalau jam masuk > 19:10 (samakan dengan BATAS_TEPAT_WAKTU di app.py)
+BATAS_MENIT = 8 * 60            # terlambat kalau jam masuk > 08:00 (HARUS sama dengan BATAS_TEPAT_WAKTU di app.py; dijaga oleh tes)
 MIN_DATA = 60                   # minimal baris untuk melatih model
 MIN_PER_KELAS = 10              # minimal contoh tiap kelas (terlambat / tidak)
 MIN_ANOMALI = 30                # minimal catatan untuk deteksi anomali
