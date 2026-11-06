@@ -1765,16 +1765,17 @@ iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !
 /* ---------- loading: Streamlit meredupkan (opacity ~0.33) elemen lama selama skrip dijalankan ulang, sehingga halaman sebelumnya tampak
    tembus pandang sebelum halaman baru muncul. Nonaktifkan redup itu: konten lama tetap solid lalu langsung diganti halaman baru. ---------- */
 [data-stale="true"], [data-stale="true"] * { opacity: 1 !important; transition: none !important; }
-/* ---------- memuat tanpa pindah halaman (mis. setelah foto absen): isi halaman cukup dipudarkan, bilah loading tetap di atas ---------- */
-[data-testid="stMainBlockContainer"] { opacity: 1; transition: opacity .2s ease-out; }
-[data-testid="stApp"][data-test-script-state="running"] [data-testid="stMainBlockContainer"] {
-  opacity: .45 !important; transition: opacity .2s ease .15s; pointer-events: none;
+/* ---------- memuat tanpa pindah halaman (mis. setelah foto absen): selubung PUTIH tipis memudarkan layar, bilah loading tetap di atas.
+   Dipasang di <html> (bukan di stApp) supaya tidak terpengaruh latar biru/gradasi halaman. ---------- */
+html::after {
+  content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; transition: opacity .2s ease;
 }
-[data-testid="stApp"]::before {
+html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: .82; pointer-events: auto; transition: opacity .2s ease .15s; }
+html::before {
   content: ""; position: fixed; top: 0; left: 0; height: 3px; width: 0; z-index: 99999; pointer-events: none;
   background: linear-gradient(90deg, #8cc63f, #0a5a8f); opacity: 0;
 }
-[data-testid="stApp"][data-test-script-state="running"]::before { opacity: 1; width: 85%; transition: width 6s cubic-bezier(.1,.7,.2,1) .25s, opacity 0s .25s; }
+html:has([data-testid="stApp"][data-test-script-state="running"])::before { opacity: 1; width: 85%; transition: width 6s cubic-bezier(.1,.7,.2,1) .15s, opacity 0s .15s; }
 /* ---------- scroll: halaman selalu bisa digulir ke bawah (browser HP maupun WebView) ---------- */
 html, body { height: auto !important; min-height: 100%; overflow-x: hidden; overflow-y: auto !important; -webkit-overflow-scrolling: touch; }
 /* HP / WebView: bilah gulir klasik memakan lebar di sisi kanan sehingga latar biru tua tampak sebagai garis. Gulir tetap berfungsi. */
@@ -2000,10 +2001,9 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
 CSS_PINDAH = """
 <style>
 [data-testid="stApp"][data-test-script-state="running"] [data-testid="stMainBlockContainer"] {
-  opacity: 0 !important; transition: opacity 0s linear .1s; pointer-events: none;
+  opacity: 0 !important; transition: opacity 0s linear .1s !important; pointer-events: none;
 }
-[data-testid="stApp"]::after { content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; }
-[data-testid="stApp"][data-test-script-state="running"]::after { opacity: 1; transition: opacity 0s linear .1s; }
+html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1 !important; transition: opacity 0s linear .1s !important; }
 </style>
 """
 
