@@ -1745,6 +1745,71 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 
 
 
+# Tampilan laptop/PC untuk halaman peserta. Hanya aktif di layar lebar (>= 900px); tampilan HP tidak berubah.
+# Lebar halaman mengikuti layar (maks 1280px) dan tinggi minimal selalu memenuhi layar.
+CSS_DESKTOP_PESERTA = """
+<style>
+@media (min-width: 900px) {
+  html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"], section.stMain { background: #e3ecf4 !important; }
+  [data-testid="stMainBlockContainer"], .block-container {
+    max-width: min(1280px, 96vw) !important; width: 100% !important; margin: 0 auto !important;
+    min-height: 100vh; min-height: 100dvh; box-shadow: 0 0 40px rgba(6,63,107,.10);
+  }
+
+  /* ---------- header & kartu presensi (Beranda) ---------- */
+  .pr-head { padding: 40px clamp(36px, 5vw, 72px) 96px; }
+  .pr-title { font-size: 30px; }
+  .pr-logo, .pr-avatar { width: 54px; height: 54px; }
+  .pr-hello { font-size: 18px; margin-top: 32px; }
+  .pr-name { font-size: 30px; }
+  .pr-sub { font-size: 15px; }
+  .st-key-ov_keluar { top: 40px; right: clamp(36px, 5vw, 72px); }
+  .pr-card { margin: -58px clamp(36px, 5vw, 72px) 0; padding: 24px 28px 26px; border-radius: 26px; }
+  .pr-date { font-size: 17px; }
+  .pr-badge { font-size: 16px; padding: 5px 16px; }
+  .pr-tiles { gap: 20px; margin-top: 20px; }
+  .pr-tile { padding: 22px 10px 20px; border-radius: 18px; }
+  .pr-tile .lb { font-size: 15px; margin-top: 6px; }
+  .pr-tile .vl { font-size: 32px; margin-top: 6px; }
+  .pr-tile .vl.sm { font-size: 22px; margin-top: 10px; }
+  .pr-info { margin-top: 20px; padding: 16px 20px; border-radius: 14px; }
+  .pr-info .h { font-size: 16px; }
+  .pr-info .s { font-size: 15px; margin-top: 4px; }
+  .pr-link { margin: 18px clamp(36px, 5vw, 72px) 0; padding: 18px 22px; border-radius: 20px; }
+  .pr-link .t { font-size: 17px; } .pr-link .s { font-size: 14.5px; }
+
+  /* ---------- halaman dalam (Absen, Riwayat, Rekap, Profil, Logbook) ---------- */
+  .pr-page-head { padding: 40px clamp(36px, 5vw, 72px) 76px; font-size: 28px; border-radius: 0 0 36px 36px; }
+  .pr-page-head small { font-size: 15px; }
+  .st-key-pagebody {
+    width: calc(100% - 2 * clamp(36px, 5vw, 72px)) !important; margin: -48px clamp(36px, 5vw, 72px) 0;
+    padding: 30px clamp(24px, 3vw, 40px); border-radius: 28px;
+  }
+  .pr-row { padding: 16px 0; } .pr-row .d { font-size: 17px; } .pr-row .m, .pr-row .r { font-size: 15px; }
+  .pr-kv { font-size: 17px; padding: 16px 0; }
+  .pr-stat { grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  .pr-stat div { padding: 20px; } .pr-stat b { font-size: 28px; } .pr-stat span { font-size: 15px; }
+
+  /* kamera & foto tidak boleh melebar sebesar layar: dibatasi dan diletakkan di tengah */
+  .st-key-pagebody [data-testid="stCameraInput"], .st-key-pagebody [data-testid="stCameraInput"] > div { max-width: 560px; margin-left: auto; margin-right: auto; }
+  .st-key-pagebody [data-testid="stCameraInput"] video, .st-key-pagebody [data-testid="stCameraInput"] img { max-height: 62vh; object-fit: contain; }
+  .st-key-pagebody [data-testid="stImage"] img { max-height: 70vh; width: auto !important; max-width: 100%; object-fit: contain; }
+
+  /* ---------- navigasi bawah: bilah lebar mengambang di tengah layar ---------- */
+  .st-key-bottomnav { width: min(760px, 92vw); bottom: 14px; border-radius: 26px; padding: 10px 14px 12px;
+    box-shadow: 0 10px 34px rgba(6,63,107,.22); }
+  .nv { font-size: 14px; min-height: 58px; } .nv svg { width: 26px; height: 26px; }
+  .pr-spacer { height: 170px !important; }
+}
+/* layar sangat lebar / monitor besar */
+@media (min-width: 1600px) {
+  [data-testid="stMainBlockContainer"], .block-container { max-width: 1440px !important; }
+  .pr-name { font-size: 34px; } .pr-tile .vl { font-size: 36px; }
+}
+</style>
+"""
+
+
 CSS_TEMA = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -1976,6 +2041,57 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
 }
 </style>
 """
+
+# Tampilan laptop/PC untuk halaman login: layar dibagi dua (kiri putih berisi logo & sapaan, kanan biru berisi kartu
+# masuk), tingginya memenuhi layar. Hanya aktif di layar >= 900px; tampilan HP tidak berubah.
+CSS_DESKTOP_LOGIN = """
+<style>
+@media (min-width: 900px) {
+  html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"], section.stMain {
+    background: linear-gradient(90deg, #ffffff 0, #ffffff 50%, #0a5a8f 50%, #063f6b 100%) !important;
+  }
+  [data-testid="stMainBlockContainer"], .block-container {
+    max-width: 100% !important; width: 100% !important; padding: 0 !important; min-height: 100vh; min-height: 100dvh;
+    background: linear-gradient(180deg, #0a5a8f 0, #063f6b 100%) right top / 50% 100% no-repeat, #ffffff !important;
+  }
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] {
+    display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 1fr auto;
+    gap: 0 !important; min-height: 100vh; min-height: 100dvh; align-items: stretch;
+  }
+  /* elemen yang isinya hanya <style> tidak boleh ikut mengisi sel grid */
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:has(> [data-testid="stMarkdownContainer"] > style:only-child) { display: none !important; }
+
+  /* kolom kiri: logo + sapaan, di tengah secara vertikal */
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :has(.auth-head) { grid-column: 1; grid-row: 1 / span 2; }
+  .auth-head {
+    height: auto; min-height: 100vh; min-height: 100dvh; box-sizing: border-box; display: flex; flex-direction: column;
+    justify-content: center; padding: 56px clamp(40px, 6vw, 110px); overflow: visible;
+  }
+  .auth-head::after { display: none; }
+  .auth-logo-img { width: min(400px, 78%); max-width: 400px; margin: 0 0 56px; }
+  .auth-logo { width: 68px; height: 68px; flex-basis: 68px; border-radius: 19px; }
+  .auth-title { font-size: 34px; } .auth-bank { font-size: 13px; }
+  .auth-greet { font-size: 40px; margin-top: 44px; } .auth-desc { font-size: 17px; margin-top: 10px; }
+
+  /* kolom kanan: kartu masuk di tengah, footer di bawah */
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :is(.st-key-loginbody, :has(.st-key-loginbody)) {
+    grid-column: 2; grid-row: 1; align-self: center; width: 100%; box-sizing: border-box;
+  }
+  .st-key-loginbody {
+    width: min(480px, calc(100% - 64px)) !important; margin: 40px auto 0 !important; padding: 18px 32px 36px;
+    border-radius: 26px; box-shadow: 0 24px 48px -16px rgba(3,30,52,.45);
+  }
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :has(.auth-foot) { grid-column: 2; grid-row: 2; align-self: end; }
+  .auth-foot { height: 150px; margin-bottom: 0; padding-top: 30px; font-size: 12px; }
+}
+@media (min-width: 900px) and (max-height: 700px) {      /* laptop layar pendek: kartu tidak terpotong */
+  .auth-head { padding-top: 32px; padding-bottom: 32px; }
+  .auth-logo-img { margin-bottom: 28px; } .auth-greet { margin-top: 24px; font-size: 34px; }
+  .st-key-loginbody { margin-top: 16px !important; }
+}
+</style>
+"""
+
 
 CSS_ADMIN = """
 <style>
@@ -2550,6 +2666,7 @@ def halaman_peserta(eng, nama):
 
     st.markdown(CSS_PRESENSI, unsafe_allow_html=True)
     st.markdown(CSS_PROYEK, unsafe_allow_html=True)
+    st.markdown(CSS_DESKTOP_PESERTA, unsafe_allow_html=True)
     if perlu_persetujuan(peserta):
         halaman_persetujuan(eng, nama)
         return
@@ -5352,6 +5469,7 @@ def halaman_login(eng, hanya_peserta=False):
     """Layar pertama: pilih peran, lalu login. Desain mengikuti tema Presensi peserta.
     hanya_peserta=True (aplikasi PKL): langsung login peserta, tanpa pilihan Admin."""
     st.markdown(CSS_AUTH_ADMIN, unsafe_allow_html=True)
+    st.markdown(CSS_DESKTOP_LOGIN, unsafe_allow_html=True)
     st.markdown(
         f"""<div class="auth-head">
 {'<img class="auth-logo-img" alt="Bank Sulselbar Syariah First" src="data:image/png;base64,' + LOGO_ADMIN_B64 + '">' if LOGO_ADMIN_B64 else ""}
