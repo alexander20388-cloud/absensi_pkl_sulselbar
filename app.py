@@ -1765,12 +1765,10 @@ iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !
 /* ---------- loading: Streamlit meredupkan (opacity ~0.33) elemen lama selama skrip dijalankan ulang, sehingga halaman sebelumnya tampak
    tembus pandang sebelum halaman baru muncul. Nonaktifkan redup itu: konten lama tetap solid lalu langsung diganti halaman baru. ---------- */
 [data-stale="true"], [data-stale="true"] * { opacity: 1 !important; transition: none !important; }
-/* ---------- pindah halaman: Streamlit menggambar elemen satu per satu selama skrip berjalan, jadi halaman baru sempat tampil setengah jadi.
-   Selama skrip masih berjalan LEBIH dari 0,25 detik, isi halaman disembunyikan (tata letak tetap), lalu muncul utuh begitu selesai.
-   Proses cepat (<0,25 dtk) tidak berkedip. Bilah tipis di atas menandakan sedang memuat. ---------- */
-[data-testid="stMainBlockContainer"] { opacity: 1; transition: opacity .18s ease-out; }
+/* ---------- memuat tanpa pindah halaman (mis. setelah foto absen): isi halaman cukup dipudarkan, bilah loading tetap di atas ---------- */
+[data-testid="stMainBlockContainer"] { opacity: 1; transition: opacity .2s ease-out; }
 [data-testid="stApp"][data-test-script-state="running"] [data-testid="stMainBlockContainer"] {
-  opacity: 0 !important; transition: opacity 0s linear .25s; pointer-events: none;
+  opacity: .45 !important; transition: opacity .2s ease .15s; pointer-events: none;
 }
 [data-testid="stApp"]::before {
   content: ""; position: fixed; top: 0; left: 0; height: 3px; width: 0; z-index: 99999; pointer-events: none;
@@ -1993,6 +1991,19 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
   color: rgba(255,255,255,.88); font-size: 11px; line-height: 16px;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 180' preserveAspectRatio='none'%3E%3Cpath d='M0 65C120 125 270 130 400 18V40C270 150 120 145 0 83Z' fill='%238cc63f'/%3E%3Cpath d='M0 86C120 148 270 153 400 43' fill='none' stroke='white' stroke-opacity='.9' stroke-width='1.4'/%3E%3C/svg%3E") center top / 100% 180px no-repeat;
 }
+</style>
+"""
+
+
+# Dipasang HANYA pada eksekusi yang berpindah halaman: isi halaman disembunyikan dan layar ditutup putih sampai halaman baru selesai
+# digambar (tidak tampak setengah jadi). Bilah loading di atas tetap tampil (CSS_TEMA).
+CSS_PINDAH = """
+<style>
+[data-testid="stApp"][data-test-script-state="running"] [data-testid="stMainBlockContainer"] {
+  opacity: 0 !important; transition: opacity 0s linear .1s; pointer-events: none;
+}
+[data-testid="stApp"]::after { content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; }
+[data-testid="stApp"][data-test-script-state="running"]::after { opacity: 1; transition: opacity 0s linear .1s; }
 </style>
 """
 
@@ -5836,6 +5847,12 @@ def main():
     pkl = mode_pkl()
     st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
+    # Deteksi pindah halaman: kunci halaman berubah dibanding eksekusi sebelumnya (tab peserta, menu admin, detail rekap, login/logout).
+    hal = (st.session_state.get("peran"), st.session_state.get("tab"), st.session_state.get("menu_admin"),
+           bool(st.session_state.get("rekap_detail")))
+    if st.session_state.get("_hal_terakhir") not in (None, hal):
+        st.markdown(CSS_PINDAH, unsafe_allow_html=True)
+    st.session_state["_hal_terakhir"] = hal
     tampilkan_notif()
     try:
         eng = get_engine()
