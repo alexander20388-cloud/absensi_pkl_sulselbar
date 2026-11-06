@@ -2967,7 +2967,7 @@ def form_tambah_peserta(eng):
 
 
 def halaman_kelola_peserta(eng):
-    st.header("👥 Kelola Peserta PKL")
+    st.header("Kelola Peserta PKL")
     if not admin_login():
         return
     st.markdown(CSS_PESERTA, unsafe_allow_html=True)
@@ -3408,9 +3408,9 @@ def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
 
 def halaman_rekap(eng):
     if st.session_state.get("rekap_detail"):
-        st.header("🧾 Detail Absensi")
+        st.header("Detail Absensi")
     else:
-        st.header("📊 Rekap Absensi & Uang Makan")
+        st.header("Rekap Absensi & Uang Makan")
     if not admin_login():
         return
     st.markdown(CSS_DASHBOARD + CSS_REKAP, unsafe_allow_html=True)
@@ -4164,7 +4164,7 @@ def grafik_eda(eda):
 
 
 def halaman_analitik(eng):
-    st.header("📈 Analitik Absensi (EDA)")
+    st.header("Analitik Absensi (EDA)")
     if not admin_login():
         return
 
@@ -4600,7 +4600,7 @@ def _tab_monitoring(eng, ml):
 
 
 def halaman_model(eng):
-    st.header("🤖 Model Prediksi & Deteksi")
+    st.header("Model Prediksi & Deteksi")
     if not admin_login():
         return
     try:
@@ -4922,7 +4922,7 @@ def ui_audit(eng):
 
 
 def halaman_proyek(eng):
-    st.header("📋 Proyek PKL")
+    st.header("Proyek PKL")
     if not admin_login():
         return
     pesan = st.session_state.pop("pesan_proyek", None)
@@ -5271,7 +5271,7 @@ def _profil_umpan_balik(eng, nama):
 
 def halaman_umpan_balik(eng):
     """Admin: ringkasan rating dan daftar ulasan beserta status tindak lanjutnya (bukti iterasi desain)."""
-    st.header("💬 Umpan Balik Peserta")
+    st.header("Umpan Balik Peserta")
     if not admin_login():
         return
     st.caption("Dikumpulkan lewat aplikasi Android. Di halaman ini ulasan hanya tampil dengan divisi dan tanggal, tanpa nama "
