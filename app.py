@@ -1995,6 +1995,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
 </style>
 """
 
+
 CSS_ADMIN = """
 <style>
 [data-testid="stMainBlockContainer"], .block-container { max-width: 1100px !important; }
