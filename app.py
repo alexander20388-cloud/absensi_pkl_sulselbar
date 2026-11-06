@@ -1997,50 +1997,6 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
 """
 
 
-# Layar pembuka (splash) ala aplikasi populer: latar putih, logo berdenyut, bilah loading, teks di bawah. Hanya dipasang pada
-# pembukaan pertama sesi di aplikasi Android. Tidak ada elemen HTML: semuanya pseudo-element supaya tidak ikut tersembunyi oleh
-# aturan "sembunyikan isi halaman saat memuat". Tetap tampil selama skrip pertama berjalan, lalu memudar ~0,8 detik setelah selesai.
-CSS_SPLASH = """
-<style>
-[data-testid="stApp"]::after, [data-testid="stAppViewContainer"]::before, [data-testid="stMain"]::before, [data-testid="stMain"]::after {
-  position: fixed; pointer-events: none; opacity: 1; animation: splash-keluar .45s ease .8s forwards;
-}
-[data-testid="stApp"][data-test-script-state="running"]::after,
-[data-testid="stApp"][data-test-script-state="running"] [data-testid="stAppViewContainer"]::before,
-[data-testid="stApp"][data-test-script-state="running"] [data-testid="stMain"]::before,
-[data-testid="stApp"][data-test-script-state="running"] [data-testid="stMain"]::after { animation: none; opacity: 1; visibility: visible; }
-@keyframes splash-keluar { to { opacity: 0; visibility: hidden; } }
-@keyframes splash-denyut { 0%, 100% { transform: translate(-50%, -50%) scale(.96); } 50% { transform: translate(-50%, -50%) scale(1.04); } }
-@keyframes splash-gerak { 0% { background-position: -60px 0; } 100% { background-position: 150px 0; } }
-/* latar + teks bawah */
-[data-testid="stApp"]::after {
-  content: "Absensi Peserta PKL\\A Bank Sulselbar Syariah"; white-space: pre; text-align: center; box-sizing: border-box;
-  inset: 0; z-index: 100000; display: flex; align-items: flex-end; justify-content: center; padding-bottom: calc(44px + env(safe-area-inset-bottom, 0px));
-  font: 600 12px/18px 'Inter', system-ui, sans-serif; letter-spacing: .3px; color: #5f7b92;
-  background: linear-gradient(180deg, #ffffff 0%, #ffffff 62%, #eef5fb 100%);
-}
-/* logo */
-[data-testid="stAppViewContainer"]::before {
-  content: ""; z-index: 100001; left: 50%; top: 42%; width: min(72vw, 300px); aspect-ratio: 560 / 151;
-  background: url("data:image/png;base64,__LOGO__") center / contain no-repeat; transform: translate(-50%, -50%);
-  animation: splash-denyut 1.4s ease-in-out infinite;
-}
-[data-testid="stApp"][data-test-script-state="running"] [data-testid="stAppViewContainer"]::before { animation: splash-denyut 1.4s ease-in-out infinite; }
-[data-testid="stApp"]:not([data-test-script-state="running"]) [data-testid="stAppViewContainer"]::before { animation: splash-denyut 1.4s ease-in-out infinite, splash-keluar .45s ease .8s forwards; }
-/* bilah loading */
-[data-testid="stMain"]::before {
-  content: ""; z-index: 100001; left: calc(50% - 70px); top: calc(42% + 74px); width: 140px; height: 4px; border-radius: 4px;
-  background: linear-gradient(90deg, #8cc63f, #0a5a8f) -60px 0 / 60px 100% no-repeat, #e4f0f8;
-  animation: splash-gerak 1.1s ease-in-out infinite;
-}
-[data-testid="stApp"]:not([data-test-script-state="running"]) [data-testid="stMain"]::before { animation: splash-gerak 1.1s ease-in-out infinite, splash-keluar .45s ease .8s forwards; }
-[data-testid="stApp"][data-test-script-state="running"] [data-testid="stMain"]::before { animation: splash-gerak 1.1s ease-in-out infinite; }
-/* garis hijau tipis di dasar layar */
-[data-testid="stMain"]::after { content: ""; z-index: 100001; left: 0; right: 0; bottom: 0; height: 6px; background: linear-gradient(90deg, #0a5a8f, #8cc63f); }
-</style>
-"""
-
-
 CSS_ADMIN = """
 <style>
 [data-testid="stMainBlockContainer"], .block-container { max-width: 1100px !important; }
@@ -5876,26 +5832,10 @@ def halaman_admin(eng):
             halaman_foto(eng)
 
 
-@st.cache_resource(show_spinner=False)
-def _status_splash_awal():
-    """Pasang layar pembuka ke index.html (sekali per proses server). 'sudah' = sudah terpasang sebelum proses ini mulai."""
-    try:
-        import splash_awal
-        return splash_awal.pasang()
-    except Exception:
-        return "gagal"
-
-
 def main():
     pkl = mode_pkl()
     st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
-    if not st.session_state.get("_splash_selesai"):
-        st.session_state["_splash_selesai"] = True
-        # Layar pembuka utama disisipkan ke index.html Streamlit (tampil sebelum loading bawaan). Hanya kalau itu belum
-        # terpasang sejak awal (mis. baru dipasang sekarang atau tidak bisa ditulis), pakai cadangan lewat CSS di bawah ini.
-        if _status_splash_awal() != "sudah":
-            st.markdown(CSS_SPLASH.replace("__LOGO__", LOGO_ADMIN_B64), unsafe_allow_html=True)
     tampilkan_notif()
     try:
         eng = get_engine()
