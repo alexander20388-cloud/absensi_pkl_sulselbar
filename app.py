@@ -4977,7 +4977,7 @@ def halaman_pembimbing(eng, nama):
 # HALAMAN ADMIN: BUKTI FOTO
 # ------------------------------------------------------------------
 def halaman_foto(eng):
-    st.header("🖼️ Bukti Foto Absensi")
+    st.header("Bukti Foto Absensi")
     if not admin_login():
         return
 
