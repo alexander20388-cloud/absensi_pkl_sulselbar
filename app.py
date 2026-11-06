@@ -1942,7 +1942,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
 .auth-greet { margin-top: 34px; font-size: 27px; font-weight: 700; color: #0a4f80; line-height: 1.2; }
 .auth-desc { margin-top: 6px; font-size: 13px; color: #5f7b92; }
 .st-key-loginbody {
-  width: calc(100% - 44px) !important; margin: -30px 22px 0; background: #fff; border-radius: 22px;
+  width: calc(100% - 44px) !important; margin: -52px 22px 0; background: #fff; border-radius: 22px;
   padding: 10px 19px 27px; position: relative; z-index: 2; box-shadow: 0 18px 24px -12px rgba(3,30,52,.35);
 }
 .st-key-loginbody [data-testid="stElementContainer"]:has([data-testid="stRadio"]) { width: 100% !important; }
