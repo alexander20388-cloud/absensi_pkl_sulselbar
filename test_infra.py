@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).parent
-KODE = ["app.py", "api.py", "ml_absensi.py", "proyek.py", "jalankan_latih.py"]
+KODE = ["app.py", "api.py", "ml_absensi.py", "proyek.py", "jalankan_latih.py", "splash_awal.py"]
 
 
 def baca(p):

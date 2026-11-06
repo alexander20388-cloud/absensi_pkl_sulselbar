@@ -15,6 +15,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Kode + aset (mis. template_absen.xlsx). Berkas yang dikecualikan diatur di .dockerignore.
 COPY . .
 
+# Layar pembuka: sisipkan ke index.html Streamlit saat build (masih root, paket bisa ditulis) supaya tampil sebelum loading bawaan.
+RUN python splash_awal.py
+
 # app.py membaca template_absen.xlsx untuk ekspor rekap; tanpa file itu ekspor Excel error saat dipakai.
 RUN test -f /app/template_absen.xlsx \
     || (echo "GAGAL BUILD: template_absen.xlsx tidak ada di repo (dibutuhkan ekspor rekap)." >&2; exit 1)
