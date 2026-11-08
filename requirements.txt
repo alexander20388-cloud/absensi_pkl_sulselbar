@@ -12,7 +12,7 @@ pillow==13.0.0
 requests==2.34.2
 
 # Database
-SQLAlchemy==2.1.6
+SQLAlchemy==2.1.8
 psycopg2-binary==2.9.13
 
 # WAJIB di bawah versi 5: OpenCV 5 menghapus CascadeClassifier, jadi verifikasi wajah mati diam-diam.
