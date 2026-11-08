@@ -2486,7 +2486,7 @@ def tab_absen(eng, nama, peserta):
 
     if hari_libur(now):
         with st.container(key="pagebody"):
-            st.info(f"🗓️ {pesan_libur(now)}")
+            st.info(f" {pesan_libur(now)}")
         return
 
     if "mode_absen" not in st.session_state:         # pilihan awal mengikuti kondisi hari ini
