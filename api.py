@@ -26,11 +26,14 @@ from sqlalchemy.exc import SQLAlchemyError
 
 import app as absensi
 import ml_absensi as ml
+from api_peserta import router as router_peserta
 
 api = FastAPI(
     title="API Absensi PKL", version="1.0.0",
     description="Prediksi risiko terlambat, deteksi absen mencurigakan, dan pengelolaan versi model.",
 )
+
+api.include_router(router_peserta)      # API aplikasi native peserta: /v1/peserta/... (token sendiri, lihat api_peserta.py)
 
 _eng = None
 
