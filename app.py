@@ -1644,6 +1644,9 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
   background: #edf3f8; min-height: 100vh; min-height: 100dvh;
 }
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { gap: 0 !important; }
+/* isi halaman yang dibungkus fragmen berada di blok tersendiri: jarak bawaan antar-elemen (1rem) juga harus nol (penanda .frag-nol) */
+[data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .frag-nol) { gap: 0 !important; }
+.frag-nol { display: block; height: 0; overflow: hidden; }
 
 /* ---------- header biru ---------- */
 .pr-head {
@@ -2000,7 +2003,7 @@ CSS_LOADING = """
 html::after {
   content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; transition: opacity .15s ease;
 }
-html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: opacity 0s linear .1s; }
+html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: none; }
 </style>
 """
 
@@ -2023,6 +2026,11 @@ def _pantau_tulis(conn, cursor, statement, parameters, context, executemany):
     """Hook SQLAlchemy: setiap perintah yang MENGUBAH data (INSERT/UPDATE/DELETE) memasang layar loading."""
     if statement.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE", "REPLAC"):
         tampilkan_loading()
+
+
+def fragmen_tanpa_jarak():
+    """Penanda tak terlihat: blok fragmen yang memuatnya tidak memakai jarak bawaan antar-elemen (lihat CSS .frag-nol)."""
+    st.markdown('<span class="frag-nol"></span>', unsafe_allow_html=True)
 
 
 def rerun_halaman():
@@ -2101,16 +2109,18 @@ CSS_ADMIN = """
 .st-key-adminlogout button { width: 50px !important; height: 50px !important; opacity: 0; cursor: pointer; padding: 0; }
 .st-box { background: #f3f8fb; border: 1px solid #d3e2ed; border-radius: 14px; padding: 10px 14px; font-size: 13px; line-height: 1.7; color: #0b3a5e; margin-bottom: 8px; }
 .st-key-rt_hidden, .st-key-rt_hidden_js { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+/* pembungkus kontainer tersembunyi itu juga keluar dari alur, kalau tidak masih menyisakan jarak kosong di atas isi kartu */
+[data-testid="stLayoutWrapper"]:has(> .st-key-rt_hidden), [data-testid="stLayoutWrapper"]:has(> .st-key-rt_hidden_js) { position: absolute !important; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 /* elemen yang isinya hanya <style> tidak boleh memakan ruang (tiap elemen menambah jarak antar-elemen) */
 [data-testid="stElementContainer"]:has(> [data-testid="stMarkdownContainer"] > style:only-child) { display: none !important; }
 .st-key-adminbody {
   width: calc(100% - 36px) !important; margin: -44px 18px 0; background: #fff; border-radius: 26px;
-  padding: 22px 22px 26px; position: relative; z-index: 2; box-shadow: 0 8px 28px rgba(6,63,107,.12);
+  padding: 14px 22px 26px; position: relative; z-index: 2; box-shadow: 0 8px 28px rgba(6,63,107,.12);
 }
 @media (max-width: 600px) {
   .admin-head { padding: 28px 18px 80px; }
   .st-key-adminlogout { right: 18px; top: 28px; }
-  .st-key-adminbody { padding: 16px 12px 22px; width: calc(100% - 20px) !important; margin-left: 10px; }
+  .st-key-adminbody { padding: 12px 12px 22px; width: calc(100% - 20px) !important; margin-left: 10px; }
 }
 </style>
 """
@@ -2620,6 +2630,7 @@ def _isi_peserta(eng, nama, peserta):
     """Isi halaman peserta (tab + navigasi bawah) sebagai fragmen: pindah tab dan interaksi di dalam tab hanya memuat ulang
     bagian ini, bukan seluruh aplikasi. Perubahan data tetap memakai st.rerun() penuh (layar putih)."""
     st.session_state["_loading_dipasang"] = False          # fragmen berjalan tanpa main(): siapkan ulang penanda loading
+    fragmen_tanpa_jarak()
     tab = st.session_state.get("tab", "beranda")
     if tab == "absen":
         tab_absen(eng, nama, peserta)
@@ -5027,6 +5038,7 @@ def halaman_pembimbing(eng, nama):
 def _isi_pembimbing(eng, divisi, nama):
     """Isi panel pembimbing sebagai fragmen: ganti menu tidak memuat ulang seluruh halaman."""
     st.session_state["_loading_dipasang"] = False
+    fragmen_tanpa_jarak()
     with st.container(key="adminbody"):
         menu = st.radio("Menu", ["Tinjau logbook", "Paket kerja"], horizontal=True, key="menu_pembimbing", label_visibility="collapsed")
         st.markdown("---")
@@ -5858,6 +5870,7 @@ def halaman_admin(eng):
 def _isi_admin(eng):
     """Seluruh isi halaman admin (kepala, menu samping, isi) sebagai fragmen: ganti menu hanya memuat ulang bagian ini."""
     st.session_state["_loading_dipasang"] = False
+    fragmen_tanpa_jarak()
     nama_menu = [m[0] for m in MENU_ADMIN]
     menu = st.session_state.get("menu_admin", "Beranda")
     if menu not in nama_menu:
