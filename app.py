@@ -1773,6 +1773,11 @@ html::before {
   background: linear-gradient(90deg, #8cc63f, #0a5a8f); opacity: 0;
 }
 html:has([data-testid="stApp"][data-test-script-state="running"])::before { opacity: 1; width: 85%; transition: width 6s cubic-bezier(.1,.7,.2,1) .15s, opacity 0s .15s; }
+/* Halaman absen Masuk/Pulang: layar loading HANYA muncul saat masuk ke halaman ini (atau pindah ke halaman lain).
+   Rerun karena kamera disiapkan / foto diambil / lokasi terdeteksi tidak memunculkan layar loading.
+   .pr-absen-marker dipasang di halaman absen; atribut data-pindah-halaman dipasang skrip kecil saat navigasi bawah diklik. */
+html:has(.pr-absen-marker):not([data-pindah-halaman]):has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 0; pointer-events: none; }
+html:has(.pr-absen-marker):not([data-pindah-halaman]):has([data-testid="stApp"][data-test-script-state="running"])::before { opacity: 0; width: 0; transition: none; }
 /* ---------- scroll: halaman selalu bisa digulir ke bawah (browser HP maupun WebView) ---------- */
 html, body { height: auto !important; min-height: 100%; overflow-x: hidden; overflow-y: auto !important; -webkit-overflow-scrolling: touch; }
 /* HP / WebView: bilah gulir klasik memakan lebar di sisi kanan sehingga latar biru tua tampak sebagai garis. Gulir tetap berfungsi. */
@@ -2402,7 +2407,8 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
             return
 
         lat, lon = coords["latitude"], coords["longitude"]
-        hasil = proses_absen(eng, nama, peserta, jenis, foto.getvalue(), lat, lon, coords.get("accuracy"))
+        with st.spinner("Memproses absen..."):
+            hasil = proses_absen(eng, nama, peserta, jenis, foto.getvalue(), lat, lon, coords.get("accuracy"))
         _tampilkan_hasil(hasil)
 
 
@@ -2429,6 +2435,35 @@ def _form_tidak_hadir(eng, nama, now, jenis):
         _tampilkan_hasil(proses_tidak_hadir(eng, nama, jenis, tgl, alasan))
 
 
+def _tandai_halaman_absen():
+    """Penanda halaman absen Masuk/Pulang untuk CSS_TEMA (lihat komentar di sana). Skrip kecil (iframe tinggi 0, satu asal dengan
+    halaman) memasang data-pindah-halaman di <html> saat navigasi bawah diklik, dan melepasnya begitu skrip Streamlit selesai.
+    Jadi layar loading tetap muncul saat masuk ke / keluar dari halaman absen, tapi tidak saat kamera disiapkan atau foto diambil."""
+    st.markdown('<div class="pr-absen-marker"></div>', unsafe_allow_html=True)
+    components.html(
+        """<script>
+(function () {
+  var w; try { w = window.parent; w.document; } catch (e) { return; }
+  if (w.__absenNavHook) { return; }
+  w.__absenNavHook = true;
+  var d = w.document, h = d.documentElement;
+  d.addEventListener('click', function (e) {
+    if (e.target && e.target.closest && e.target.closest('.st-key-bottomnav')) {
+      h.setAttribute('data-pindah-halaman', '1');
+    }
+  }, true);
+  var app = d.querySelector('[data-testid="stApp"]');
+  if (app) {
+    new MutationObserver(function () {
+      if (app.getAttribute('data-test-script-state') !== 'running') { h.removeAttribute('data-pindah-halaman'); }
+    }).observe(app, {attributes: true, attributeFilter: ['data-test-script-state']});
+  }
+})();
+</script>""",
+        height=0,
+    )
+
+
 def tab_absen(eng, nama, peserta):
     header_halaman("Absen", f"{nama} • Gedung {peserta['gedung']} • {peserta['divisi']}")
     now = datetime.now(WITA)
@@ -2449,6 +2484,7 @@ def tab_absen(eng, nama, peserta):
             _form_tidak_hadir(eng, nama, now, mode.lower())
         else:
             _form_absen(eng, nama, peserta, mode.lower(), now, sh)
+            _tandai_halaman_absen()
 
 
 def tab_riwayat(eng, nama):
