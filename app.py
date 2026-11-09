@@ -832,6 +832,31 @@ def set_divisi(eng, nama, divisi, gedung, aktor="admin", peran="admin"):
 
 
 @coba_ulang
+def ubah_nama_peserta(eng, lama, baru, aktor="admin", peran="admin"):
+    """Ganti nama peserta. Riwayat absensi dan logbook ikut berganti nama (peserta_id tetap), kunci kunci-login lama dibuang."""
+    baru = " ".join((baru or "").split())
+    if len(baru) < 3:
+        raise ValueError("Nama minimal 3 karakter.")
+    if baru == lama:
+        raise ValueError("Nama baru sama dengan nama sekarang.")
+    with eng.begin() as c:
+        row = c.execute(select(peserta_t.c.pin_hash).where(peserta_t.c.nama == lama)).first()
+        if row is None:
+            raise ValueError("Peserta tidak ditemukan.")
+        if not (row[0] or "").startswith("scrypt$"):
+            raise ValueError("PIN peserta ini masih memakai format lama yang terikat pada namanya. Reset PIN peserta dulu "
+                             "(bagian Reset PIN di bawah), baru ganti nama.")
+        bentrok = c.execute(select(peserta_t.c.id).where(func.lower(peserta_t.c.nama) == baru.lower(), peserta_t.c.nama != lama)).first()
+        if bentrok:
+            raise ValueError(f"Sudah ada peserta bernama {baru}.")
+        c.execute(update(peserta_t).where(peserta_t.c.nama == lama).values(nama=baru))
+        c.execute(update(absensi_t).where(absensi_t.c.nama == lama).values(nama=baru))
+        c.execute(update(logbook_t).where(logbook_t.c.nama == lama).values(nama=baru))
+        c.execute(delete(login_gagal_t).where(login_gagal_t.c.kunci.in_([f"peserta:{lama}", f"peserta:{baru}"])))
+        _audit(c, aktor, peran, "peserta.ubah_nama", f"peserta:{baru}", {"dari": lama, "ke": baru})
+
+
+@coba_ulang
 def hapus_peserta(eng, nama, dengan_absensi=False, aktor="admin", peran="admin"):
     """Hapus peserta. Kalau dengan_absensi=True, riwayat absensi dan logbooknya ikut dihapus."""
     paths, n_absen, n_log = [], 0, 0
@@ -1771,7 +1796,7 @@ html:has([data-testid="stApp"][data-test-script-state="running"])::after { opaci
 /* Halaman yang memasang penanda .tanpa-loading (fungsi tanpa_loading()) TIDAK ditutup layar putih saat berinteraksi di dalamnya (kamera, lokasi,
    tombol, filter). Penanda harus segar (bukan elemen lama/stale): saat pindah KELUAR dari halaman itu, penanda lamanya stale sehingga layar putih tetap muncul. */
 html:has([data-testid="stApp"][data-test-script-state="running"]):has([data-testid="stElementContainer"]:not([data-stale="true"]) .tanpa-loading)::after { opacity: 0 !important; pointer-events: none !important; }
-[data-testid="stElementContainer"]:has(.tanpa-loading) { position: absolute !important; width: 0; height: 0; margin: 0; overflow: hidden; }
+[data-testid="stElementContainer"]:has(.tanpa-loading, .tl-slot) { position: absolute !important; width: 0; height: 0; margin: 0; overflow: hidden; }
 html::before {
   content: ""; position: fixed; top: 0; left: 0; height: 3px; width: 0; z-index: 99999; pointer-events: none;
   background: linear-gradient(90deg, #8cc63f, #0a5a8f); opacity: 0;
@@ -3027,8 +3052,25 @@ def halaman_kelola_peserta(eng):
                 )
 
     if not df.empty:
-        with st.expander("Edit Divisi / No. Rekening / Universitas/Sekolah, Jurusan & Kelas/Semester / Reset PIN"):
-            target = st.selectbox("Pilih peserta", df["nama"], key="target_kelola")
+        with st.expander("Edit Nama / Divisi / No. Rekening / Universitas/Sekolah, Jurusan & Kelas/Semester / Reset PIN"):
+            if "_target_kelola_baru" in st.session_state:        # setelah ganti nama: pilih nama barunya (nilai widget tak boleh diubah setelah dibuat)
+                st.session_state["target_kelola"] = st.session_state.pop("_target_kelola_baru")
+            target = st.selectbox("Pilih peserta", df["nama"], key="target_kelola", on_change=_senyap)
+
+            nama_baru = st.text_input("Nama peserta", value=target, max_chars=100, key=f"nama_baru_{target}", on_change=_senyap)
+            if st.button("Simpan Nama", key="simpan_nama_peserta"):
+                try:
+                    ubah_nama_peserta(eng, target, nama_baru)
+                except ValueError as e:
+                    st.error(str(e))
+                except SQLAlchemyError as e:
+                    st.error(pesan_db(e))
+                else:
+                    st.session_state["_target_kelola_baru"] = " ".join(nama_baru.split())
+                    st.session_state.pop("rekap_detail", None)
+                    notif(f"Nama {target} diubah menjadi {' '.join(nama_baru.split())}. Peserta itu perlu masuk ulang bila sedang membuka aplikasi.")
+                    st.rerun()
+
 
             opsi_divisi = list(DIVISI_GEDUNG.keys())
             divisi_lama = df.loc[df["nama"] == target, "divisi"].values[0]
@@ -3602,6 +3644,30 @@ def reset_pin_pembimbing(eng, nama, pin_baru, aktor="admin", peran="admin"):
         r = c.execute(update(pembimbing_t).where(pembimbing_t.c.nama == nama).values(pin_hash=proyek.hash_pin_kuat(pin_baru)))
         if r.rowcount:
             _audit(c, aktor, peran, "pembimbing.reset_pin", f"pembimbing:{nama}")
+
+
+@coba_ulang
+def ubah_pembimbing(eng, lama, baru, divisi, aktor="admin", peran="admin"):
+    """Ubah nama dan/atau divisi pembimbing (PIN tidak berubah)."""
+    baru = " ".join((baru or "").split())
+    if len(baru) < 3:
+        raise ValueError("Nama pembimbing minimal 3 karakter.")
+    if divisi not in DIVISI_GEDUNG:
+        raise ValueError("Divisi tidak dikenal.")
+    with eng.begin() as c:
+        row = c.execute(select(pembimbing_t.c.divisi).where(pembimbing_t.c.nama == lama)).first()
+        if row is None:
+            raise ValueError("Pembimbing tidak ditemukan.")
+        if baru != lama and c.execute(select(pembimbing_t.c.id).where(
+                func.lower(pembimbing_t.c.nama) == baru.lower(), pembimbing_t.c.nama != lama)).first():
+            raise ValueError(f"Sudah ada pembimbing bernama {baru}.")
+        if baru == lama and row[0] == divisi:
+            raise ValueError("Tidak ada yang berubah.")
+        c.execute(update(pembimbing_t).where(pembimbing_t.c.nama == lama).values(nama=baru, divisi=divisi))
+        if baru != lama:
+            c.execute(delete(login_gagal_t).where(login_gagal_t.c.kunci.in_([f"pembimbing:{lama}", f"pembimbing:{baru}"])))
+        _audit(c, aktor, peran, "pembimbing.ubah", f"pembimbing:{baru}",
+               {"nama_dari": lama, "nama_ke": baru, "divisi_dari": row[0], "divisi_ke": divisi})
 
 
 @coba_ulang
@@ -4894,8 +4960,27 @@ def ui_pembimbing(eng, aktor):
         st.info("Belum ada pembimbing.")
         return
     tabel_rapi(df.rename(columns={"nama": "Nama", "divisi": "Divisi", "dibuat": "Dibuat"}), width="stretch", hide_index=True)
-    with st.expander("Reset PIN atau hapus pembimbing"):
+    with st.expander("Edit, reset PIN, atau hapus pembimbing"):
+        if "_pb_target_baru" in st.session_state:                # setelah ganti nama: pilih nama barunya
+            st.session_state["pb_target"] = st.session_state.pop("_pb_target_baru")
         target = st.selectbox("Pilih pembimbing", df["nama"], key="pb_target", on_change=_senyap)
+        opsi_div = sorted(DIVISI_GEDUNG)
+        div_lama = df.loc[df["nama"] == target, "divisi"].values[0]
+        nama_pb_baru = st.text_input("Nama pembimbing", value=target, max_chars=100, key=f"pb_nama_baru_{target}", on_change=_senyap)
+        div_pb_baru = st.selectbox("Divisi", opsi_div, index=opsi_div.index(div_lama) if div_lama in opsi_div else 0,
+                                   key=f"pb_div_baru_{target}", on_change=_senyap)
+        if st.button("Simpan perubahan", key="pb_simpan_edit"):
+            try:
+                ubah_pembimbing(eng, target, nama_pb_baru, div_pb_baru, aktor)
+            except ValueError as e:
+                st.error(str(e))
+            except SQLAlchemyError as e:
+                st.error(pesan_db(e))
+            else:
+                st.session_state["_pb_target_baru"] = " ".join(nama_pb_baru.split())
+                notif(f"Data pembimbing diperbarui ({' '.join(nama_pb_baru.split())}, {div_pb_baru}).")
+                st.rerun()
+        st.markdown("---")
         pin_baru = st.text_input("PIN baru (6-8 angka)", on_change=_senyap, max_chars=8, type="password", key="pb_pin_baru")
         c1, c2 = st.columns(2)
         if c1.button("Reset PIN", key="pb_reset"):
@@ -5867,8 +5952,10 @@ def main():
     pkl = mode_pkl()
     st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
-    if st.session_state.pop("_senyap", False):
-        tanpa_loading()
+    # Elemen ini SELALU ada di posisi yang sama (isinya saja yang berganti): kalau muncul/hilang, semua elemen di bawahnya bergeser dan
+    # Streamlit memasang ulang halaman (tampak seperti refresh: gulir kembali ke atas, panel tertutup).
+    st.markdown('<span class="tanpa-loading"></span>' if st.session_state.pop("_senyap", False) else '<span class="tl-slot"></span>',
+                unsafe_allow_html=True)
     tampilkan_notif()
     try:
         eng = get_engine()
