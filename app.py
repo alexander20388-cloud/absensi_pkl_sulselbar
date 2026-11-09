@@ -2411,6 +2411,13 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
 
     lokasi = get_geolocation()
     coords = (lokasi or {}).get("coords")
+    # Lokasi baru terdeteksi (muatan ulang dari komponen GPS, tanpa perubahan tampilan berarti): tanpa layar putih. Elemen penanda SELALU ada
+    # di posisi ini (hanya isinya berganti) supaya kamera di bawahnya tidak dipasang ulang.
+    ident = (round(coords["latitude"], 5), round(coords["longitude"], 5)) if coords and "latitude" in coords else None
+    lokasi_baru = ident is not None and ident != st.session_state.get("_lok_terakhir")
+    if ident is not None:
+        st.session_state["_lok_terakhir"] = ident
+    st.markdown('<span class="tanpa-loading"></span>' if lokasi_baru else '<span class="tl-slot"></span>', unsafe_allow_html=True)
     if coords and (coords.get("accuracy") or 0) > MAKS_AKURASI_METER:
         st.warning(f"📡 Akurasi lokasi masih rendah (±{coords['accuracy']:.0f} m, perlu ±{MAKS_AKURASI_METER} m atau lebih baik). "
                    "Tunggu GPS menyesuaikan atau pindah ke tempat terbuka.")
@@ -2420,9 +2427,9 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
         st.info("Menunggu lokasi... klik **Allow/Izinkan** saat browser meminta akses lokasi.")
 
     st.caption("Posisikan wajahmu di dalam bingkai oval, lalu ambil foto. Foto tanpa wajah tidak diterima.")
-    foto = st.camera_input("Foto selfie untuk absen", key=f"foto_{jenis}")
+    foto = st.camera_input("Foto selfie untuk absen", key=f"foto_{jenis}", on_change=_senyap)
 
-    if st.button(f"Absen {jenis.capitalize()} Sekarang", type="primary", width="stretch", key=f"btn_{jenis}"):
+    if st.button(f"Absen {jenis.capitalize()} Sekarang", type="primary", width="stretch", key=f"btn_{jenis}", on_click=_senyap):
         if not coords:
             st.error("Lokasi belum terdeteksi. Aktifkan GPS/izin lokasi lalu coba lagi.")
             return
@@ -2469,7 +2476,6 @@ def tanpa_loading():
 
 
 def tab_absen(eng, nama, peserta):
-    tanpa_loading()          # kamera, lokasi, ganti jenis absen, dan tombol absen: tanpa layar putih
     header_halaman("Absen", f"{nama} • Gedung {peserta['gedung']} • {peserta['divisi']}")
     now = datetime.now(WITA)
     sh = get_status_hari(eng, nama, now.strftime("%Y-%m-%d"))
