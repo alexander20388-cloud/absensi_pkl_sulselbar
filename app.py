@@ -1552,7 +1552,7 @@ def admin_login():
     if not secret("admin_password") and url_database() is None:
         st.info("Mode lokal: password admin default = admin123")
 
-    pw = st.text_input("Password admin", type="password")
+    pw = st.text_input("Password admin", type="password", on_change=_senyap)
     if st.button("Masuk sebagai admin"):
         status, menit = proses_login(get_engine(), "admin", lambda: _sama(pw, str(pw_benar)))
         if status == "ok":
@@ -1767,7 +1767,11 @@ iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !
 html::after {
   content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; transition: opacity .15s ease;
 }
-html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: none; }
+html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: opacity 0s linear .05s; }
+/* Halaman yang memasang penanda .tanpa-loading (fungsi tanpa_loading()) TIDAK ditutup layar putih saat berinteraksi di dalamnya (kamera, lokasi,
+   tombol, filter). Penanda harus segar (bukan elemen lama/stale): saat pindah KELUAR dari halaman itu, penanda lamanya stale sehingga layar putih tetap muncul. */
+html:has([data-testid="stApp"][data-test-script-state="running"]):has([data-testid="stElementContainer"]:not([data-stale="true"]) .tanpa-loading)::after { opacity: 0 !important; pointer-events: none !important; }
+[data-testid="stElementContainer"]:has(.tanpa-loading) { position: absolute !important; width: 0; height: 0; margin: 0; overflow: hidden; }
 html::before {
   content: ""; position: fixed; top: 0; left: 0; height: 3px; width: 0; z-index: 99999; pointer-events: none;
   background: linear-gradient(90deg, #8cc63f, #0a5a8f); opacity: 0;
@@ -2429,7 +2433,18 @@ def _form_tidak_hadir(eng, nama, now, jenis):
         _tampilkan_hasil(proses_tidak_hadir(eng, nama, jenis, tgl, alasan))
 
 
+def _senyap():
+    """on_change kolom isian: menyimpan isian ke sesi tidak mengubah tampilan, jadi eksekusi berikutnya tanpa layar putih (lihat main)."""
+    st.session_state["_senyap"] = True
+
+
+def tanpa_loading():
+    """Penanda tak terlihat: selama halaman ini tampil, interaksi di dalamnya tidak menutup layar dengan loading putih (lihat CSS .tanpa-loading)."""
+    st.markdown('<span class="tanpa-loading"></span>', unsafe_allow_html=True)
+
+
 def tab_absen(eng, nama, peserta):
+    tanpa_loading()          # kamera, lokasi, ganti jenis absen, dan tombol absen: tanpa layar putih
     header_halaman("Absen", f"{nama} • Gedung {peserta['gedung']} • {peserta['divisi']}")
     now = datetime.now(WITA)
     sh = get_status_hari(eng, nama, now.strftime("%Y-%m-%d"))
@@ -2651,7 +2666,7 @@ def halaman_persetujuan(eng, nama):
     header_halaman("Privasi Data", "Mohon dibaca sebelum menggunakan aplikasi")
     with st.container(key="pagebody"):
         st.markdown(TEKS_PRIVASI.format(kontak=esc(kontak_privasi())))
-        setuju = st.checkbox("Saya sudah membaca dan menyetujui pemberitahuan ini.", key="privasi_cek")
+        setuju = st.checkbox("Saya sudah membaca dan menyetujui pemberitahuan ini.", key="privasi_cek", on_change=_senyap)
         if st.button("Setuju dan lanjutkan", key="privasi_ok", type="primary", disabled=not setuju, width="stretch"):
             try:
                 catat_persetujuan(eng, nama)
@@ -2770,9 +2785,9 @@ def _lb_daftar(eng, nama, peserta, now):
     row = bisa[bisa["id"] == pilih].iloc[0]
     opsi = _opsi_paket(eng, peserta["divisi"])
     idx = list(opsi).index(int(row["paket_id"])) if pd.notna(row["paket_id"]) and int(row["paket_id"]) in opsi else 0
-    uraian_baru = st.text_area("Uraian", value=row["uraian"], key=f"lb_u_{pilih}", max_chars=1000, height=120)
-    durasi_baru = st.number_input("Durasi (jam)", min_value=0.5, max_value=10.0, value=float(row["durasi_jam"]), step=0.5, key=f"lb_d_{pilih}")
-    paket_baru = st.selectbox("Paket kerja", list(opsi), index=idx, format_func=opsi.get, key=f"lb_p_{pilih}")
+    uraian_baru = st.text_area("Uraian", on_change=_senyap, value=row["uraian"], key=f"lb_u_{pilih}", max_chars=1000, height=120)
+    durasi_baru = st.number_input("Durasi (jam)", on_change=_senyap, min_value=0.5, max_value=10.0, value=float(row["durasi_jam"]), step=0.5, key=f"lb_d_{pilih}")
+    paket_baru = st.selectbox("Paket kerja", list(opsi), index=idx, format_func=opsi.get, key=f"lb_p_{pilih}", on_change=_senyap)
     k1, k2 = st.columns(2)
     if k1.button("Simpan dan ajukan ulang", key=f"lb_simpan_{pilih}", type="primary", width="stretch"):
         try:
@@ -3018,7 +3033,7 @@ def halaman_kelola_peserta(eng):
             opsi_divisi = list(DIVISI_GEDUNG.keys())
             divisi_lama = df.loc[df["nama"] == target, "divisi"].values[0]
             idx_default = opsi_divisi.index(divisi_lama) if divisi_lama in opsi_divisi else 0
-            divisi_baru = st.selectbox("Divisi", opsi_divisi, index=idx_default, key="divisi_baru")
+            divisi_baru = st.selectbox("Divisi", opsi_divisi, index=idx_default, key="divisi_baru", on_change=_senyap)
             st.caption(f"Ditempatkan di: Gedung {DIVISI_GEDUNG[divisi_baru]}")
             if st.button("Simpan Divisi"):
                 try:
@@ -3031,7 +3046,7 @@ def halaman_kelola_peserta(eng):
 
             rek_lama = df.loc[df["nama"] == target, "no_rekening"].values[0]
             rek_baru = st.text_input(
-                "Nomor rekening", value=rek_lama if isinstance(rek_lama, str) else "",
+                "Nomor rekening", on_change=_senyap, value=rek_lama if isinstance(rek_lama, str) else "",
                 max_chars=30, key=f"rek_baru_{target}",
             )
             if st.button("Simpan No. Rekening"):
@@ -3050,11 +3065,11 @@ def halaman_kelola_peserta(eng):
             univ_lama = _kosong(df.loc[df["nama"] == target, "universitas"].values[0])
             jur_lama = _kosong(df.loc[df["nama"] == target, "jurusan"].values[0])
             ks_lama = _kosong(df.loc[df["nama"] == target, "kelas_semester"].values[0])
-            univ_baru = st.text_input("Universitas/Sekolah", value="" if univ_lama == "-" else univ_lama,
+            univ_baru = st.text_input("Universitas/Sekolah", on_change=_senyap, value="" if univ_lama == "-" else univ_lama,
                                       max_chars=150, key=f"univ_baru_{target}")
-            jur_baru = st.text_input("Jurusan", value="" if jur_lama == "-" else jur_lama,
+            jur_baru = st.text_input("Jurusan", on_change=_senyap, value="" if jur_lama == "-" else jur_lama,
                                      max_chars=150, key=f"jur_baru_{target}")
-            ks_baru = st.text_input("Kelas/Semester", value="" if ks_lama == "-" else ks_lama,
+            ks_baru = st.text_input("Kelas/Semester", on_change=_senyap, value="" if ks_lama == "-" else ks_lama,
                                     max_chars=50, key=f"ks_baru_{target}")
             if st.button("Simpan Universitas/Sekolah, Jurusan & Kelas/Semester"):
                 try:
@@ -3065,7 +3080,7 @@ def halaman_kelola_peserta(eng):
                     notif(f"Universitas/sekolah, jurusan, dan kelas/semester {target} diperbarui.")
                     st.rerun()
 
-            pin_baru = st.text_input("PIN baru (4-6 angka)", max_chars=6, key="pin_baru")
+            pin_baru = st.text_input("PIN baru (4-6 angka)", on_change=_senyap, max_chars=6, key="pin_baru")
             if st.button("Reset PIN"):
                 if pin_baru.isdigit() and 4 <= len(pin_baru) <= 6:
                     try:
@@ -3086,7 +3101,7 @@ def halaman_kelola_peserta(eng):
                 "Setelah itu indeks anti-ganda dipasang otomatis."
             )
             tabel_rapi(beri_nomor(pd.DataFrame(duplikat, columns=["Nama", "Tanggal", "Jenis", "Jumlah"])), width="stretch")
-            ok_rapikan = st.text_input("Ketik RAPIKAN (huruf besar) untuk konfirmasi", key="rapikan_konfirmasi")
+            ok_rapikan = st.text_input("Ketik RAPIKAN (huruf besar) untuk konfirmasi", on_change=_senyap, key="rapikan_konfirmasi")
             if st.button("Rapikan absensi ganda", key="tombol_rapikan"):
                 if ok_rapikan.strip() != "RAPIKAN":
                     st.error("Konfirmasi belum benar. Ketik persis: RAPIKAN")
@@ -3117,7 +3132,7 @@ def halaman_kelola_peserta(eng):
             st.caption(f"{len(terpilih)} peserta dipilih. Yang dipilih dihapus dari daftar peserta beserta seluruh riwayat "
                        "absensi, logbook, dan foto buktinya (termasuk foto di Supabase Storage). Ulasan dan penilaian yang "
                        "pernah dikirim tetap tersimpan sebagai masukan tanpa nama.")
-            konfirmasi = st.text_input("Ketik HAPUS (huruf besar) untuk konfirmasi", key="hapus_absen_konfirmasi")
+            konfirmasi = st.text_input("Ketik HAPUS (huruf besar) untuk konfirmasi", on_change=_senyap, key="hapus_absen_konfirmasi")
             if st.button("Hapus", key="tombol_hapus_absen"):
                 if not terpilih:
                     st.error("Belum ada peserta yang dipilih.")
@@ -4511,7 +4526,7 @@ def _tab_prediksi(eng, ml):
                    "diuji pada hari-hari terakhir, lalu dibandingkan dengan baseline. Versi baru disimpan, versi lama tidak dihapus.")
         pilihan = {"jika_lebih_baik": "Aktifkan otomatis jika tidak lebih buruk dari model aktif",
                    "selalu": "Selalu aktifkan versi baru", "tidak": "Simpan saja (aktifkan manual)"}
-        pol = st.selectbox("Kebijakan aktivasi", list(pilihan), format_func=pilihan.get, key="model_kebijakan")
+        pol = st.selectbox("Kebijakan aktivasi", list(pilihan), format_func=pilihan.get, key="model_kebijakan", on_change=_senyap)
         if st.button("Latih sekarang", key="model_latih", type="primary"):
             try:
                 with st.spinner("Melatih model, mohon tunggu..."):
@@ -4536,7 +4551,7 @@ def _tab_prediksi(eng, ml):
         } for v in versi])
         tabel_rapi(tabel, width="stretch", hide_index=True)
         c1, c2 = st.columns([2, 1])
-        pilih = c1.selectbox("Aktifkan versi", [v["id"] for v in versi], format_func=lambda i: f"Versi {i}", key="model_pilih")
+        pilih = c1.selectbox("Aktifkan versi", [v["id"] for v in versi], format_func=lambda i: f"Versi {i}", key="model_pilih", on_change=_senyap)
         if c2.button("Aktifkan", key="model_aktifkan"):
             try:
                 aktifkan_model(eng, pilih)
@@ -4656,7 +4671,7 @@ def ui_tinjau_logbook(eng, divisi_scope, aktor, peran):
             if r.tanpa_absensi:
                 st.warning("Tidak ada absen masuk berhasil pada tanggal ini.")
             if r.status == "diajukan":
-                catatan = st.text_input("Catatan (wajib bila menolak)", key=f"tj_cat_{r.id}")
+                catatan = st.text_input("Catatan (wajib bila menolak)", on_change=_senyap, key=f"tj_cat_{r.id}")
                 k1, k2 = st.columns(2)
                 for kolom, keputusan, label, tipe in ((k1, "disetujui", "Setujui", "primary"), (k2, "ditolak", "Tolak", "secondary")):
                     if kolom.button(label, key=f"tj_{keputusan}_{r.id}", type=tipe, width="stretch"):
@@ -4730,7 +4745,7 @@ def ui_paket_kerja(eng, divisi_scope, aktor, peran):
         d1, d2 = st.columns(2)
         mulai_b = d1.date_input("Mulai", value=cur["mulai"], key=f"pk_m_{pid}")
         selesai_b = d2.date_input("Selesai", value=cur["selesai"], key=f"pk_s_{pid}")
-        est_b = st.number_input("Estimasi jam kerja", min_value=1.0, max_value=2000.0, value=float(cur["estimasi_jam"]), step=1.0, key=f"pk_e_{pid}")
+        est_b = st.number_input("Estimasi jam kerja", on_change=_senyap, min_value=1.0, max_value=2000.0, value=float(cur["estimasi_jam"]), step=1.0, key=f"pk_e_{pid}")
         b1, b2, b3 = st.columns(3)
         aksi, pesan_aksi = None, ""
         if b1.button("Simpan perubahan", key=f"pk_ubah_{pid}", type="primary", width="stretch"):
@@ -4840,7 +4855,7 @@ def ui_anggaran(eng, aktor):
             ).rename(columns={"divisi": "Divisi", "peserta": "Peserta", "hari_kerja": "Hari kerja", "tingkat_kehadiran": "Kehadiran",
                               "estimasi_dasar": "Estimasi dasar", "cadangan": "Cadangan", "saran": "Saran anggaran",
                               "asumsi_kehadiran": "Dasar kehadiran"}), width="stretch", hide_index=True)
-            timpa = st.checkbox("Timpa anggaran yang sudah ditetapkan", key="ag_timpa")
+            timpa = st.checkbox("Timpa anggaran yang sudah ditetapkan", key="ag_timpa", on_change=_senyap)
             if st.button("Terapkan saran", key="ag_terapkan"):
                 try:
                     n = terapkan_saran_anggaran(eng, tahun, bulan, aktor, "admin", timpa, float(cad))
@@ -4880,8 +4895,8 @@ def ui_pembimbing(eng, aktor):
         return
     tabel_rapi(df.rename(columns={"nama": "Nama", "divisi": "Divisi", "dibuat": "Dibuat"}), width="stretch", hide_index=True)
     with st.expander("Reset PIN atau hapus pembimbing"):
-        target = st.selectbox("Pilih pembimbing", df["nama"], key="pb_target")
-        pin_baru = st.text_input("PIN baru (6-8 angka)", max_chars=8, type="password", key="pb_pin_baru")
+        target = st.selectbox("Pilih pembimbing", df["nama"], key="pb_target", on_change=_senyap)
+        pin_baru = st.text_input("PIN baru (6-8 angka)", on_change=_senyap, max_chars=8, type="password", key="pb_pin_baru")
         c1, c2 = st.columns(2)
         if c1.button("Reset PIN", key="pb_reset"):
             try:
@@ -5191,10 +5206,10 @@ def _form_umpan_balik(eng, nama, kunci, minta_rating, boleh_lewati):
     bintang = None
     if minta_rating:
         bintang = st.radio("Seberapa puas kamu dengan aplikasi ini?", [1, 2, 3, 4, 5], index=None, horizontal=True,
-                           format_func=lambda n: f"{n} ★", key=k_bintang)
+                           format_func=lambda n: f"{n} ★", key=k_bintang, on_change=_senyap)
         st.caption("1 = sangat kurang, 5 = sangat baik. Penilaian hanya diminta satu kali.")
-    kategori = st.selectbox("Tentang apa?", list(KATEGORI_ULASAN), format_func=KATEGORI_ULASAN.get, key=k_kat)
-    isi = st.text_area("Ulasan dan saran" + (" (boleh dikosongkan)" if minta_rating else ""), max_chars=ULASAN_MAKS,
+    kategori = st.selectbox("Tentang apa?", list(KATEGORI_ULASAN), format_func=KATEGORI_ULASAN.get, key=k_kat, on_change=_senyap)
+    isi = st.text_area("Ulasan dan saran" + (" (boleh dikosongkan)" if minta_rating else ""), on_change=_senyap, max_chars=ULASAN_MAKS,
                        height=120, key=k_isi, placeholder="Ceritakan yang sudah enak dipakai atau yang masih menyulitkan.")
     st.caption("Ulasan terhubung ke akunmu supaya kamu bisa melihat tindak lanjutnya di Profil. "
                "Di halaman admin, ulasan hanya tampil dengan divisi dan tanggal, tanpa namamu.")
@@ -5852,6 +5867,8 @@ def main():
     pkl = mode_pkl()
     st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
+    if st.session_state.pop("_senyap", False):
+        tanpa_loading()
     tampilkan_notif()
     try:
         eng = get_engine()
