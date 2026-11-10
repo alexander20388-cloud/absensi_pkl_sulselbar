@@ -46,6 +46,7 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 from sqlalchemy import event
+from sqlalchemy.exc import DisconnectionError
 from sqlalchemy import (
     Column, ForeignKey, Index, Integer, String, Float, LargeBinary, MetaData, Table, Text, UniqueConstraint,
     create_engine, select, insert, update, delete, func, and_, or_, inspect, text,
@@ -558,7 +559,7 @@ def get_engine(versi_skema=9):
     url = url_database()
     sementara = False
     if url:
-        eng = create_engine(url, pool_pre_ping=True, pool_recycle=300, connect_args={"connect_timeout": 10})   # gagal cepat (10 dtk) bila database tidak menjawab, bukan loading tanpa akhir
+        eng = create_engine(url, pool_pre_ping=False, pool_recycle=300, connect_args={"connect_timeout": 10})   # gagal cepat (10 dtk) bila database tidak menjawab, bukan loading tanpa akhir
     else:
         # nama file baru (v2) supaya tidak bentrok dengan database versi lama
         path = "absensi_pkl_v2.db"
@@ -580,7 +581,37 @@ def get_engine(versi_skema=9):
     event.listen(eng, "before_cursor_execute", _dbg_sebelum)
     event.listen(eng, "after_cursor_execute", _dbg_sesudah)
     event.listen(eng, "checkout", _dbg_checkout)
+    if url:
+        # Ping "SELECT 1" bawaan (pool_pre_ping) menambah SATU bolak-balik jaringan (~190 ms ke Supabase) pada SETIAP kueri.
+        # Diganti: ping hanya bila koneksi sudah menganggur lebih dari JEDA_PING detik (saat itulah koneksi bisa sudah ditutup server).
+        event.listen(eng, "checkin", _catat_dipakai)
+        event.listen(eng, "checkout", _cek_koneksi_hidup)
     return eng
+
+
+JEDA_PING = 30      # detik
+
+
+def _catat_dipakai(dbapi_conn, record):
+    record.info["terakhir_dipakai"] = _waktu.monotonic()
+
+
+def _cek_koneksi_hidup(dbapi_conn, record, proxy):
+    terakhir = record.info.get("terakhir_dipakai")
+    if terakhir is None or _waktu.monotonic() - terakhir < JEDA_PING:
+        return                                   # koneksi baru, atau baru saja dipakai: tidak perlu ping
+    cur = None
+    try:
+        cur = dbapi_conn.cursor()
+        cur.execute("SELECT 1")
+    except Exception as e:
+        raise DisconnectionError("koneksi menganggur sudah ditutup server") from e      # SQLAlchemy membuka koneksi baru dan mengulang
+    finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
 
 
 # ---- Alat ukur (hanya aktif bila alamat memakai ?debug=1): jumlah kueri, waktu di database, dan waktu satu bolak-balik jaringan ----
@@ -1192,11 +1223,21 @@ def cari_penandatangan(divisi):
     return "", ""
 
 
+def _peta_peserta(eng):
+    """nama -> {divisi, no_rekening} untuk semua peserta dalam SATU kueri (menggantikan get_peserta satu per satu di dalam perulangan)."""
+    peta = {}
+    for r in list_peserta(eng).to_dict("records"):
+        d, rek = r.get("divisi"), r.get("no_rekening")
+        peta[r["nama"]] = {"divisi": d if isinstance(d, str) else None, "no_rekening": rek if isinstance(rek, str) else None}
+    return peta
+
+
 def divisi_tanpa_penandatangan(eng, daftar_nama):
     """Daftar divisi (dari peserta yang akan diekspor) yang penandatangannya belum diisi."""
     hasil = []
+    peta = _peta_peserta(eng)
     for nama in daftar_nama:
-        info = get_peserta(eng, nama)
+        info = peta.get(nama)
         divisi = (info["divisi"] if info else "") or "(tanpa divisi)"
         if not any(cari_penandatangan(divisi)) and divisi not in hasil:
             hasil.append(divisi)
@@ -1346,11 +1387,12 @@ def excel_template_bytes(eng, df_bulan, tahun, bulan, daftar_nama):
     akhir = min(akhir_bulan, hari_ini) if (tahun, bulan) == (hari_ini.year, hari_ini.month) else akhir_bulan
 
     dipakai, jumlah_sheet = set(), 0
+    peta = _peta_peserta(eng)
     for nama in daftar_nama:
         data = df_bulan[df_bulan["nama"] == nama]
         if data.empty:
             continue
-        info = get_peserta(eng, nama)
+        info = peta.get(nama)
         peserta = {
             "nama": nama,
             "divisi": (info["divisi"] if info else "") or "",
