@@ -49,7 +49,7 @@ from sqlalchemy import event
 from sqlalchemy.exc import DisconnectionError
 from sqlalchemy import (
     Column, ForeignKey, Index, Integer, String, Float, LargeBinary, MetaData, Table, Text, UniqueConstraint,
-    create_engine, select, insert, update, delete, func, and_, or_, inspect, text,
+    create_engine, select, insert, update, delete, func, and_, or_, inspect, text, case,
 )
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
@@ -581,6 +581,7 @@ def get_engine(versi_skema=9):
     event.listen(eng, "before_cursor_execute", _dbg_sebelum)
     event.listen(eng, "after_cursor_execute", _dbg_sesudah)
     event.listen(eng, "checkout", _dbg_checkout)
+    event.listen(eng, "before_cursor_execute", _batalkan_memo_saat_tulis)
     if url:
         # Ping "SELECT 1" bawaan (pool_pre_ping) menambah SATU bolak-balik jaringan (~190 ms ke Supabase) pada SETIAP kueri.
         # Diganti: ping hanya bila koneksi sudah menganggur lebih dari JEDA_PING detik (saat itulah koneksi bisa sudah ditutup server).
@@ -590,6 +591,23 @@ def get_engine(versi_skema=9):
 
 
 JEDA_PING = 30      # detik
+
+
+def _memo_run():
+    """Memo yang hidup hanya selama SATU eksekusi skrip (dikosongkan di awal main() dan tiap ada perintah tulis ke database).
+    Dipakai agar kueri yang sama tidak dikirim berulang dalam satu muat ulang. Di luar eksekusi Streamlit (tes): tidak menyimpan apa pun."""
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        if get_script_run_ctx(suppress_warning=True) is None:
+            return {}
+        return st.session_state.setdefault("_memo_run", {})
+    except Exception:
+        return {}
+
+
+def _batalkan_memo_saat_tulis(conn, cursor, statement, parameters, context, executemany):
+    if statement.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE", "REPLAC"):
+        _memo_run().clear()
 
 
 def _catat_dipakai(dbapi_conn, record):
@@ -818,12 +836,17 @@ def pesan_terkunci(menit):
 
 
 def list_peserta(eng):
+    memo = _memo_run()
+    if "list_peserta" in memo:
+        return memo["list_peserta"].copy()
     with eng.connect() as c:
-        return pd.read_sql(
+        df = pd.read_sql(
             select(
                 peserta_t.c.nama, peserta_t.c.gedung, peserta_t.c.divisi, peserta_t.c.no_rekening
             ).order_by(peserta_t.c.nama), c
         )
+    memo["list_peserta"] = df
+    return df.copy()
 
 
 def list_peserta_lengkap(eng):
@@ -2201,16 +2224,8 @@ def inisial(nama):
     return "".join(b[0] for b in bagian[:2]).upper() or "?"
 
 
-def get_status_hari(eng, nama, tanggal):
-    """Ringkasan absen satu hari: baris masuk/pulang yang berhasil, izin, dan apakah ada percobaan gagal."""
-    q = (
-        select(absensi_t.c.jenis, absensi_t.c.jam, absensi_t.c.status, absensi_t.c.uang_makan,
-               absensi_t.c.jarak, absensi_t.c.alasan)
-        .where(and_(absensi_t.c.nama == nama, absensi_t.c.tanggal == tanggal))
-        .order_by(absensi_t.c.jam)
-    )
-    with eng.connect() as c:
-        rows = c.execute(q).mappings().all()
+def _susun_status(rows):
+    """Susun ringkasan absen satu hari dari baris (jenis, jam, status, uang_makan, jarak, alasan) yang sudah urut menurut jam."""
     hasil = {"masuk": None, "pulang": None, "izin": None, "cuti": None,
              "gagal_masuk": False, "gagal_pulang": False}
     for r in rows:
@@ -2223,6 +2238,44 @@ def get_status_hari(eng, nama, tanggal):
             else:
                 hasil["gagal_" + r["jenis"]] = True
     return hasil
+
+
+def get_status_hari(eng, nama, tanggal):
+    """Ringkasan absen satu hari: baris masuk/pulang yang berhasil, izin, dan apakah ada percobaan gagal."""
+    memo = _memo_run()
+    kunci = ("status_hari", nama, tanggal)
+    if kunci in memo:
+        return memo[kunci]
+    q = (
+        select(absensi_t.c.jenis, absensi_t.c.jam, absensi_t.c.status, absensi_t.c.uang_makan,
+               absensi_t.c.jarak, absensi_t.c.alasan)
+        .where(and_(absensi_t.c.nama == nama, absensi_t.c.tanggal == tanggal))
+        .order_by(absensi_t.c.jam)
+    )
+    with eng.connect() as c:
+        rows = c.execute(q).mappings().all()
+    memo[kunci] = _susun_status(rows)
+    return memo[kunci]
+
+
+_KOLOM_STATUS = ("jenis", "jam", "status", "uang_makan", "jarak", "alasan")
+
+
+def get_peserta_dan_status(eng, nama):
+    """Data peserta + ringkasan absen HARI INI dalam SATU kueri (join). Ringkasan disimpan di memo eksekusi supaya get_status_hari()
+    di tab Beranda/Absen tidak mengirim kueri lagi. Mengembalikan dict peserta, atau None bila tidak ditemukan."""
+    tanggal = datetime.now(WITA).strftime("%Y-%m-%d")
+    j = peserta_t.outerjoin(absensi_t, and_(absensi_t.c.nama == peserta_t.c.nama, absensi_t.c.tanggal == tanggal))
+    q = (select(peserta_t, *[absensi_t.c[k].label("a_" + k) for k in _KOLOM_STATUS])
+         .select_from(j).where(peserta_t.c.nama == nama).order_by(absensi_t.c.jam))
+    with eng.connect() as c:
+        rows = c.execute(q).mappings().all()
+    if not rows:
+        return None
+    peserta = {k: rows[0][k] for k in peserta_t.c.keys()}
+    absen = [{k: r["a_" + k] for k in _KOLOM_STATUS} for r in rows if r["a_jenis"] is not None]
+    _memo_run()[("status_hari", nama, tanggal)] = _susun_status(absen)
+    return peserta
 
 
 def get_riwayat_peserta(eng, nama, limit=60, tanpa_gagal=False):
@@ -2696,7 +2749,7 @@ def nav_perlu_naik():
 
 def halaman_peserta(eng, nama):
     """Tampilan peserta setelah login: Beranda (Presensi) + Absen / Riwayat / Rekap / Profil."""
-    peserta = get_peserta(eng, nama)
+    peserta = get_peserta_dan_status(eng, nama)          # satu kueri: data peserta + absen hari ini (dipakai Beranda/Absen)
     if peserta is None:
         st.error("Data kamu tidak ditemukan (mungkin sudah dihapus admin). Silakan keluar lalu hubungi admin.")
         if st.button("Keluar"):
@@ -2812,13 +2865,25 @@ def _chip(status):
     return f'<span class="lb-chip lb-{status}">{status.capitalize()}</span>'
 
 
+def ringkas_logbook_beranda(eng, nama, tanggal):
+    """(jumlah ditolak, jumlah diajukan, ada entri hari ini) dari 100 logbook terbaru peserta, dalam SATU kueri.
+    Sama hasilnya dengan menghitung dari daftar_logbook(nama=nama, limit=100) tetapi tanpa menarik seluruh baris."""
+    sub = (select(logbook_t.c.status, logbook_t.c.tanggal).where(logbook_t.c.nama == nama)
+           .order_by(logbook_t.c.tanggal.desc(), logbook_t.c.id.desc()).limit(100).subquery())
+    q = select(
+        func.coalesce(func.sum(case((sub.c.status == "ditolak", 1), else_=0)), 0),
+        func.coalesce(func.sum(case((sub.c.status == "diajukan", 1), else_=0)), 0),
+        func.coalesce(func.sum(case((sub.c.tanggal == tanggal, 1), else_=0)), 0),
+    )
+    with eng.connect() as c:
+        t, a, h = c.execute(q).one()
+    return int(t), int(a), int(h) > 0
+
+
 def _kartu_logbook_beranda(eng, nama):
     """Kartu tautan ke Logbook di Beranda, dengan ringkasan yang perlu perhatian peserta."""
-    df = daftar_logbook(eng, nama=nama, limit=100)
-    n_tolak = int((df["status"] == "ditolak").sum())
-    n_ajuan = int((df["status"] == "diajukan").sum())
     hari_ini = datetime.now(WITA)
-    sudah_hari_ini = bool((df["tanggal"] == hari_ini.strftime("%Y-%m-%d")).any())
+    n_tolak, n_ajuan, sudah_hari_ini = ringkas_logbook_beranda(eng, nama, hari_ini.strftime("%Y-%m-%d"))
     kelas = ""
     if n_tolak:
         sub, kelas = f"{n_tolak} logbook ditolak, perlu kamu perbaiki", "warn"
@@ -6060,6 +6125,7 @@ def main():
     elif st.query_params.get("debug") == "0":
         st.session_state["_debug"] = False
     st.session_state["_dbg_q"], st.session_state["_dbg_co"] = [], 0
+    st.session_state["_memo_run"] = {}
     pkl = mode_pkl()
     st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
