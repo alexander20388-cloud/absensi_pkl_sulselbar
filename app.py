@@ -2411,13 +2411,9 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
 
     lokasi = get_geolocation()
     coords = (lokasi or {}).get("coords")
-    # Lokasi baru terdeteksi (muatan ulang dari komponen GPS, tanpa perubahan tampilan berarti): tanpa layar putih. Elemen penanda SELALU ada
-    # di posisi ini (hanya isinya berganti) supaya kamera di bawahnya tidak dipasang ulang.
-    ident = (round(coords["latitude"], 5), round(coords["longitude"], 5)) if coords and "latitude" in coords else None
-    lokasi_baru = ident is not None and ident != st.session_state.get("_lok_terakhir")
-    if ident is not None:
-        st.session_state["_lok_terakhir"] = ident
-    st.markdown('<span class="tanpa-loading"></span>' if lokasi_baru else '<span class="tl-slot"></span>', unsafe_allow_html=True)
+    # Penanda "tanpa layar putih" untuk muatan ulang akibat GPS dipasang di main() (sejak awal eksekusi). Elemen ini hanya penjaga posisi
+    # (selalu ada) supaya kamera di bawahnya tidak dipasang ulang.
+    st.markdown('<span class="tl-slot"></span>', unsafe_allow_html=True)
     if coords and (coords.get("accuracy") or 0) > MAKS_AKURASI_METER:
         st.warning(f"📡 Akurasi lokasi masih rendah (±{coords['accuracy']:.0f} m, perlu ±{MAKS_AKURASI_METER} m atau lebih baik). "
                    "Tunggu GPS menyesuaikan atau pindah ke tempat terbuka.")
@@ -2468,6 +2464,18 @@ def _form_tidak_hadir(eng, nama, now, jenis):
 def _senyap():
     """on_change kolom isian: menyimpan isian ke sesi tidak mengubah tampilan, jadi eksekusi berikutnya tanpa layar putih (lihat main)."""
     st.session_state["_senyap"] = True
+
+
+def _ident_lokasi_sesi():
+    """Koordinat terakhir yang dikirim komponen GPS (dicari di st.session_state), dibulatkan; None bila belum ada."""
+    try:
+        for v in list(st.session_state.values()):
+            c = v.get("coords") if isinstance(v, dict) else None
+            if isinstance(c, dict) and "latitude" in c and "longitude" in c:
+                return (round(c["latitude"], 5), round(c["longitude"], 5), round(c.get("accuracy") or 0))
+    except Exception:
+        pass
+    return None
 
 
 def tanpa_loading():
@@ -5960,8 +5968,18 @@ def main():
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
     # Elemen ini SELALU ada di posisi yang sama (isinya saja yang berganti): kalau muncul/hilang, semua elemen di bawahnya bergeser dan
     # Streamlit memasang ulang halaman (tampak seperti refresh: gulir kembali ke atas, panel tertutup).
-    st.markdown('<span class="tanpa-loading"></span>' if st.session_state.pop("_senyap", False) else '<span class="tl-slot"></span>',
-                unsafe_allow_html=True)
+    senyap = st.session_state.pop("_senyap", False)
+    tab_kini, tab_lalu = st.session_state.get("tab"), st.session_state.get("_tab_prev")
+    st.session_state["_tab_prev"] = tab_kini
+    if st.session_state.get("peran") == "user" and tab_kini == "absen":
+        # Komponen GPS memuat ulang halaman sendiri saat lokasi pertama kali (atau lokasi baru) terdeteksi: tampilan tidak berubah berarti,
+        # jadi tanpa layar putih. Dinilai di awal eksekusi (sebelum kueri database) supaya layar putih tidak sempat muncul.
+        ident = _ident_lokasi_sesi()
+        if ident is not None:
+            if tab_lalu == "absen" and ident != st.session_state.get("_lok_terakhir"):
+                senyap = True
+            st.session_state["_lok_terakhir"] = ident
+    st.markdown('<span class="tanpa-loading"></span>' if senyap else '<span class="tl-slot"></span>', unsafe_allow_html=True)
     tampilkan_notif()
     try:
         eng = get_engine()
