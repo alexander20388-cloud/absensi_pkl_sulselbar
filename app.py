@@ -28,6 +28,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
+import time as _waktu
 from functools import lru_cache, wraps
 from copy import copy
 from datetime import datetime, date, time as dtime, timedelta, timezone
@@ -44,6 +45,7 @@ from openpyxl.worksheet.properties import PageSetupProperties
 import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from sqlalchemy import event
 from sqlalchemy import (
     Column, ForeignKey, Index, Integer, String, Float, LargeBinary, MetaData, Table, Text, UniqueConstraint,
     create_engine, select, insert, update, delete, func, and_, or_, inspect, text,
@@ -575,7 +577,54 @@ def get_engine(versi_skema=9):
     metadata.create_all(eng)
     _migrasi(eng)
     eng.db_sementara = sementara
+    event.listen(eng, "before_cursor_execute", _dbg_sebelum)
+    event.listen(eng, "after_cursor_execute", _dbg_sesudah)
+    event.listen(eng, "checkout", _dbg_checkout)
     return eng
+
+
+# ---- Alat ukur (hanya aktif bila alamat memakai ?debug=1): jumlah kueri, waktu di database, dan waktu satu bolak-balik jaringan ----
+def _dbg_aktif():
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        return get_script_run_ctx(suppress_warning=True) is not None and bool(st.session_state.get("_debug"))
+    except Exception:
+        return False
+
+
+def _dbg_sebelum(conn, cursor, statement, parameters, context, executemany):
+    conn.info["_dbg_t0"] = _waktu.perf_counter()
+
+
+def _dbg_sesudah(conn, cursor, statement, parameters, context, executemany):
+    t0 = conn.info.pop("_dbg_t0", None)
+    if t0 is not None and _dbg_aktif():
+        st.session_state.setdefault("_dbg_q", []).append(((_waktu.perf_counter() - t0) * 1000, " ".join(statement.split())[:70]))
+
+
+def _dbg_checkout(dbapi_conn, record, proxy):
+    if _dbg_aktif():
+        st.session_state["_dbg_co"] = st.session_state.get("_dbg_co", 0) + 1
+
+
+def tampilkan_debug(eng, t0):
+    """Ringkasan kinerja satu kali eksekusi skrip, di bagian bawah halaman (hanya dengan ?debug=1)."""
+    total = (_waktu.perf_counter() - t0) * 1000
+    q = list(st.session_state.get("_dbg_q", []))
+    rtt = None
+    try:
+        with eng.connect() as c:
+            a = _waktu.perf_counter()
+            c.execute(text("SELECT 1"))
+            rtt = (_waktu.perf_counter() - a) * 1000
+    except Exception:
+        pass
+    ms_db = sum(m for m, _ in q)
+    st.caption(f"🔧 debug: {len(q)} kueri ({ms_db:.0f} ms di database), {st.session_state.get('_dbg_co', 0)} koneksi diambil, "
+               f"1 bolak-balik jaringan ke database ≈ {('%.0f ms' % rtt) if rtt is not None else '?'}, "
+               f"seluruh skrip sampai di sini {total:.0f} ms")
+    with st.expander("Rincian kueri (debug)"):
+        st.text("\n".join(f"{m:6.0f} ms  {t}" for m, t in q) or "(tidak ada kueri)")
 
 
 def coba_ulang(fn):
@@ -5963,6 +6012,12 @@ def halaman_admin(eng):
 
 
 def main():
+    t_mulai = _waktu.perf_counter()
+    if st.query_params.get("debug") == "1":
+        st.session_state["_debug"] = True
+    elif st.query_params.get("debug") == "0":
+        st.session_state["_debug"] = False
+    st.session_state["_dbg_q"], st.session_state["_dbg_co"] = [], 0
     pkl = mode_pkl()
     st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
@@ -6011,6 +6066,8 @@ def main():
         halaman_admin(eng)
     else:
         halaman_login(eng, hanya_peserta=pkl)
+    if st.session_state.get("_debug"):
+        tampilkan_debug(eng, t_mulai)
 
 
 if __name__ == "__main__":
