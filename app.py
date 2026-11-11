@@ -28,7 +28,10 @@ import re
 import shutil
 import sqlite3
 import tempfile
+import threading
 import time as _waktu
+from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache, wraps
 from copy import copy
 from datetime import datetime, date, time as dtime, timedelta, timezone
@@ -219,6 +222,10 @@ def simpan_foto_storage(path, data):
         return False
 
 
+_SESI_STORAGE = requests.Session()          # dipakai ulang: koneksi TLS ke Supabase tidak dibuka dari nol untuk tiap foto
+_SESI_STORAGE.mount("https://", requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=8))
+
+
 @st.cache_data(ttl=600, max_entries=200, show_spinner=False)
 def _unduh_storage(path):
     cfg = storage_konfig()
@@ -226,10 +233,30 @@ def _unduh_storage(path):
         return None
     url, key, bucket = cfg
     try:
-        r = requests.get(f"{url}/storage/v1/object/authenticated/{bucket}/{quote(path)}", headers=_hdr(key), timeout=20)
+        r = _SESI_STORAGE.get(f"{url}/storage/v1/object/authenticated/{bucket}/{quote(path)}", headers=_hdr(key), timeout=20)
         return r.content if r.status_code == 200 else None
     except Exception:
         return None
+
+
+def unduh_foto_paralel(daftar_path):
+    """Isi cache foto untuk beberapa path sekaligus (unduhan berjalan bersamaan, bukan satu per satu)."""
+    daftar = [p for p in dict.fromkeys(daftar_path) if p]
+    if len(daftar) < 2:
+        return
+    try:
+        from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
+        ctx = get_script_run_ctx(suppress_warning=True)
+
+        def kerja(p):
+            if ctx is not None:
+                add_script_run_ctx(threading.current_thread(), ctx)
+            return _unduh_storage(p)
+
+        with ThreadPoolExecutor(max_workers=min(6, len(daftar))) as ex:
+            list(ex.map(kerja, daftar))
+    except Exception:
+        pass                                   # gagal paralel: tiap foto tetap diunduh biasa saat ditampilkan
 
 
 def ambil_foto(foto_db, foto_path):
@@ -656,10 +683,22 @@ def _dbg_checkout(dbapi_conn, record, proxy):
         st.session_state["_dbg_co"] = st.session_state.get("_dbg_co", 0) + 1
 
 
+@contextmanager
+def ukur(nama):
+    """Catat waktu satu tahap (hanya terlihat dengan ?debug=1, di rincian sebagai [tahap])."""
+    t0 = _waktu.perf_counter()
+    try:
+        yield
+    finally:
+        if _dbg_aktif():
+            st.session_state.setdefault("_dbg_q", []).append(((_waktu.perf_counter() - t0) * 1000, "[tahap] " + nama))
+
+
 def tampilkan_debug(eng, t0):
     """Ringkasan kinerja satu kali eksekusi skrip, di bagian bawah halaman (hanya dengan ?debug=1)."""
     total = (_waktu.perf_counter() - t0) * 1000
-    q = list(st.session_state.get("_dbg_q", []))
+    semua = list(st.session_state.get("_dbg_q", []))
+    q = [x for x in semua if not x[1].startswith("[tahap]")]
     rtt = None
     try:
         with eng.connect() as c:
@@ -673,7 +712,7 @@ def tampilkan_debug(eng, t0):
                f"1 bolak-balik jaringan ke database ≈ {('%.0f ms' % rtt) if rtt is not None else '?'}, "
                f"seluruh skrip sampai di sini {total:.0f} ms")
     with st.expander("Rincian kueri (debug)"):
-        st.text("\n".join(f"{m:6.0f} ms  {t}" for m, t in q) or "(tidak ada kueri)")
+        st.text("\n".join(f"{m:6.0f} ms  {t}" for m, t in semua) or "(tidak ada kueri)")
 
 
 def coba_ulang(fn):
@@ -1098,16 +1137,23 @@ def get_absensi_bulan(eng, tahun, bulan):
 
 
 def get_absensi_hari_foto(eng, tanggal):
+    """Daftar absen satu hari TANPA isi foto (kolom foto bisa berukuran besar): ada_foto_db menandai foto yang tersimpan di database,
+    isinya diambil terpisah (foto_db_by_id) hanya untuk baris yang dibuka."""
     q = (
         select(
-            absensi_t.c.nama, absensi_t.c.jam, absensi_t.c.jenis, absensi_t.c.status,
-            absensi_t.c.jarak, absensi_t.c.foto, absensi_t.c.foto_path,
+            absensi_t.c.id, absensi_t.c.nama, absensi_t.c.jam, absensi_t.c.jenis, absensi_t.c.status,
+            absensi_t.c.jarak, absensi_t.c.foto_path, absensi_t.c.foto.isnot(None).label("ada_foto_db"),
         )
         .where(absensi_t.c.tanggal == tanggal)
         .order_by(absensi_t.c.jam)
     )
     with eng.connect() as c:
         return c.execute(q).mappings().all()
+
+
+def foto_db_by_id(eng, absensi_id):
+    with eng.connect() as c:
+        return c.execute(select(absensi_t.c.foto).where(absensi_t.c.id == absensi_id)).scalar()
 
 
 # ------------------------------------------------------------------
@@ -4445,7 +4491,8 @@ def halaman_analitik(eng):
         st.info("Belum ada data absensi pada filter ini.")
         return
 
-    eda = siapkan_eda(df, peserta_df)
+    with ukur("siapkan_eda"):
+        eda = siapkan_eda(df, peserta_df)
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Absen masuk berhasil", eda["n_masuk"])
     m2.metric("Rata-rata hadir/hari", f"{eda['rata_hadir']:.1f}")
@@ -4459,7 +4506,8 @@ def halaman_analitik(eng):
     else:
         st.caption("Belum cukup data untuk membuat temuan.")
 
-    grafik = grafik_eda(eda)
+    with ukur("grafik_eda"):
+        grafik = grafik_eda(eda)
     st.subheader("Tren kehadiran harian")
     st.caption("Jumlah peserta per hari: hadir, terlambat, izin, dan cuti.")
     st.altair_chart(grafik["tren"], width="stretch")
@@ -4693,6 +4741,13 @@ def _ringkas_model(m):
         st.bar_chart(penting, horizontal=True)
 
 
+@st.cache_data(ttl=600, max_entries=20, show_spinner=False)
+def _anomali_cache(df, peserta_df, gedung_coord, persen):
+    """Isolation Forest (200 pohon) hasilnya tetap untuk data dan sensitivitas yang sama (seed=42), jadi aman disimpan 10 menit."""
+    import ml_absensi as ml
+    return ml.deteksi_anomali(df, peserta_df, gedung_coord, persen=persen)
+
+
 def _tab_anomali(eng, ml):
     hari_ini = datetime.now(WITA).date()
     c1, c2 = st.columns(2)
@@ -4705,7 +4760,9 @@ def _tab_anomali(eng, ml):
         st.error("Tanggal awal tidak boleh setelah tanggal akhir.")
         return
     try:
-        hasil = ml.deteksi_anomali(get_absensi_lengkap(eng, awal, akhir), list_peserta(eng), GEDUNG_COORD, persen=persen)
+        data_anomali = get_absensi_lengkap(eng, awal, akhir)
+        with ukur("deteksi anomali (cache 10 menit)"):
+            hasil = _anomali_cache(data_anomali, list_peserta(eng), GEDUNG_COORD, persen)
     except ml.DataKurang as e:
         st.info(str(e))
         return
@@ -5269,12 +5326,16 @@ def halaman_foto(eng):
     pilih = st.selectbox("Pilih nama peserta", daftar_nama)
     milik = [r for r in rows if r["nama"] == pilih]
     st.caption(f"{len(milik)} catatan absen pada tanggal ini. Klik baris untuk melihat fotonya.")
+    with ukur("unduh foto paralel"):
+        unduh_foto_paralel([r["foto_path"] for r in milik])
 
     for r in milik:
         ikon = "✅" if r["status"] == "berhasil" else "❌"
         judul = f"{ikon} {r['jam']} • {r['jenis']} • {(r['jarak'] or 0):.0f} m"
         with st.expander(judul):
-            isi = ambil_foto(r["foto"], r["foto_path"])
+            isi = ambil_foto(None, r["foto_path"])                                   # dari Storage (di-cache 10 menit)
+            if not isi and r["ada_foto_db"]:
+                isi = ambil_foto(foto_db_by_id(eng, r["id"]), None)                  # foto lama yang tersimpan di database
             if isi:
                 st.image(isi, width=170)
                 st.caption("Disimpan di Supabase Storage" if r["foto_path"] else "Disimpan di database")
