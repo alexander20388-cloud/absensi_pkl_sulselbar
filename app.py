@@ -1839,7 +1839,6 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 .pr-cta.off { background: #dbe6ee; color: #3f5a70; box-shadow: none; }
 .pr-cta.off .ic { background: rgba(63,90,112,.14); }
 .st-key-ov_cta button:disabled { cursor: not-allowed; }
-.st-key-drawer { left: max(0px, calc(50vw - 215px)) !important; }   /* drawer sejajar dengan kolom aplikasi di layar lebar */
 
 /* ---------- halaman dalam ---------- */
 .pr-page-head { background: linear-gradient(135deg, #0a5a8f 0%, #063f6b 100%); color: #fff;
@@ -1866,7 +1865,6 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
    HP dan tablet kecil (di bawah 900px) tidak terpengaruh sama sekali. ---------- */
 @media (min-width: 900px) {
   [data-testid="stMainBlockContainer"], .block-container { max-width: 900px !important; }
-  .st-key-drawer { left: max(0px, calc(50vw - 450px)) !important; }   /* drawer tetap sejajar dengan tepi kiri kolom */
   .st-key-pagebody [data-testid="stCameraInput"] { max-width: 520px; margin-left: auto; margin-right: auto; }   /* kamera selfie jangan raksasa */
 }
 
@@ -2134,16 +2132,30 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
   [data-testid="stElementContainer"]:has(.auth-head, .auth-foot), [data-testid="stMarkdownContainer"]:has(.auth-head, .auth-foot) { overflow: visible !important; }
   .auth-head { overflow: visible; }
   .auth-head::before {                                  /* latar putih bagian atas, selebar layar */
-    content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%);
+    content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: calc(100vw / var(--z, 1)); transform: translateX(-50%);
     background: #fff; z-index: -1;
   }
-  .auth-head::after { left: 50%; right: auto; width: 100vw; transform: translateX(-50%); }   /* pita biru + garis hijau lengkung, selebar layar */
+  .auth-head::after { left: 50%; right: auto; width: calc(100vw / var(--z, 1)); transform: translateX(-50%); }   /* pita biru + garis hijau lengkung, selebar layar */
   .auth-foot { background: none; }
   .auth-foot::before {                                  /* lengkung hijau bawah, selebar layar */
-    content: ""; position: absolute; left: 50%; top: 0; width: 100vw; height: 180px; transform: translateX(-50%); z-index: -1;
+    content: ""; position: absolute; left: 50%; top: 0; width: calc(100vw / var(--z, 1)); height: 180px; transform: translateX(-50%); z-index: -1;
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 180' preserveAspectRatio='none'%3E%3Cpath d='M0 65C120 125 270 130 400 18V40C270 150 120 145 0 83Z' fill='%238cc63f'/%3E%3Cpath d='M0 86C120 148 270 153 400 43' fill='none' stroke='white' stroke-opacity='.9' stroke-width='1.4'/%3E%3C/svg%3E") center top / 100% 180px no-repeat;
   }
 }
+
+/* ---------- skala login di layar laptop / PC: tampilan mengikuti lebar layar, bukan ukuran huruf bawaan.
+   Layar dengan skala Windows 150% (lebar CSS ~1280px) membuat kotak login tampak 1,5x lebih besar daripada di layar 1920px;
+   di sini semua dikecilkan seperlunya supaya proporsinya sama seperti di layar 1920px (zoom 100%).
+   HP dan tablet (di bawah 900px, atau tanpa mouse) tidak terpengaruh. ---------- */
+@media (min-width: 900px) and (hover: hover) {
+  :root { --z: .67; }
+  [data-testid="stMainBlockContainer"], .block-container { zoom: var(--z); }
+}
+@media (min-width: 1400px) and (hover: hover) { :root { --z: .75; } }
+@media (min-width: 1600px) and (hover: hover) { :root { --z: .85; } }
+@media (min-width: 1800px) and (hover: hover) { :root { --z: 1; } }
+@media (min-width: 2200px) and (hover: hover) { :root { --z: 1.3; } }
+@media (min-width: 2800px) and (hover: hover) { :root { --z: 1.5; } }
 </style>
 """
 
