@@ -1866,7 +1866,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
    HP dan tablet kecil (di bawah 900px) tidak terpengaruh sama sekali. ---------- */
 @media (min-width: 900px) {
   [data-testid="stMainBlockContainer"], .block-container { max-width: 900px !important; }
-  .st-key-drawer { left: 0 !important; }   /* di laptop/PC menu hamburger menempel di tepi kiri layar, bukan di tepi kolom */
+  .st-key-drawer { left: max(0px, calc(50vw - 450px)) !important; }   /* drawer tetap sejajar dengan tepi kiri kolom */
   .st-key-pagebody [data-testid="stCameraInput"] { max-width: 520px; margin-left: auto; margin-right: auto; }   /* kamera selfie jangan raksasa */
 }
 
@@ -2143,47 +2143,6 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
     content: ""; position: absolute; left: 50%; top: 0; width: 100vw; height: 180px; transform: translateX(-50%); z-index: -1;
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 180' preserveAspectRatio='none'%3E%3Cpath d='M0 65C120 125 270 130 400 18V40C270 150 120 145 0 83Z' fill='%238cc63f'/%3E%3Cpath d='M0 86C120 148 270 153 400 43' fill='none' stroke='white' stroke-opacity='.9' stroke-width='1.4'/%3E%3C/svg%3E") center top / 100% 180px no-repeat;
   }
-}
-
-/* ---------- laptop / PC: tampilan login mengecil mengikuti TINGGI jendela supaya muat tanpa scroll.
-   --u = skala (maks. 1px). Desain acuan setinggi 680px; makin pendek jendelanya (atau makin besar zoom browser),
-   makin kecil semua ukuran, termasuk lebar kolom. Jendela yang tinggi tetap memakai ukuran penuh (u = 1px). ---------- */
-@media (min-width: 900px) {
-  html { --u: max(0.55px, min(1px, calc(100vh / 680))); }
-  [data-testid="stMainBlockContainer"], .block-container {
-    max-width: calc(460 * var(--u)) !important; min-height: 0 !important;
-    padding-bottom: calc(8 * var(--u)) !important;
-  }
-  .auth-head { height: calc(225 * var(--u)); padding: calc(18 * var(--u)) calc(30 * var(--u)) 0; }
-  .auth-head::after { height: calc(58 * var(--u)); background-size: 100% calc(58 * var(--u)); }
-  .auth-logo-img { width: 78%; max-width: calc(250 * var(--u)); margin: calc(8 * var(--u)) auto calc(18 * var(--u)); }
-  .auth-greet { margin-top: 0; font-size: calc(24 * var(--u)); }
-  .auth-desc { margin-top: calc(4 * var(--u)); font-size: max(11px, calc(13 * var(--u))); }
-  .st-key-loginbody {
-    width: calc(100% - 44 * var(--u)) !important; margin: calc(-30 * var(--u)) calc(22 * var(--u)) 0;
-    border-radius: calc(22 * var(--u)); padding: calc(8 * var(--u)) calc(19 * var(--u)) calc(20 * var(--u));
-  }
-  .st-key-loginbody, .st-key-loginbody > [data-testid="stVerticalBlock"] { gap: calc(10 * var(--u)) !important; }
-  .st-key-loginbody [data-testid="stForm"] [data-testid="stVerticalBlock"] { gap: calc(10 * var(--u)) !important; }
-  .st-key-loginbody [data-testid="stRadio"] { margin-bottom: calc(4 * var(--u)); }
-  .seg { height: calc(44 * var(--u)); margin-bottom: calc(4 * var(--u)); }
-  .seg-on { font-size: max(12px, calc(15 * var(--u))); }
-  .st-key-loginbody [data-testid="stRadioOption"] { padding: calc(10 * var(--u)) calc(8 * var(--u)); min-height: calc(44 * var(--u)); }
-  .st-key-loginbody [data-testid="stRadioOption"] p { font-size: max(12px, calc(15 * var(--u))); }
-  .st-key-loginbody [data-testid="stWidgetLabel"] { margin-bottom: calc(4 * var(--u)); }
-  .st-key-loginbody [data-testid="stWidgetLabel"] p { font-size: max(11px, calc(13 * var(--u))); }
-  .st-key-loginbody [data-baseweb="base-input"],
-  .st-key-loginbody [data-baseweb="select"] > div,
-  .st-key-loginbody [data-testid="stSelectbox"] [data-baseweb="select"] > div,
-  .st-key-loginbody [data-testid="stSelectbox"] div:has(> input),
-  .st-key-loginbody [data-testid="stSelectbox"] div:has(> div > input),
-  .st-key-loginbody [data-testid="stTextInputRootElement"] { min-height: calc(44 * var(--u)) !important; height: calc(44 * var(--u)) !important; }
-  .st-key-loginbody [data-testid="stTextInputRootElement"] input { height: calc(42 * var(--u)); font-size: max(12px, calc(14 * var(--u))); }
-  .st-key-loginbody button[kind="primaryFormSubmit"], .st-key-loginbody button[kind="primary"] {
-    min-height: calc(48 * var(--u)) !important; border-radius: calc(15 * var(--u)) !important; font-size: max(12px, calc(15 * var(--u)));
-  }
-  .auth-foot { height: calc(110 * var(--u)); padding-top: calc(30 * var(--u)); margin-bottom: 0; font-size: max(10px, calc(11 * var(--u))); }
-  .auth-foot::before { height: calc(110 * var(--u)); background-size: 100% calc(110 * var(--u)); }
 }
 </style>
 """
