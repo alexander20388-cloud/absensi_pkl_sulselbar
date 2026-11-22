@@ -1862,6 +1862,14 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 .pr-stat span { font-size: 13px; }
 .st-key-pagebody [data-testid="stButton"] button[kind="primary"] { background: #0a5a8f; border: 0; border-radius: 14px; }
 
+/* ---------- layar laptop / PC (min. 900px): halaman peserta lebih lebar, tetap SATU kolom.
+   HP dan tablet kecil (di bawah 900px) tidak terpengaruh sama sekali. ---------- */
+@media (min-width: 900px) {
+  [data-testid="stMainBlockContainer"], .block-container { max-width: 900px !important; }
+  .st-key-drawer { left: max(0px, calc(50vw - 450px)) !important; }   /* drawer tetap sejajar dengan tepi kiri kolom */
+  .st-key-pagebody [data-testid="stCameraInput"] { max-width: 520px; margin-left: auto; margin-right: auto; }   /* kamera selfie jangan raksasa */
+}
+
 </style>
 """
 
@@ -2113,6 +2121,28 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
   position: relative; z-index: 1; height: 180px; box-sizing: border-box; padding-top: 36px; text-align: center; margin-bottom: 72px;
   color: rgba(255,255,255,.88); font-size: 11px; line-height: 16px;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 180' preserveAspectRatio='none'%3E%3Cpath d='M0 65C120 125 270 130 400 18V40C270 150 120 145 0 83Z' fill='%238cc63f'/%3E%3Cpath d='M0 86C120 148 270 153 400 43' fill='none' stroke='white' stroke-opacity='.9' stroke-width='1.4'/%3E%3C/svg%3E") center top / 100% 180px no-repeat;
+}
+
+/* ---------- layar laptop / PC (min. 900px): latar putih, biru, dan lengkung hijau membentang PENUH kiri-kanan.
+   Kotak login, logo, dan sapaan tetap di kolom tengah 460px. HP (di bawah 900px) tidak terpengaruh. ---------- */
+@media (min-width: 900px) {
+  html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"], section.stMain {
+    background: linear-gradient(180deg, #0a5a8f 0, #0a5a8f 480px, #063f6b 100%) !important;
+  }
+  [data-testid="stMainBlockContainer"], .block-container { overflow-x: visible !important; background: transparent !important; }
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"],
+  [data-testid="stElementContainer"]:has(.auth-head, .auth-foot), [data-testid="stMarkdownContainer"]:has(.auth-head, .auth-foot) { overflow: visible !important; }
+  .auth-head { overflow: visible; }
+  .auth-head::before {                                  /* latar putih bagian atas, selebar layar */
+    content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%);
+    background: #fff; z-index: -1;
+  }
+  .auth-head::after { left: 50%; right: auto; width: 100vw; transform: translateX(-50%); }   /* pita biru + garis hijau lengkung, selebar layar */
+  .auth-foot { background: none; }
+  .auth-foot::before {                                  /* lengkung hijau bawah, selebar layar */
+    content: ""; position: absolute; left: 50%; top: 0; width: 100vw; height: 180px; transform: translateX(-50%); z-index: -1;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 180' preserveAspectRatio='none'%3E%3Cpath d='M0 65C120 125 270 130 400 18V40C270 150 120 145 0 83Z' fill='%238cc63f'/%3E%3Cpath d='M0 86C120 148 270 153 400 43' fill='none' stroke='white' stroke-opacity='.9' stroke-width='1.4'/%3E%3C/svg%3E") center top / 100% 180px no-repeat;
+  }
 }
 </style>
 """
