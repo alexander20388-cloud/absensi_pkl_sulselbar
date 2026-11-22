@@ -1255,41 +1255,6 @@ def excel_bytes(rekap, detail):
 # EXCEL FORMAT TEMPLATE (satu sheet per peserta)
 # ------------------------------------------------------------------
 TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template_absen.xlsx")
-# Penandatangan di bagian bawah Excel, tergantung divisi peserta: (nama, jabatan).
-# Divisi yang masih ("", "") akan dikosongkan di Excel (bukan memakai nama divisi lain),
-# dan admin diberi peringatan. Kalau datanya sudah ada, isi di sini, contoh:
-#   "Divisi Kepatuhan": ("Nama Pimpinan", "Pimdept. Kepatuhan"),
-PENANDATANGAN = {
-    "Divisi Manajemen Risiko": ("Faisal Hafiz", "Pimdept. Risiko Operasional, TI & Lainnya"),
-    # --- Gedung A ---
-    "Divisi Korporasi dan Komersial": ("", ""),
-    "Divisi Ritel dan Konsumer": ("", ""),
-    "Divisi Corporate Secretary (CORSEC)": ("", ""),
-    "Divisi Human Capital": ("", ""),
-    "Divisi SIMO": ("", ""),
-    "Divisi Keuangan dan Akuntansi": ("", ""),
-    "Divisi Treasury": ("", ""),
-    "Divisi Teknologi dan Informasi": ("", ""),
-    "Divisi International Banking": ("", ""),
-    "Divisi Digitalisasi dan Layanan": ("", ""),
-    "Divisi Umum": ("", ""),
-    # --- Gedung B ---
-    "Divisi Kepatuhan": ("", ""),
-    "Divisi Dana dan Jasa": ("", ""),
-    "Divisi Syariah": ("", ""),
-    "Divisi SKAI": ("", ""),
-}
-
-
-def cari_penandatangan(divisi):
-    """(nama, jabatan) penandatangan untuk divisi itu; ("", "") kalau belum diisi."""
-    kunci = (divisi or "").strip().lower()
-    for k, v in PENANDATANGAN.items():
-        if k.strip().lower() == kunci:
-            nama, jabatan = (v[0] or "").strip(), (v[1] or "").strip()
-            if nama or jabatan:                      # lewati entri kosong kalau ada entri lain yang berisi
-                return nama, jabatan
-    return "", ""
 
 
 def _peta_peserta(eng):
@@ -1299,22 +1264,6 @@ def _peta_peserta(eng):
         d, rek = r.get("divisi"), r.get("no_rekening")
         peta[r["nama"]] = {"divisi": d if isinstance(d, str) else None, "no_rekening": rek if isinstance(rek, str) else None}
     return peta
-
-
-def divisi_tanpa_penandatangan(eng, daftar_nama):
-    """Daftar divisi (dari peserta yang akan diekspor) yang penandatangannya belum diisi."""
-    hasil = []
-    peta = _peta_peserta(eng)
-    for nama in daftar_nama:
-        info = peta.get(nama)
-        divisi = (info["divisi"] if info else "") or "(tanpa divisi)"
-        if not any(cari_penandatangan(divisi)) and divisi not in hasil:
-            hasil.append(divisi)
-    return hasil
-
-
-BULAN_TTD = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli",
-             "Agustus", "September", "Oktober", "November", "Desember"]
 
 
 def _nama_sheet(nama, dipakai):
@@ -1341,15 +1290,13 @@ def _salin_gaya(src, dst, nilai=None):
 
 
 def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir):
-    """Isi satu sheet memakai gaya dari sheet 'Template' (kolom B..G).
+    """Isi satu sheet memakai gaya dari sheet 'Template' (kolom B..G): identitas (nama, unit kerja, no. rekening) + tabel, tanpa tanda tangan.
     hari = {tanggal_iso: jam_masuk}, pulang = {tanggal_iso: (jam_pulang, uang_makan)},
     izin / cuti = {tanggal_iso: alasan}."""
     isi = {
         "{nama}": peserta["nama"],
         "{unit_kerja}": (peserta["divisi"] or "-").upper(),
         "{no_rek}": peserta["no_rekening"] or "-",
-        "{divisi}": peserta["divisi"] or "-",
-        "{tanggal_ttd}": f"{akhir.day} {BULAN_TTD[akhir.month - 1]} {akhir.year}",
     }
 
     def ganti(v):
@@ -1425,19 +1372,6 @@ def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir):
     ws[f"G{jumlah}"].value = sum(int(ws[f"G{rr}"].value) for rr in range(8, jumlah)
                                  if isinstance(ws[f"G{rr}"].value, (int, float)))
 
-    geser = jumlah - 10             # footer (tanda tangan) ikut turun
-    penanda_nama, penanda_jabatan = cari_penandatangan(peserta["divisi"])
-    for sr in range(11, tpl.max_row + 1):
-        baris(sr, sr + geser)
-    for rng in tpl.merged_cells.ranges:
-        if rng.min_row >= 11:
-            ws.merge_cells(start_row=rng.min_row + geser, end_row=rng.max_row + geser,
-                           start_column=rng.min_col, end_column=rng.max_col)
-    for sr in range(11, tpl.max_row + 1):             # tulisan "Faisal Hafiz" di template selalu diganti sesuai divisi
-        if tpl[f"F{sr}"].value == "Faisal Hafiz ":
-            ws[f"F{sr + geser}"].value = penanda_nama or None
-            ws[f"F{sr + geser + 1}"].value = penanda_jabatan or None
-
     ws.page_margins = copy(tpl.page_margins)
     ws.page_setup.orientation = "portrait"
     ws.page_setup.paperSize = 9
@@ -1494,7 +1428,6 @@ def excel_template_bytes(eng, df_bulan, tahun, bulan, daftar_nama):
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
-
 
 
 # ---------- keterangan tulisan di dalam foto absen (tanggal-jam + alamat), seperti aplikasi kamera stempel waktu ----------
@@ -1801,6 +1734,8 @@ ICON = {
     "back": '<path d="m15 18-6-6 6-6"/>',
     "menu": '<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
     "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    "lock": '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    "check": '<path d="M20 6 9 17l-5-5"/>',
 }
 
 
@@ -1822,7 +1757,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 }
 [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], footer { display: none !important; }
 [data-testid="stMainBlockContainer"], .block-container {
-  max-width: 430px !important; padding: 0 0 130px 0 !important; position: relative;
+  max-width: 430px !important; padding: 0 0 32px 0 !important; position: relative;
   background: #edf3f8; min-height: 100vh; min-height: 100dvh;
 }
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { gap: 0 !important; }
@@ -1880,29 +1815,31 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; }
 [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { min-width: 0 !important; flex: 1 1 0 !important; width: auto !important; }
 
-/* penyangga di akhir halaman: memberi ruang scroll di atas navigasi bawah */
-.pr-spacer { height: 150px; }
-
 /* ---------- tombol transparan di atas tampilan custom ---------- */
 [class*="st-key-ov_"] { position: relative; }
 [class*="st-key-ov_"] [data-testid="stElementContainer"]:has(button) { position: absolute; inset: 0; z-index: 5; }
 [class*="st-key-ov_"] [data-testid="stButton"], [class*="st-key-ov_"] .stButton { height: 100%; width: 100% !important; }
 [class*="st-key-ov_"] button { width: 100% !important; height: 100% !important; opacity: 0; cursor: pointer; min-height: 0; }
-.st-key-ov_keluar { position: absolute !important; top: 30px; right: 22px; width: 52px; height: 52px; z-index: 10; }
-.st-key-ov_keluar > div:first-child { height: 52px; }
 
-/* ---------- navigasi bawah ---------- */
-.st-key-bottomnav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: min(430px, 100%);
-  background: #fff; z-index: 999; padding: 8px 6px calc(12px + env(safe-area-inset-bottom, 0px)); border-radius: 22px 22px 0 0;
-  box-shadow: 0 -6px 24px rgba(6,63,107,.10); }
-.st-key-bottomnav [data-testid="stHorizontalBlock"] { gap: 0 !important; align-items: flex-end; }
-.nv { text-align: center; color: #8da3b5; font-size: 12px; padding-top: 6px; min-height: 52px; }
-.nv svg { display: block; margin: 0 auto 3px; }
-.nv.on { color: var(--hijau-tua, #3f8f1e); font-weight: 600; background: #e9f5d6; border-radius: 14px; }
-.nv-fab { width: 64px; height: 64px; border-radius: 50%; background: linear-gradient(135deg,#0a5a8f,#063f6b);
-  color: #fff; margin: -34px auto 0; display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 8px 20px rgba(6,63,107,.45); border: 5px solid #fff; box-sizing: content-box; }
-.st-key-ov_fab { height: 64px; }
+/* ---------- tombol menu (hamburger) dan tombol absen utama ---------- */
+.pr-menu-btn { width: 46px; height: 46px; flex: none; border-radius: 14px; background: rgba(255,255,255,.18); color: #fff;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; z-index: 1; }
+.pr-dgn-menu { display: flex; align-items: center; gap: 14px; }
+.pr-cta { display: flex; align-items: center; gap: 14px; background: linear-gradient(135deg, #0a5a8f, #063f6b); color: #fff;
+  border-radius: 20px; margin: 0 22px; padding: 14px 16px; box-shadow: 0 8px 20px rgba(6,63,107,.28); position: relative; z-index: 2; }
+/* jarak atas: kartu status di atasnya menjorok 16px keluar dari pembungkusnya (margin negatif), jadi 32px = jarak 16px yang tampak */
+.st-key-ov_cta { padding-top: 32px; }
+.st-key-ov_cta [data-testid="stElementContainer"]:has(button) { top: 32px !important; }
+.st-key-ov_logbook { margin-top: 12px; }
+.pr-cta .ic { width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,.18); display: flex;
+  align-items: center; justify-content: center; flex: none; }
+.pr-cta .t { font-size: 18px; font-weight: 700; }
+.pr-cta .s { font-size: 12.5px; opacity: .9; margin-top: 2px; }
+.pr-cta .go { margin-left: auto; font-size: 26px; line-height: 1; opacity: .85; }
+.pr-cta.off { background: #dbe6ee; color: #3f5a70; box-shadow: none; }
+.pr-cta.off .ic { background: rgba(63,90,112,.14); }
+.st-key-ov_cta button:disabled { cursor: not-allowed; }
+.st-key-drawer { left: max(0px, calc(50vw - 215px)) !important; }   /* drawer sejajar dengan kolom aplikasi di layar lebar */
 
 /* ---------- halaman dalam ---------- */
 .pr-page-head { background: linear-gradient(135deg, #0a5a8f 0%, #063f6b 100%); color: #fff;
@@ -1983,7 +1920,7 @@ html, body { height: auto !important; min-height: 100%; overflow-x: hidden; over
   min-height: 100vh; min-height: 100dvh;
 }
 /* saat keyboard HP terbuka (input fokus), beri ruang ekstra supaya tombol bisa digulir ke atas keyboard */
-[data-testid="stMainBlockContainer"]:has(input:focus), .block-container:has(input:focus) { padding-bottom: 45vh !important; }
+[data-testid="stMainBlockContainer"]:has(input:not(.dr-chk):focus), .block-container:has(input:not(.dr-chk):focus) { padding-bottom: 45vh !important; }
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { gap: 0 !important; }
 
 /* ---------- petunjuk bawaan input: hilangkan "Press Enter to submit form", sisakan penghitung (0/6) ---------- */
@@ -2125,7 +2062,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
   padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important;
 }
 [data-testid="stMarkdownContainer"]:has(.auth-head), [data-testid="stMarkdownContainer"]:has(.auth-foot) { margin: 0 !important; }
-.auth-head { background: #fff; height: 478px; box-sizing: border-box; padding: 48px 30px 0; position: relative; z-index: 1; overflow: hidden; }
+.auth-head { background: #fff; height: 417px; box-sizing: border-box; padding: 48px 30px 0; position: relative; z-index: 1; overflow: hidden; }
 .auth-head::after {                                   /* tepi biru melengkung (busur) di bawah area putih */
   content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 96px; background-color: #0a5a8f;   /* biru naik sampai tepat di bawah teks 'Silakan masuk...' (gap ~13px) */
   /* garis hijau lengkung (sama gayanya dengan lengkung di footer) tepat di atas kartu */
@@ -2134,7 +2071,6 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
   border-radius: 0;
 }
 .auth-logo-img { display: block; width: 78%; max-width: 300px; height: auto; margin: 26px auto 66px; }
-.auth-brand { display: flex; align-items: center; gap: 16px; }
 .auth-logo { width: 61px; height: 61px; border-radius: 17px; background: #e8f1fa; color: #0a5a8f;
   display: flex; align-items: center; justify-content: center; flex: 0 0 61px; }
 .auth-title { font-size: 28px; font-weight: 700; color: #0a4f80; line-height: 1.1; }
@@ -2206,6 +2142,28 @@ CSS_ADMIN = """
   display: flex; align-items: center; justify-content: center; color: #fff; }
 .st-key-adminlogout { position: absolute !important; top: 32px; right: 28px; width: 50px; height: 50px; z-index: 10; }
 
+.st-key-adminlogout [data-testid="stElementContainer"], .st-key-adminlogout [data-testid="stButton"] { height: 50px; width: 50px !important; }
+.st-key-adminlogout button { width: 50px !important; height: 50px !important; opacity: 0; cursor: pointer; padding: 0; }
+.st-box { background: #f3f8fb; border: 1px solid #d3e2ed; border-radius: 14px; padding: 10px 14px; font-size: 13px; line-height: 1.7; color: #0b3a5e; margin-bottom: 8px; }
+.st-key-rt_hidden, .st-key-rt_hidden_js { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+[data-testid="stLayoutWrapper"]:has(> .st-key-rt_hidden), [data-testid="stLayoutWrapper"]:has(> .st-key-rt_hidden_js) { position: absolute !important; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+/* elemen yang isinya hanya <style> tidak boleh memakan ruang (tiap elemen menambah jarak antar-elemen) */
+[data-testid="stElementContainer"]:has(> [data-testid="stMarkdownContainer"] > style:only-child) { display: none !important; }
+.st-key-adminbody {
+  width: calc(100% - 36px) !important; margin: -44px 18px 0; background: #fff; border-radius: 26px;
+  padding: 14px 22px 26px; position: relative; z-index: 2; box-shadow: 0 8px 28px rgba(6,63,107,.12);
+}
+@media (max-width: 600px) {
+  .admin-head { padding: 28px 18px 80px; }
+  .st-key-adminlogout { right: 18px; top: 28px; }
+  .st-key-adminbody { padding: 12px 12px 22px; width: calc(100% - 20px) !important; margin-left: 10px; }
+}
+</style>
+"""
+
+# Menu hamburger (drawer) dipakai bersama oleh halaman admin dan halaman peserta.
+CSS_DRAWER = """
+<style>
 /* ---------- menu hamburger (drawer) ---------- */
 .dr-chk { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
 .admin-logo.dr-open { cursor: pointer; }
@@ -2245,22 +2203,6 @@ CSS_ADMIN = """
 .dr-foot { text-align: center; font-size: 11px; color: var(--muted); padding: 10px 0 0; }
 @keyframes drIn { from { transform: translateX(-100%); } to { transform: none; } }
 @keyframes drFade { from { opacity: 0; } to { opacity: 1; } }
-.st-key-adminlogout [data-testid="stElementContainer"], .st-key-adminlogout [data-testid="stButton"] { height: 50px; width: 50px !important; }
-.st-key-adminlogout button { width: 50px !important; height: 50px !important; opacity: 0; cursor: pointer; padding: 0; }
-.st-box { background: #f3f8fb; border: 1px solid #d3e2ed; border-radius: 14px; padding: 10px 14px; font-size: 13px; line-height: 1.7; color: #0b3a5e; margin-bottom: 8px; }
-.st-key-rt_hidden, .st-key-rt_hidden_js { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
-[data-testid="stLayoutWrapper"]:has(> .st-key-rt_hidden), [data-testid="stLayoutWrapper"]:has(> .st-key-rt_hidden_js) { position: absolute !important; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
-/* elemen yang isinya hanya <style> tidak boleh memakan ruang (tiap elemen menambah jarak antar-elemen) */
-[data-testid="stElementContainer"]:has(> [data-testid="stMarkdownContainer"] > style:only-child) { display: none !important; }
-.st-key-adminbody {
-  width: calc(100% - 36px) !important; margin: -44px 18px 0; background: #fff; border-radius: 26px;
-  padding: 14px 22px 26px; position: relative; z-index: 2; box-shadow: 0 8px 28px rgba(6,63,107,.12);
-}
-@media (max-width: 600px) {
-  .admin-head { padding: 28px 18px 80px; }
-  .st-key-adminlogout { right: 18px; top: 28px; }
-  .st-key-adminbody { padding: 12px 12px 22px; width: calc(100% - 20px) !important; margin-left: 10px; }
-}
 </style>
 """
 
@@ -2343,11 +2285,11 @@ def pindah_tab(tab):
     st.session_state.tab = tab
 
 
-def tombol_overlay(key, html, tab=None, toast=None):
+def tombol_overlay(key, html, tab=None, toast=None, nonaktif=False):
     """Tampilan custom (HTML) + tombol transparan di atasnya supaya bisa diklik."""
     with st.container(key=f"ov_{key}"):
         st.markdown(html, unsafe_allow_html=True)
-        if st.button("‎", key=f"ovb_{key}", width="stretch"):
+        if st.button("‎", key=f"ovb_{key}", width="stretch", disabled=nonaktif):
             if tab:
                 if tab == "absen":
                     st.session_state.pop("mode_absen", None)   # pilihan awal ikut kondisi hari ini
@@ -2357,27 +2299,79 @@ def tombol_overlay(key, html, tab=None, toast=None):
                 st.toast(toast, icon="ℹ️")
 
 
-def navigasi_bawah(aktif):
-    def item(ikon, label, tab):
-        return f'<div class="nv {"on" if aktif == tab else ""}">{ic(ikon, 22)}{label}</div>'
-
-    with st.container(key="bottomnav"):
-        cols = st.columns([1, 1, 1, 1, 1])
-        with cols[0]:
-            tombol_overlay("nv_beranda", item("home", "Beranda", "beranda"), tab="beranda")
-        with cols[1]:
-            tombol_overlay("nv_riwayat", item("history", "Riwayat", "riwayat"), tab="riwayat")
-        with cols[2]:
-            tombol_overlay("fab", f'<div class="nv-fab">{ic("fingerprint", 30)}</div>', tab="absen")
-        with cols[3]:
-            tombol_overlay("nv_rekap", item("chart", "Rekap", "rekap"), tab="rekap")
-        with cols[4]:
-            tombol_overlay("nv_profil", item("user", "Profil", "profil"), tab="profil")
+MENU_PESERTA = [
+    ("beranda", "Beranda", ":material/home:"),
+    ("absen", "Absen / Izin / Cuti", ":material/fingerprint:"),
+    ("riwayat", "Riwayat", ":material/history:"),
+    ("rekap", "Rekap", ":material/bar_chart:"),
+    ("logbook", "Logbook", ":material/menu_book:"),
+    ("profil", "Profil", ":material/person:"),
+]
 
 
-def header_halaman(judul, sub=""):
+def _drawer_peserta(tab_aktif, nama, peserta):
+    """Menu hamburger peserta (pengganti navigasi bawah). Buka/tutup panel terjadi di browser (kotak centang CSS),
+    jadi tanpa loading; server baru dipanggil saat salah satu menu dipilih. Tombol pembukanya (label for="drtoggle")
+    ada di header tiap halaman."""
+    tag = "div" if st.session_state.get("drawer_n", 0) % 2 == 0 else "section"   # bergantian supaya panel tertutup lagi
+    st.markdown(
+        f"<style>.st-key-drw_{tab_aktif} button {{ background: #e9f5d6 !important; color: #2f7d1e !important; }}"
+        f".st-key-drw_{tab_aktif} button:hover {{ background: #e9f5d6 !important; }}</style>"
+        f'<{tag}><input type="checkbox" id="drtoggle" class="dr-chk" aria-hidden="true"></{tag}>'
+        '<label for="drtoggle" class="dr-bg"></label>',
+        unsafe_allow_html=True,
+    )
+    with st.container(key="drawer"):
+        st.markdown(
+            f'<div class="dr-head"><div class="dr-top"><span>{ic("menu", 24)}</span></div>'
+            f'<label for="drtoggle" class="dr-x">{ic("x", 22)}</label>'
+            f'<div class="dr-t">Bank Sulselbar</div><div class="dr-s">{esc(nama)} • {esc(peserta["divisi"])}</div>'
+            '<div class="dr-m">MENU UTAMA</div></div>',
+            unsafe_allow_html=True,
+        )
+        for kode, label, ikon in MENU_PESERTA:
+            if st.button(label, key=f"drw_{kode}", icon=ikon, width="stretch"):
+                if kode == "absen":
+                    st.session_state.pop("mode_absen", None)    # pilihan awal ikut kondisi hari ini
+                st.session_state.tab = kode
+                st.session_state.drawer_n = st.session_state.get("drawer_n", 0) + 1
+                st.rerun()
+        st.markdown('<div class="dr-garis"></div>', unsafe_allow_html=True)
+        if st.button("Keluar", key="drw_keluar", icon=":material/logout:", width="stretch"):
+            keluar()
+        st.markdown('<div class="dr-foot">© Bank Sulselbar • Absensi PKL</div>', unsafe_allow_html=True)
+
+
+def header_halaman(judul, sub="", menu=False):
+    """menu=True: tampilkan tombol hamburger (hanya untuk halaman peserta yang punya _drawer_peserta)."""
     sub_html = f"<small>{sub}</small>" if sub else ""
+    if menu:
+        tombol = f'<label for="drtoggle" class="pr-menu-btn" role="button" aria-label="Buka menu">{ic("menu", 26)}</label>'
+        st.markdown(f'<div class="pr-page-head pr-dgn-menu">{tombol}<div>{judul}{sub_html}</div></div>', unsafe_allow_html=True)
+        return
     st.markdown(f'<div class="pr-page-head">{judul}{sub_html}</div>', unsafe_allow_html=True)
+
+
+def teks_tombol_absen(now, sh):
+    """(judul, keterangan, aktif, ikon) untuk tombol absen utama di Beranda; mengikuti jendela waktu yang sama dengan kotak status."""
+    f = lambda t: t.strftime("%H:%M")
+    t = now.time().replace(second=0, microsecond=0)
+    if hari_libur(now):
+        return "Absen", "Hari libur, absen tidak tersedia", False, "lock"
+    if sh["masuk"] is None and sh["cuti"] is not None:
+        return "Absen", "Kamu sedang cuti hari ini", False, "lock"
+    if sh["masuk"] is None:
+        jenis, buka, tutup = "masuk", JAM_MASUK_BUKA, JAM_MASUK_TUTUP
+    elif sh["pulang"] is None:
+        jenis, buka, tutup = "pulang", JAM_PULANG_BUKA, JAM_PULANG_TUTUP
+    else:
+        return "Absen", "Presensi hari ini sudah lengkap", False, "check"
+    judul = f"Absen {jenis.capitalize()}"
+    if t < buka:
+        return judul, f"Dibuka pukul {f(buka)} WITA", False, "lock"
+    if t > tutup:
+        return judul, f"Waktu absen {jenis} sudah lewat", False, "lock"
+    return judul, "Selfie + lokasi GPS", True, "fingerprint"
 
 
 def teks_status_hari(now, sh, html=True):
@@ -2433,10 +2427,9 @@ def tab_beranda(eng, nama, peserta):
     st.markdown(
         f"""<div class="pr-head">
 <div class="pr-top">
-<div class="pr-logo">{ic("fingerprint", 28)}</div>
+<label for="drtoggle" class="pr-menu-btn" role="button" aria-label="Buka menu">{ic("menu", 28)}</label>
 <div class="pr-title">Presensi</div>
 <div class="pr-avatar">{esc(inisial(nama))}</div>
-<div class="pr-out">{ic("logout", 26)}</div>
 </div>
 <div class="pr-hello">{salam(now.hour)} 👋</div>
 <div class="pr-name">{esc(nama)}</div>
@@ -2453,10 +2446,14 @@ def tab_beranda(eng, nama, peserta):
 </div>""",
         unsafe_allow_html=True,
     )
-    # tombol keluar transparan di atas ikon logout header
-    with st.container(key="ov_keluar"):
-        if st.button("‎", key="ovb_keluar", width="stretch"):
-            keluar()
+    judul_cta, sub_cta, aktif_cta, ikon_cta = teks_tombol_absen(now, sh)
+    tombol_overlay(
+        "cta",
+        f'<div class="pr-cta {"" if aktif_cta else "off"}"><div class="ic">{ic(ikon_cta, 28)}</div>'
+        f'<div><div class="t">{judul_cta}</div><div class="s">{sub_cta}</div></div>'
+        f'{"<div class=go>›</div>" if aktif_cta else ""}</div>',
+        tab="absen", nonaktif=not aktif_cta,
+    )
     _kartu_logbook_beranda(eng, nama)
 
 
@@ -2674,7 +2671,7 @@ def tanpa_loading():
 
 
 def tab_absen(eng, nama, peserta):
-    header_halaman("Absen", f"{nama} • Gedung {peserta['gedung']} • {peserta['divisi']}")
+    header_halaman("Absen", f"{nama} • Gedung {peserta['gedung']} • {peserta['divisi']}", menu=True)
     now = datetime.now(WITA)
     sh = get_status_hari(eng, nama, now.strftime("%Y-%m-%d"))
 
@@ -2696,7 +2693,7 @@ def tab_absen(eng, nama, peserta):
 
 
 def tab_riwayat(eng, nama):
-    header_halaman("Riwayat Presensi", "60 catatan terakhir")
+    header_halaman("Riwayat Presensi", "60 catatan terakhir", menu=True)
     rows = get_riwayat_peserta(eng, nama, tanpa_gagal=True)      # percobaan gagal tidak ditampilkan
     with st.container(key="pagebody"):
         if not rows:
@@ -2729,7 +2726,7 @@ def tab_riwayat(eng, nama):
 
 def tab_rekap(eng, nama):
     now = datetime.now(WITA)
-    header_halaman("Rekap Bulan Ini", f"{BULAN_ID[now.month - 1]} {now.year}")
+    header_halaman("Rekap Bulan Ini", f"{BULAN_ID[now.month - 1]} {now.year}", menu=True)
     prefix = now.strftime("%Y-%m-")
     rows = [r for r in get_riwayat_peserta(eng, nama, limit=400) if r["tanggal"].startswith(prefix)]
     masuk_ok = [r for r in rows if r["jenis"] == "masuk" and r["status"] == "berhasil"]
@@ -2751,7 +2748,7 @@ def tab_rekap(eng, nama):
 
 
 def tab_profil(eng, nama, peserta):
-    header_halaman("Profil", "Data peserta PKL")
+    header_halaman("Profil", "Data peserta PKL", menu=True)
     with st.container(key="pagebody"):
         st.markdown(
             f'<div class="pr-kv"><span>Nama</span><span>{esc(nama)}</span></div>'
@@ -2769,32 +2766,8 @@ def tab_profil(eng, nama, peserta):
             keluar()
 
 
-# Streamlit Cloud menaruh dua ikon melayang di pojok kanan bawah ("Manage app" dan "Hosted with Streamlit"). Ikon itu
-# dipasang platform di halaman induk, DI ATAS bingkai aplikasi, jadi tidak bisa disembunyikan atau ditimpa dari dalam
-# aplikasi. Solusinya: bilah navigasi diperpanjang ke bawah (jalur putih kosong setinggi NAV_NAIK_PX) supaya ikon
-# duduk di jalur itu dan tidak menutupi tombol. Otomatis aktif di alamat .streamlit.app; di aplikasi Android
-# "Presensi PKL" tidak dipakai karena aplikasi itu menghilangkan ikonnya sendiri.
-# Paksa dengan ?angkat=1, matikan dengan ?angkat=0.
-NAV_NAIK_PX = 56
-CSS_NAV_NAIK = f"""
-<style>
-.st-key-bottomnav {{ padding-bottom: {12 + NAV_NAIK_PX}px !important; }}
-.pr-spacer {{ height: {150 + NAV_NAIK_PX}px !important; }}
-</style>
-"""
-
-
-def nav_perlu_naik():
-    """Bilah navigasi tidak lagi diangkat (laptop/web = tepat di dasar layar, tanpa jarak; HP mengikuti tepi bawah/safe-area).
-    Masih bisa dipaksa naik dengan ?angkat=1 bila ikon 'Manage app' Streamlit Cloud menutupi tombol."""
-    try:
-        return str(st.query_params.get("angkat", "")).strip() == "1"
-    except Exception:
-        return False
-
-
 def halaman_peserta(eng, nama):
-    """Tampilan peserta setelah login: Beranda (Presensi) + Absen / Riwayat / Rekap / Profil."""
+    """Tampilan peserta setelah login: Beranda (Presensi) + Absen / Riwayat / Rekap / Logbook / Profil lewat menu hamburger."""
     peserta = get_peserta_dan_status(eng, nama)          # satu kueri: data peserta + absen hari ini (dipakai Beranda/Absen)
     if peserta is None:
         st.error("Data kamu tidak ditemukan (mungkin sudah dihapus admin). Silakan keluar lalu hubungi admin.")
@@ -2802,7 +2775,7 @@ def halaman_peserta(eng, nama):
             keluar()
         return
 
-    st.markdown(CSS_PRESENSI, unsafe_allow_html=True)
+    st.markdown(CSS_PRESENSI + CSS_DRAWER, unsafe_allow_html=True)
     st.markdown(CSS_PROYEK, unsafe_allow_html=True)
     if perlu_persetujuan(peserta):
         halaman_persetujuan(eng, nama)
@@ -2814,8 +2787,6 @@ def halaman_peserta(eng, nama):
         pesan_umpan = st.session_state.pop("pesan_umpan", None)
         if pesan_umpan:
             st.toast(pesan_umpan)
-    if nav_perlu_naik():
-        st.markdown(CSS_NAV_NAIK, unsafe_allow_html=True)
     tab = st.session_state.get("tab", "beranda")
     if tab == "absen":
         tab_absen(eng, nama, peserta)
@@ -2830,8 +2801,7 @@ def halaman_peserta(eng, nama):
     else:
         tab = "beranda"
         tab_beranda(eng, nama, peserta)
-    st.markdown('<div class="pr-spacer"></div>', unsafe_allow_html=True)
-    navigasi_bawah(tab)
+    _drawer_peserta(tab, nama, peserta)
 
 
 # ------------------------------------------------------------------
@@ -3074,7 +3044,7 @@ def _lb_progres(eng, nama, peserta, now):
 
 def tab_logbook(eng, nama, peserta):
     now = datetime.now(WITA)
-    header_halaman("Logbook", peserta["divisi"])
+    header_halaman("Logbook", peserta["divisi"], menu=True)
     with st.container(key="pagebody"):
         if st.button("← Beranda", key="lb_kembali"):
             st.session_state.tab = "beranda"
@@ -3264,11 +3234,11 @@ def halaman_kelola_peserta(eng):
             with st.popover(f":material/warning: {len(belum)}"):
                 st.caption(
                     f"{len(belum)} peserta belum punya nomor rekening: {', '.join(belum)}. "
-                    "Isi lewat panel Edit di bawah (di Excel akan tertulis “-” sampai diisi)."
+                    "Isi lewat panel Edit Data Peserta di bawah (di Excel akan tertulis “-” sampai diisi)."
                 )
 
     if not df.empty:
-        with st.expander("Edit Nama / Divisi / No. Rekening / Universitas/Sekolah, Jurusan & Kelas/Semester / Reset PIN"):
+        with st.expander("Edit Data Peserta"):
             if "_target_kelola_baru" in st.session_state:        # setelah ganti nama: pilih nama barunya (nilai widget tak boleh diubah setelah dibuat)
                 st.session_state["target_kelola"] = st.session_state.pop("_target_kelola_baru")
             target = st.selectbox("Pilih peserta", df["nama"], key="target_kelola", on_change=_senyap)
@@ -3373,7 +3343,7 @@ def halaman_kelola_peserta(eng):
                               + ("terpasang." if eng.indeks_unik_ok else "BELUM terpasang, cek lagi data."))
                         st.rerun()
 
-    with st.expander("🗑️ Hapus peserta dan data absensi (tidak bisa dibatalkan)"):
+    with st.expander("🗑️ Hapus Data Peserta"):
         nama_semua = sorted(set(df["nama"]) | set(daftar_nama_absensi(eng)))
         if not nama_semua:
             st.info("Belum ada peserta maupun data absensi.")
@@ -3382,6 +3352,7 @@ def halaman_kelola_peserta(eng):
                 for n in nama_semua:
                     st.session_state[f"hapus_cb::{n}"] = st.session_state["hapus_pilih_semua"]
 
+            st.warning("Penghapusan tidak bisa dibatalkan.")
             st.checkbox("Pilih semua", key="hapus_pilih_semua", on_change=_pilih_semua_hapus)
             with st.container(height=260):
                 for n in nama_semua:
@@ -3683,8 +3654,6 @@ def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
     if data:
         st.download_button("⬇️ Download Excel Peserta", data=data, width="stretch", type="primary", mime=MIME_XLSX,
                            file_name=f"ABSEN_MAGANG_{aman}_{tahun}_{bulan:02d}.xlsx")
-    if info and divisi_tanpa_penandatangan(eng, [nama]):
-        st.warning(f"Penandatangan untuk Divisi {divisi} belum diisi, jadi bagian tanda tangan di Excel dikosongkan. Isi di `PENANDATANGAN` pada app.py.")
 
 
 def halaman_rekap(eng):
@@ -3718,7 +3687,6 @@ def halaman_rekap(eng):
     aktif = int(rekap_p["Terdaftar"].sum())
     st.markdown(_html_kartu_rekap(aktif, rekap_p, f"{BULAN_ID[bulan_i - 1]} {tahun_i}"), unsafe_allow_html=True)
     st.markdown('<div class="db-judul"><div class="db-judul-t">Rekap Absensi Peserta</div></div>', unsafe_allow_html=True)
-    st.caption("Klik › di ujung baris untuk membuka detail absensi peserta itu.")
     _tabel_rekap_peserta(rekap_p, tahun_i, bulan_i)
 
     daftar_nama = sorted(df["nama"].unique())
@@ -3733,10 +3701,6 @@ def halaman_rekap(eng):
         st.warning("File **template_absen.xlsx** tidak ditemukan di folder aplikasi. Unggah file itu ke folder yang sama dengan app.py (GitHub), lalu muat ulang.")
     st.download_button("⬇️ Rekap ringkas (tabel)", data=lambda: excel_bytes(*_susun_rekap_detail(df)), width="stretch", mime=MIME_XLSX,
                        file_name=f"rekap_absensi_{tahun_i}_{bulan_i:02d}.xlsx", key="rk_dl_ringkas")
-    kurang = divisi_tanpa_penandatangan(eng, daftar_nama)
-    if kurang:
-        st.warning("Penandatangan belum diisi untuk: " + ", ".join(kurang) +
-                   ". Bagian tanda tangan di Excel untuk divisi itu dikosongkan. Isi nama dan jabatannya di `PENANDATANGAN` pada app.py.")
     st.caption("Excel per peserta ada di halaman detail (klik › pada barisnya).")
 
 
@@ -5187,7 +5151,7 @@ def ui_pembimbing(eng, aktor):
         st.info("Belum ada pembimbing.")
         return
     tabel_rapi(df.rename(columns={"nama": "Nama", "divisi": "Divisi", "dibuat": "Dibuat"}), width="stretch", hide_index=True)
-    with st.expander("Edit, reset PIN, atau hapus pembimbing"):
+    with st.expander("Edit Data Pembimbing"):
         if "_pb_target_baru" in st.session_state:                # setelah ganti nama: pilih nama barunya
             st.session_state["pb_target"] = st.session_state.pop("_pb_target_baru")
         target = st.selectbox("Pilih pembimbing", df["nama"], key="pb_target", on_change=_senyap)
@@ -5219,7 +5183,7 @@ def ui_pembimbing(eng, aktor):
                 st.error(pesan_db(e))
             else:
                 st.success("PIN diperbarui.")
-        if c2.button("Hapus pembimbing", key="pb_hapus"):
+        if c2.button("Hapus Data Pembimbing", key="pb_hapus"):
             try:
                 hapus_pembimbing(eng, target, aktor)
             except SQLAlchemyError as e:
@@ -5286,7 +5250,7 @@ def halaman_pembimbing(eng, nama):
             keluar()
         return
     divisi = b["divisi"]
-    st.markdown(CSS_ADMIN, unsafe_allow_html=True)
+    st.markdown(CSS_ADMIN + CSS_DRAWER, unsafe_allow_html=True)
     st.markdown(
         f"""<div class="admin-head"><div class="admin-top">
 <div class="admin-logo">{ic("fingerprint", 28)}</div>
@@ -5721,8 +5685,6 @@ def halaman_login(eng, hanya_peserta=False):
     st.markdown(
         f"""<div class="auth-head">
 {'<img class="auth-logo-img" alt="Bank Sulselbar Syariah First" src="data:image/png;base64,' + LOGO_ADMIN_B64 + '">' if LOGO_ADMIN_B64 else ""}
-<div class="auth-brand"><div class="auth-logo">{ic("fingerprint", 30)}</div>
-<div><div class="auth-title">{"Presensi PKL" if hanya_peserta else "Presensi"}</div><div class="auth-bank">Bank Sulselbar • Absensi PKL</div></div></div>
 <div class="auth-greet">Selamat Datang 👋</div>
 <div class="auth-desc">Silakan masuk untuk melanjutkan</div>
 </div>""",
@@ -6126,7 +6088,7 @@ def _drawer_admin(menu_aktif):
 
 def halaman_admin(eng):
     """Area admin dengan gaya visual yang selaras dengan halaman peserta."""
-    st.markdown(CSS_ADMIN, unsafe_allow_html=True)
+    st.markdown(CSS_ADMIN + CSS_DRAWER, unsafe_allow_html=True)
     nama_menu = [m[0] for m in MENU_ADMIN]
     menu = st.session_state.get("menu_admin", "Beranda")
     if menu not in nama_menu:
