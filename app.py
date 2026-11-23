@@ -1251,6 +1251,36 @@ def excel_bytes(rekap, detail):
     return buf.getvalue()
 
 
+def xlsx_tabel_bytes(df, nama_sheet="Data"):
+    """Satu tabel apa adanya ke file Excel (.xlsx): kolom terpisah rapi di semua pengaturan regional Excel
+    (CSV berkoma tampil menumpuk di kolom A pada Excel berbahasa Indonesia, yang memakai titik koma)."""
+    from openpyxl.styles import Font
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as w:
+        df.to_excel(w, sheet_name=nama_sheet, index=False)
+        ws = w.sheets[nama_sheet]
+        ws.freeze_panes = "A2"
+        for kolom in ws.columns:
+            isi = [len(str(c.value)) for c in kolom if c.value is not None]
+            ws.column_dimensions[kolom[0].column_letter].width = min(40, (max(isi) if isi else 8) + 2)
+        for c in ws[1]:
+            c.font = Font(bold=True)
+        for baris in ws.iter_rows():
+            for c in baris:
+                if c.data_type == "f":            # teks isian pengguna (mis. ulasan) yang diawali "=" tetap teks, bukan rumus
+                    c.data_type = "s"
+    return buf.getvalue()
+
+
+def tombol_unduh_tabel(df, nama_dasar, kunci, nama_sheet="Data"):
+    """Dua tombol unduh berdampingan: Excel (.xlsx, aman di semua pengaturan regional) dan CSV (berkoma, untuk Colab/Jupyter)."""
+    k1, k2 = st.columns(2)
+    k1.download_button("⬇️ Unduh Excel", data=lambda: xlsx_tabel_bytes(df, nama_sheet), file_name=nama_dasar + ".xlsx",
+                       mime=MIME_XLSX, width="stretch", key=kunci + "_xlsx")
+    k2.download_button("⬇️ Unduh CSV", data=df.to_csv(index=False).encode("utf-8"), file_name=nama_dasar + ".csv",
+                       mime="text/csv", width="stretch", key=kunci + "_csv")
+
+
 # ------------------------------------------------------------------
 # EXCEL FORMAT TEMPLATE (satu sheet per peserta)
 # ------------------------------------------------------------------
@@ -3439,7 +3469,7 @@ CSS_REKAP = """
 .st-key-rekap_tabel > * { border-bottom: 1px solid var(--garis); }
 .st-key-rekap_tabel > :has(.rk-h) { position: sticky; top: 0; z-index: 3; background: #eef2ff; }
 .st-key-rekap_tabel > :not(:has(.rk-h)):hover { background: #f3f8fb; }
-.st-key-rekap_tabel [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; min-width: 300px; gap: 0 !important; align-items: stretch !important; padding: 0 2px; margin: 0; }
+.st-key-rekap_tabel [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; min-width: 330px; gap: 0 !important; align-items: stretch !important; padding: 0 2px; margin: 0; }
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]) { align-self: stretch !important; display: flex !important; flex-direction: column; justify-content: center; padding: 4px 3px !important; }
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):not(:first-child) { border-left: 1px solid var(--garis); }
 .st-key-rekap_tabel [data-testid="stElementContainer"] { margin: 0 !important; }
@@ -3448,7 +3478,7 @@ CSS_REKAP = """
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]) { width: auto !important; min-width: 0 !important; flex: 1 1 0 !important; }
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):first-child { flex: 3 1 0 !important; }
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(7) { flex: 2.4 1 0 !important; }
-.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):last-child { flex: 0 0 28px !important; }
+.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):is(:nth-child(8), :last-child) { flex: 0 0 30px !important; }
 /* menimpa aturan tombol global panel admin (min-height 44px, border biru, !important) */
 .st-key-adminbody .st-key-rekap_tabel button[kind="secondary"] {
   min-height: 26px !important; height: 26px !important; padding: 0 !important; width: 100% !important;
@@ -3623,14 +3653,14 @@ def _html_kartu_rekap(aktif, r, label_periode):
 
 
 def _tabel_rekap_peserta(rekap, tahun, bulan):
-    """Tabel ringkas peserta dengan kolom terakhir tombol ›. Klik membuka halaman detail peserta itu."""
-    lebar = [3, 1, 1, 1, 1, 1, 2, 1]
-    judul = ["Nama", "Hadir", "Telat", "Izin", "Cuti", "Tidak Hadir", "Uang", ""]
+    """Tabel ringkas peserta dengan dua kolom tombol: 📷 (halaman bukti foto peserta itu) dan › (halaman detail absensi)."""
+    lebar = [3, 1, 1, 1, 1, 1, 2, 1, 1]
+    judul = ["Nama", "Hadir", "Telat", "Izin", "Cuti", "Tidak Hadir", "Uang", "Foto", ""]
     # Tabel punya scroll sendiri (atas-bawah dan kiri-kanan) dengan tinggi dibatasi; halaman tidak ikut memanjang.
     with st.container(key="rekap_tabel", height=min(340, 40 + 35 * len(rekap))):
         for i, (kol, t) in enumerate(zip(st.columns(lebar), judul)):
             kelas = "rk-h kiri" if i == 0 else "rk-h rk-wrap" if t == "Tidak Hadir" else "rk-h"
-            bantu = {"Telat": ' title="Terlambat"', "Uang": ' title="Uang makan"'}.get(t, "")
+            bantu = {"Telat": ' title="Terlambat"', "Uang": ' title="Uang makan"', "Foto": ' title="Bukti foto"'}.get(t, "")
             kol.markdown(f'<div class="{kelas}"{bantu}>{t}</div>', unsafe_allow_html=True)
         for i, r in enumerate(rekap.to_dict("records"), 1):
             kol = st.columns(lebar, vertical_alignment="center")
@@ -3639,7 +3669,12 @@ def _tabel_rekap_peserta(rekap, tahun, bulan):
             for k, nilai in zip(kol[1:6], (r["Hari Hadir"], r["Terlambat"], r["Izin"], r["Cuti"], r["Tidak Hadir"])):
                 k.markdown(f'<div class="rk-v">{nilai}</div>', unsafe_allow_html=True)
             kol[6].markdown(f'<div class="rk-v">{_rp(r["Total Uang Makan"])}</div>', unsafe_allow_html=True)
-            if kol[7].button("›", key=f"rk_buka_{i}", help=f"Detail absensi {r['Nama']}"):
+            if kol[7].button("📷", key=f"rk_fotobtn_{i}", help=f"Bukti foto {r['Nama']}"):
+                st.session_state["foto_detail"] = {"nama": r["Nama"], "tahun": tahun, "bulan": bulan}
+                st.session_state["menu_admin"] = "Foto"
+                st.session_state.pop("rekap_detail", None)
+                st.rerun()
+            if kol[8].button("›", key=f"rk_buka_{i}", help=f"Detail absensi {r['Nama']}"):
                 st.session_state["rekap_detail"] = {"nama": r["Nama"], "tahun": tahun, "bulan": bulan}
                 st.rerun()
 
@@ -4551,11 +4586,14 @@ def halaman_analitik(eng):
         "nama": "Nama", "hari_hadir": "Hari hadir", "terlambat": "Terlambat"})), width="stretch")
 
     st.subheader("Dataset untuk analisis lanjutan")
-    st.caption("Unduh data mentah pada filter ini (CSV) untuk dianalisis di Jupyter/Google Colab.")
-    st.download_button(
-        "⬇️ Dataset absensi (CSV)", data=df.to_csv(index=False).encode("utf-8"),
-        file_name=f"dataset_absensi_{awal.isoformat()}_{akhir.isoformat()}.csv", mime="text/csv",
-    )
+    st.caption("Unduh data mentah pada filter ini. Excel (.xlsx) untuk dibuka di Excel; CSV (berkoma) untuk Jupyter/Google "
+               "Colab. CSV sebaiknya tidak diklik dua kali di Excel berbahasa Indonesia karena kolomnya menumpuk.")
+    nama_dasar = f"dataset_absensi_{awal.isoformat()}_{akhir.isoformat()}"
+    k1, k2 = st.columns(2)
+    k1.download_button("⬇️ Dataset absensi (Excel)", data=lambda: xlsx_tabel_bytes(df, "Dataset absensi"),
+                       file_name=nama_dasar + ".xlsx", mime=MIME_XLSX, width="stretch", key="eda_xlsx")
+    k2.download_button("⬇️ Dataset absensi (CSV)", data=df.to_csv(index=False).encode("utf-8"),
+                       file_name=nama_dasar + ".csv", mime="text/csv", width="stretch", key="eda_csv")
 
 
 # ------------------------------------------------------------------
@@ -5110,8 +5148,7 @@ def ui_anggaran(eng, aktor):
     grafik = _grafik_anggaran(df)
     if grafik is not None:
         st.altair_chart(grafik, width="stretch")
-    st.download_button("⬇️ Ringkasan anggaran (CSV)", df.to_csv(index=False).encode("utf-8"),
-                       file_name=f"anggaran_{tahun}-{bulan:02d}.csv", mime="text/csv", key="ag_csv")
+    tombol_unduh_tabel(df, f"anggaran_{tahun}-{bulan:02d}", "ag", "Anggaran")
 
     st.subheader("Tetapkan anggaran")
     ver = st.session_state.get("ag_ver", 0)
@@ -5259,7 +5296,7 @@ def ui_audit(eng):
         return
     tabel_rapi(df.rename(columns={"id": "ID", "waktu": "Waktu (WITA)", "aktor": "Aktor", "peran": "Peran", "aksi": "Aksi",
                                     "objek": "Objek", "detail": "Detail"}), width="stretch", hide_index=True)
-    st.download_button("⬇️ Audit (CSV)", df.to_csv(index=False).encode("utf-8"), file_name="audit_log.csv", mime="text/csv", key="au_csv")
+    tombol_unduh_tabel(df, "audit_log", "au", "Audit")
 
 
 def halaman_proyek(eng):
@@ -5317,20 +5354,8 @@ def halaman_pembimbing(eng, nama):
 # ------------------------------------------------------------------
 # HALAMAN ADMIN: BUKTI FOTO
 # ------------------------------------------------------------------
-def halaman_foto(eng):
-    st.header("Bukti Foto Absensi")
-    if not admin_login():
-        return
-
-    tgl = st.date_input("Tanggal", value=datetime.now(WITA).date())
-    rows = [r for r in get_absensi_hari_foto(eng, tgl.strftime("%Y-%m-%d")) if r["jenis"] not in ("izin", "cuti")]
-    if not rows:
-        st.info("Tidak ada absen masuk/pulang di tanggal ini.")
-        return
-
-    daftar_nama = sorted({r["nama"] for r in rows})
-    pilih = st.selectbox("Pilih nama peserta", daftar_nama)
-    milik = [r for r in rows if r["nama"] == pilih]
+def _daftar_foto_catatan(eng, milik):
+    """Tampilkan catatan absen (list baris dari get_absensi_hari_foto) sebagai baris yang bisa dibuka untuk melihat fotonya."""
     st.caption(f"{len(milik)} catatan absen pada tanggal ini. Klik baris untuk melihat fotonya.")
     with ukur("unduh foto paralel"):
         unduh_foto_paralel([r["foto_path"] for r in milik])
@@ -5347,6 +5372,65 @@ def halaman_foto(eng):
                 st.caption("Disimpan di Supabase Storage" if r["foto_path"] else "Disimpan di database")
             else:
                 st.caption("Absen gagal lokasi: foto tidak disimpan." if r["status"] != "berhasil" else "Foto tidak tersedia.")
+
+
+def _halaman_foto_peserta(eng, det):
+    """Bukti foto SATU peserta (dibuka dari tombol 📷 di tabel Rekap): pilih tanggal di bulan rekap, lalu lihat foto masuk/pulang."""
+    nama, tahun, bulan = det["nama"], det["tahun"], det["bulan"]
+    if st.button("‹ Kembali ke rekap", key="ft_kembali"):
+        st.session_state.pop("foto_detail", None)
+        st.session_state["menu_admin"] = "Rekap"
+        st.session_state["rekap_bulan"], st.session_state["rekap_tahun"] = bulan, tahun      # rekap dibuka lagi di bulan yang sama
+        st.rerun()
+    info = get_peserta(eng, nama)
+    divisi = (info["divisi"] if info else "") or "-"
+    gedung = f"Gedung {info['gedung']}" if info else "-"
+    chip = '<span class="rk-chip">Aktif</span>' if info else '<span class="rk-chip abu">Tidak terdaftar</span>'
+    st.markdown(
+        CSS_DASHBOARD + CSS_REKAP +
+        f'<div class="rk-kartu"><div class="rk-avatar">{esc(inisial(nama))}</div><div>'
+        f'<div class="rk-nama">{esc(nama)}</div><div class="rk-sub">Divisi {esc(divisi)} • {esc(gedung)}</div>{chip}</div></div>'
+        f'<div class="rk-periode"><div class="rk-periode-t">Periode Rekap</div>'
+        f'<div class="rk-periode-g"><div>{BULAN_ID[bulan - 1]}</div><div>{tahun}</div></div></div>',
+        unsafe_allow_html=True,
+    )
+    df = get_absensi_bulan(eng, tahun, bulan)
+    punya = df[(df["nama"] == nama) & df["jenis"].isin(["masuk", "pulang"])]
+    tanggal_ada = sorted(punya["tanggal"].unique())
+    if not tanggal_ada:
+        st.info("Tidak ada absen masuk/pulang untuk peserta ini di bulan tersebut.")
+        return
+    pilih = st.selectbox("Pilih tanggal", tanggal_ada, index=len(tanggal_ada) - 1,
+                         format_func=lambda t: date.fromisoformat(t).strftime("%d/%m/%Y"),
+                         key=f"ft_tgl_{nama}_{tahun}_{bulan}")
+    rows = [r for r in get_absensi_hari_foto(eng, pilih) if r["nama"] == nama and r["jenis"] not in ("izin", "cuti")]
+    if not rows:
+        st.info("Tidak ada absen masuk/pulang di tanggal ini.")
+        return
+    _daftar_foto_catatan(eng, rows)
+
+
+def halaman_foto(eng):
+    st.header("Bukti Foto Absensi")
+    if not admin_login():
+        return
+    det = st.session_state.get("foto_detail")
+    if det:                                   # dibuka dari tabel Rekap: langsung ke peserta yang dipilih
+        try:
+            _halaman_foto_peserta(eng, det)
+        except SQLAlchemyError as e:
+            st.error(pesan_db(e))
+        return
+
+    tgl = st.date_input("Tanggal", value=datetime.now(WITA).date())
+    rows = [r for r in get_absensi_hari_foto(eng, tgl.strftime("%Y-%m-%d")) if r["jenis"] not in ("izin", "cuti")]
+    if not rows:
+        st.info("Tidak ada absen masuk/pulang di tanggal ini.")
+        return
+
+    daftar_nama = sorted({r["nama"] for r in rows})
+    pilih = st.selectbox("Pilih nama peserta", daftar_nama)
+    _daftar_foto_catatan(eng, [r for r in rows if r["nama"] == pilih])
 
 
 # ------------------------------------------------------------------
@@ -5639,8 +5723,7 @@ def halaman_umpan_balik(eng):
     if semua.empty:
         st.info("Belum ada ulasan.")
         return
-    st.download_button("⬇️ Ulasan (CSV)", semua.to_csv(index=False).encode("utf-8"), file_name="ulasan_peserta.csv",
-                       mime="text/csv", key="ub_csv")
+    tombol_unduh_tabel(semua, "ulasan_peserta", "ub", "Ulasan")
     pilih = st.radio("Status", ["(semua)", *STATUS_ULASAN], horizontal=True, key="ub_filter", label_visibility="collapsed")
     df = semua if pilih == "(semua)" else semua[semua["status"] == pilih]
     if df.empty:
@@ -5682,7 +5765,7 @@ def tampilkan_notif():
 
 def keluar():
     """Logout: hapus peran & data login, kembali ke layar login."""
-    for k in ("peran", "nama_login", "admin_ok", "tab", "rekap_detail", "drawer_admin", "menu_admin"):
+    for k in ("peran", "nama_login", "admin_ok", "tab", "rekap_detail", "foto_detail", "drawer_admin", "menu_admin"):
         st.session_state.pop(k, None)
     st.rerun()
 
@@ -5931,7 +6014,7 @@ CSS_DASHBOARD = """
 .db-catatan { font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.6; }
 @media (max-width: 600px) {
   .db-hero-n { font-size: 34px; } .db-k-n { font-size: 24px; } .db-k { padding: 10px 12px; }
-  .st-key-menu_admin [role="radiogroup"] { overflow-x: auto; }      /* 8 menu tidak muat di layar sempit: geser, jangan terhimpit */
+  .st-key-menu_admin [role="radiogroup"] { overflow-x: auto; }      /* menu tidak muat di layar sempit: geser, jangan terhimpit */
   .st-key-menu_admin [data-testid="stRadioOption"] { flex: 1 0 auto; padding: 9px 12px; }
 }
 </style>
@@ -6094,13 +6177,16 @@ MENU_ADMIN = [
     ("Model", ":material/psychology:", "Model"),
     ("Proyek", ":material/assignment:", "Proyek"),
     ("Umpan balik", ":material/rate_review:", "Umpan Balik"),
-    ("Foto", ":material/photo_camera:", "Foto Bukti"),
 ]
+# Halaman yang tidak punya tombol di hamburger menu: nama -> (judul di header, menu yang disorot di hamburger).
+# "Foto" dibuka lewat tombol 📷 di tabel Rekap.
+MENU_TERSEMBUNYI = {"Foto": ("Foto Bukti", "Rekap")}
 
 
 def _drawer_admin(menu_aktif):
     """Isi menu hamburger. Buka/tutup panel terjadi di browser (kotak centang CSS), jadi tanpa loading;
     server baru dipanggil saat salah satu menu dipilih."""
+    menu_aktif = MENU_TERSEMBUNYI[menu_aktif][1] if menu_aktif in MENU_TERSEMBUNYI else menu_aktif
     idx = [m[0] for m in MENU_ADMIN].index(menu_aktif)
     st.markdown(
         f"<style>.st-key-drw_{idx} button {{ background: #e9f5d6 !important; color: #2f7d1e !important; }}"
@@ -6121,6 +6207,7 @@ def _drawer_admin(menu_aktif):
                 st.session_state.menu_admin = nama
                 st.session_state.drawer_n = st.session_state.get("drawer_n", 0) + 1   # membuat panel tertutup kembali
                 st.session_state.pop("rekap_detail", None)
+                st.session_state.pop("foto_detail", None)
                 st.rerun()
         st.markdown('<div class="dr-garis"></div>', unsafe_allow_html=True)
         if st.button("Keluar", key="drw_keluar", icon=":material/logout:", width="stretch"):
@@ -6133,9 +6220,9 @@ def halaman_admin(eng):
     st.markdown(CSS_ADMIN + CSS_DRAWER, unsafe_allow_html=True)
     nama_menu = [m[0] for m in MENU_ADMIN]
     menu = st.session_state.get("menu_admin", "Beranda")
-    if menu not in nama_menu:
+    if menu not in nama_menu and menu not in MENU_TERSEMBUNYI:
         menu = "Beranda"
-    judul = MENU_ADMIN[nama_menu.index(menu)][2]
+    judul = MENU_TERSEMBUNYI[menu][0] if menu in MENU_TERSEMBUNYI else MENU_ADMIN[nama_menu.index(menu)][2]
     # Tag pembungkus bergantian tiap menu dipilih: React memasang ulang elemen ini sehingga kotak centang kembali kosong (panel tertutup).
     tag = "div" if st.session_state.get("drawer_n", 0) % 2 == 0 else "section"
     st.markdown(
@@ -6179,7 +6266,7 @@ def halaman_admin(eng):
             halaman_proyek(eng)
         elif menu == "Umpan balik":
             halaman_umpan_balik(eng)
-        else:
+        elif menu == "Foto":
             halaman_foto(eng)
 
 
