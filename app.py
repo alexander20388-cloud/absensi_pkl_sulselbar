@@ -1949,6 +1949,13 @@ html:has([role="dialog"] .pop-foto:not(.siap))::after { opacity: 1; pointer-even
    tombol, filter). Penanda harus segar (bukan elemen lama/stale): saat pindah KELUAR dari halaman itu, penanda lamanya stale sehingga layar putih tetap muncul. */
 html:has([data-testid="stApp"][data-test-script-state="running"]):has([data-testid="stElementContainer"]:not([data-stale="true"]) .tanpa-loading)::after { opacity: 0 !important; pointer-events: none !important; }
 [data-testid="stElementContainer"]:has(.tanpa-loading, .tl-slot) { position: absolute !important; width: 0; height: 0; margin: 0; overflow: hidden; }
+/* iframe tinggi 0 (pembaca/penulis token login di sesi.py, skrip pembantu) jangan memakan ruang: tanpa ini muncul garis/pita kosong di atas halaman
+   saat aplikasi dibuka. Kontainernya dikeluarkan dari alur tata letak (bukan display:none, supaya skrip di dalamnya tetap jalan). */
+[data-testid="stElementContainer"]:has(> iframe[height="0"], > iframe[style*="height: 0"], > [data-testid="stIFrame"] iframe[height="0"],
+  iframe[title*="streamlit_js_eval"], iframe[title*="components.v1.html"], iframe[srcdoc][height="0"]) {
+  position: absolute !important; width: 0 !important; height: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important;
+  overflow: hidden !important; border: 0 !important; opacity: 0; pointer-events: none;
+}
 html::before {
   content: ""; position: fixed; top: 0; left: 0; height: 3px; width: 0; z-index: 99999; pointer-events: none;
   background: linear-gradient(90deg, #8cc63f, #0a5a8f); opacity: 0;
