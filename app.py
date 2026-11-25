@@ -18,6 +18,7 @@ Fitur:
 Jalanin lokal:   streamlit run app.py
 """
 
+import base64
 import hashlib
 import hmac
 import io
@@ -1925,6 +1926,7 @@ iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !
 html::after {
   content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; transition: opacity .15s ease;
 }
+html:has([role="dialog"])::after { transition: opacity .15s ease .4s; }   /* ada pop-up: layar putih baru menghilang 0,4 dtk setelah skrip selesai, menunggu pop-up selesai tampil */
 html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: opacity 0s linear .05s; }
 /* Halaman yang memasang penanda .tanpa-loading (fungsi tanpa_loading()) TIDAK ditutup layar putih saat berinteraksi di dalamnya (kamera, lokasi,
    tombol, filter). Penanda harus segar (bukan elemen lama/stale): saat pindah KELUAR dari halaman itu, penanda lamanya stale sehingga layar putih tetap muncul. */
@@ -3507,7 +3509,9 @@ CSS_REKAP = """
 .st-key-detail_tabel :is([data-testid="stColumn"], [data-testid="column"]):is(:nth-child(3), :nth-child(7)) > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:has(button) { flex: 0 0 26px; width: 26px !important; }
 .st-key-adminbody .st-key-detail_tabel button[kind="secondary"] { color: var(--biru) !important; }
 .st-key-adminbody .st-key-detail_tabel button[kind="secondary"] [data-testid="stIconMaterial"] { font-size: 15px !important; }
-div[role="dialog"] [data-testid="stImage"] { display: flex; justify-content: center; }   /* foto di pop-up tepat di tengah */
+/* pop-up foto absen: lebarnya sedikit lebih dari setengah lebar layar (HP), maksimal 380px di layar lebar */
+div:has(> [role="dialog"] .pop-foto), [role="dialog"]:has(.pop-foto) { width: clamp(220px, 58vw, 380px) !important; min-width: 0 !important; max-width: none !important; }
+.pop-foto { display: block; width: 100%; height: auto; border-radius: 12px; }
 .rk-v.rk-kiri { text-align: left; white-space: normal; line-height: 1.25; word-break: break-word; }
 .rk-n .rk-sub { font-size: 10px; font-weight: 400; }
 @media (max-width: 600px) { .db-k-n { font-size: 19px; white-space: nowrap; } }
@@ -3705,7 +3709,10 @@ def _popup_foto_absen(eng, nama, tanggal_iso, jenis, jam):
             st.error(pesan_db(e))
             return
         if foto:
-            st.image(foto, width=320)
+            # Foto disisipkan langsung di HTML (data URI), bukan lewat st.image: st.image diunduh browser SESUDAH skrip selesai,
+            # sehingga layar loading sudah hilang padahal foto belum tampil.
+            b64 = base64.b64encode(foto).decode()
+            st.markdown(f'<img class="pop-foto" src="data:image/jpeg;base64,{b64}" alt="Foto absen {jenis}">', unsafe_allow_html=True)
         else:
             st.info("Foto tidak tersedia.")
 
@@ -6277,7 +6284,7 @@ def main():
     st.session_state["_dbg_q"], st.session_state["_dbg_co"] = [], 0
     st.session_state["_memo_run"] = {}
     pkl = mode_pkl()
-    st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="", layout="centered")
+    st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
     # Elemen ini SELALU ada di posisi yang sama (isinya saja yang berganti): kalau muncul/hilang, semua elemen di bawahnya bergeser dan
     # Streamlit memasang ulang halaman (tampak seperti refresh: gulir kembali ke atas, panel tertutup).
