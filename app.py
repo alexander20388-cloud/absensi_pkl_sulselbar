@@ -2522,7 +2522,7 @@ def tab_beranda(eng, nama, peserta):
 <div class="pr-title">Presensi</div>
 <div class="pr-avatar">{esc(inisial(nama))}</div>
 </div>
-<div class="pr-hello">{salam(now.hour)} 👋</div>
+<div class="pr-hello">{salam(now.hour)} </div>
 <div class="pr-name">{esc(nama)}</div>
 <div class="pr-sub">{esc(peserta["divisi"])} • Gedung {esc(peserta["gedung"])}</div>
 </div>
