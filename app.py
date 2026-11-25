@@ -1928,6 +1928,10 @@ html::after {
 }
 html:has([role="dialog"])::after { transition: opacity .15s ease .4s; }   /* ada pop-up: layar putih baru menghilang 0,4 dtk setelah skrip selesai, menunggu pop-up selesai tampil */
 html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: opacity 0s linear .05s; }
+/* Pop-up foto: layar putih TETAP menutup selama fotonya belum selesai dimuat dan digambar (kelas .siap diberikan oleh skrip kecil di dalam pop-up,
+   lihat _popup_foto_absen). Pengaman: bila skrip gagal, layar dilepas otomatis setelah 5 detik supaya tidak macet. */
+html:has([role="dialog"] .pop-foto:not(.siap))::after { opacity: 1; pointer-events: auto; transition: opacity 0s; animation: popLepas 0s linear 5s forwards; }
+@keyframes popLepas { to { opacity: 0; pointer-events: none; } }
 /* Halaman yang memasang penanda .tanpa-loading (fungsi tanpa_loading()) TIDAK ditutup layar putih saat berinteraksi di dalamnya (kamera, lokasi,
    tombol, filter). Penanda harus segar (bukan elemen lama/stale): saat pindah KELUAR dari halaman itu, penanda lamanya stale sehingga layar putih tetap muncul. */
 html:has([data-testid="stApp"][data-test-script-state="running"]):has([data-testid="stElementContainer"]:not([data-stale="true"]) .tanpa-loading)::after { opacity: 0 !important; pointer-events: none !important; }
@@ -3512,6 +3516,12 @@ CSS_REKAP = """
 /* pop-up foto absen: lebarnya sedikit lebih dari setengah lebar layar (HP), maksimal 380px di layar lebar */
 div:has(> [role="dialog"] .pop-foto), [role="dialog"]:has(.pop-foto) { width: clamp(220px, 58vw, 380px) !important; min-width: 0 !important; max-width: none !important; }
 .pop-foto { display: block; width: 100%; height: auto; border-radius: 12px; }
+/* laptop / PC (layar lebar + mouse): pop-up foto dikecilkan; HP dan tablet kecil tidak terpengaruh. Ubah --lebar-pop-foto bila perlu. */
+@media (min-width: 900px) and (hover: hover) {
+  :root { --lebar-pop-foto: 300px; }
+  div:has(> [role="dialog"] .pop-foto), [role="dialog"]:has(.pop-foto) { width: var(--lebar-pop-foto) !important; min-width: 0 !important; max-width: 92vw !important; }
+  .pop-foto { max-height: 62vh; width: auto; max-width: 100%; margin: 0 auto; object-fit: contain; }
+}
 .rk-v.rk-kiri { text-align: left; white-space: normal; line-height: 1.25; word-break: break-word; }
 .rk-n .rk-sub { font-size: 10px; font-weight: 400; }
 @media (max-width: 600px) { .db-k-n { font-size: 19px; white-space: nowrap; } }
@@ -3696,6 +3706,42 @@ def _tabel_rekap_peserta(rekap, tahun, bulan):
                 st.rerun()
 
 
+def _tandai_foto_siap():
+    """Skrip kecil (iframe tinggi 0, satu asal dengan halaman) yang menunggu foto di pop-up selesai dimuat, didekode, dan digambar browser,
+    lalu memberi kelas 'siap' pada gambarnya. CSS menahan layar loading putih sampai kelas itu ada (lihat aturan .pop-foto:not(.siap))."""
+    components.html(
+        """<script>
+(function () {
+  var d; try { d = window.parent.document; } catch (e) { return; }
+  var mulai = Date.now();
+  function selesai(img) {
+    // dua kali requestAnimationFrame: pastikan gambar benar-benar sudah dilukis sebelum layar loading dilepas
+    var w = window.parent;
+    w.requestAnimationFrame(function () { w.requestAnimationFrame(function () { img.classList.add('siap'); }); });
+  }
+  function cek() {
+    var daftar = d.querySelectorAll('img.pop-foto:not(.siap)');
+    for (var i = 0; i < daftar.length; i++) {
+      var img = daftar[i];
+      if (img.__menunggu) { continue; }
+      if (img.complete && img.naturalWidth > 0) {
+        img.__menunggu = true;
+        (function (el) {
+          if (el.decode) { el.decode().then(function () { selesai(el); }, function () { selesai(el); }); }
+          else { selesai(el); }
+        })(img);
+      }
+    }
+    if (Date.now() - mulai > 6000) { clearInterval(t); }
+  }
+  var t = setInterval(cek, 40);
+  cek();
+})();
+</script>""",
+        height=0,
+    )
+
+
 def _popup_foto_absen(eng, nama, tanggal_iso, jenis, jam):
     """Pop-up di tengah layar berisi foto absen masuk ATAU pulang (sesuai kolom yang ditekan)."""
     tgl = date.fromisoformat(tanggal_iso).strftime("%d/%m/%Y")
@@ -3713,6 +3759,7 @@ def _popup_foto_absen(eng, nama, tanggal_iso, jenis, jam):
             # sehingga layar loading sudah hilang padahal foto belum tampil.
             b64 = base64.b64encode(foto).decode()
             st.markdown(f'<img class="pop-foto" src="data:image/jpeg;base64,{b64}" alt="Foto absen {jenis}">', unsafe_allow_html=True)
+            _tandai_foto_siap()
         else:
             st.info("Foto tidak tersedia.")
 
