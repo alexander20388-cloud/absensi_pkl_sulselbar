@@ -233,9 +233,16 @@ def _unduh_storage(path):
     if not cfg:
         return None
     url, key, bucket = cfg
+    r = _SESI_STORAGE.get(f"{url}/storage/v1/object/authenticated/{bucket}/{quote(path)}", headers=_hdr(key), timeout=20)
+    if r.status_code != 200:
+        raise RuntimeError(f"unduh foto gagal ({r.status_code})")     # error TIDAK disimpan cache_data: percobaan berikutnya mengunduh ulang
+    return r.content
+
+
+def _unduh_aman(path):
+    """Foto dari cache/Storage, atau None bila gagal (kegagalan tidak di-cache, jadi bisa berhasil di percobaan berikutnya)."""
     try:
-        r = _SESI_STORAGE.get(f"{url}/storage/v1/object/authenticated/{bucket}/{quote(path)}", headers=_hdr(key), timeout=20)
-        return r.content if r.status_code == 200 else None
+        return _unduh_storage(path)
     except Exception:
         return None
 
@@ -243,7 +250,10 @@ def _unduh_storage(path):
 def unduh_foto_paralel(daftar_path):
     """Isi cache foto untuk beberapa path sekaligus (unduhan berjalan bersamaan, bukan satu per satu)."""
     daftar = [p for p in dict.fromkeys(daftar_path) if p]
-    if len(daftar) < 2:
+    if not daftar:
+        return
+    if len(daftar) == 1:
+        _unduh_aman(daftar[0])
         return
     try:
         from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
@@ -252,7 +262,7 @@ def unduh_foto_paralel(daftar_path):
         def kerja(p):
             if ctx is not None:
                 add_script_run_ctx(threading.current_thread(), ctx)
-            return _unduh_storage(p)
+            return _unduh_aman(p)
 
         with ThreadPoolExecutor(max_workers=min(6, len(daftar))) as ex:
             list(ex.map(kerja, daftar))
@@ -263,7 +273,7 @@ def unduh_foto_paralel(daftar_path):
 def ambil_foto(foto_db, foto_path):
     """Foto dari Storage (kalau ada path-nya), kalau tidak ada dari kolom foto di database."""
     if foto_path:
-        data = _unduh_storage(foto_path)
+        data = _unduh_aman(foto_path)
         if data:
             return data
     return bytes(foto_db) if foto_db else None
@@ -3768,6 +3778,27 @@ def _popup_foto_absen(eng, nama, tanggal_iso, jenis, jam):
     _isi()
 
 
+def siapkan_foto_bulan(eng, nama, tahun, bulan):
+    """Unduh (paralel) semua foto absen berhasil milik satu peserta di satu bulan ke cache, begitu halaman detail rekap dibuka, supaya
+    pop-up foto tidak perlu menunggu unduhan lagi. Hanya foto di Supabase Storage (foto di database diambil cepat saat pop-up dibuka).
+    Dibatasi sekali per 3 menit per peserta-bulan supaya klik tombol kamera tidak menambah kueri."""
+    kunci = f"_foto_siap_{nama}_{tahun}_{bulan}"
+    sekarang = _waktu.monotonic()
+    if sekarang - st.session_state.get(kunci, -1e9) < 180:
+        return
+    q = select(absensi_t.c.foto_path).where(and_(
+        absensi_t.c.nama == nama, absensi_t.c.tanggal.like(f"{tahun:04d}-{bulan:02d}-%"),
+        absensi_t.c.status == "berhasil", absensi_t.c.foto_path.isnot(None)))
+    try:
+        with eng.connect() as c:
+            daftar = [r[0] for r in c.execute(q).all()]
+    except SQLAlchemyError:
+        return                                                  # gagal menyiapkan: foto tetap diunduh saat pop-up dibuka
+    with ukur("siapkan foto"):
+        unduh_foto_paralel(daftar)
+    st.session_state[kunci] = sekarang
+
+
 def _tabel_detail_absen(eng, nama, tabel):
     """Tabel detail absensi satu peserta. Di kolom 'Absen masuk' dan 'Absen pulang', jam diikuti tombol kamera kecil di tepi kanan
     sel: ditekan, foto absen itu muncul di pop-up. Yang bisa ditekan hanya ikon kameranya, bukan jamnya."""
@@ -3783,7 +3814,7 @@ def _tabel_detail_absen(eng, nama, tabel):
             for k, jenis, kunci in ((kol[2], "masuk", "Absen masuk"), (kol[6], "pulang", "Absen pulang")):
                 jam = r[kunci]
                 k.markdown(f'<div class="rk-v">{jam}</div>', unsafe_allow_html=True)
-                if jam != "-" and k.button("", key=f"dt_{jenis}_{r['_tgl']}", icon=":material/photo_camera:", help=f"Lihat foto absen {jenis}"):
+                if jam != "-" and k.button("", key=f"dt_{jenis}_{r['_tgl']}", icon=":material/photo_camera:"):
                     _popup_foto_absen(eng, nama, r["_tgl"], jenis, jam)
             kol[3].markdown(f'<div class="rk-v">{esc(r["Status"])}</div>', unsafe_allow_html=True)
             kol[4].markdown(f'<div class="rk-v">{r["Jarak (m)"]}</div>', unsafe_allow_html=True)
@@ -3820,6 +3851,7 @@ def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
     if tabel.empty:
         st.info("Tidak ada absen yang berhasil, izin, atau cuti untuk peserta ini di bulan tersebut.")
     else:
+        siapkan_foto_bulan(eng, nama, tahun, bulan)
         _tabel_detail_absen(eng, nama, tabel)
     aman = re.sub(r"[^A-Za-z0-9]+", "_", nama).strip("_")
     try:
