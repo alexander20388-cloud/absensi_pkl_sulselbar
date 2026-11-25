@@ -3528,6 +3528,7 @@ CSS_REKAP = """
 /* pop-up foto absen: lebarnya sedikit lebih dari setengah lebar layar (HP), maksimal 380px di layar lebar */
 div:has(> [role="dialog"] .pop-foto), [role="dialog"]:has(.pop-foto) { width: clamp(220px, 58vw, 380px) !important; min-width: 0 !important; max-width: none !important; }
 .pop-foto { display: block; width: 100%; height: auto; border-radius: 12px; }
+.pop-foto-ket { margin-bottom: 10px; line-height: 1.4; font-size: 15px; color: var(--navy, #0b3a5e); }
 /* laptop / PC (layar lebar + mouse): pop-up foto dikecilkan; HP dan tablet kecil tidak terpengaruh. Ubah --lebar-pop-foto bila perlu. */
 @media (min-width: 900px) and (hover: hover) {
   :root { --lebar-pop-foto: 300px; }
@@ -3755,25 +3756,35 @@ def _tandai_foto_siap():
 
 
 def _popup_foto_absen(eng, nama, tanggal_iso, jenis, jam):
-    """Pop-up di tengah layar berisi foto absen masuk ATAU pulang (sesuai kolom yang ditekan)."""
+    """Pop-up di tengah layar berisi foto absen masuk ATAU pulang (sesuai kolom yang ditekan).
+    Foto diambil dan di-encode SEBELUM pop-up dibuka, dan keterangan + gambar dikirim dalam SATU elemen: dulu pop-up dibuka dulu baru foto
+    diambil di dalamnya, sehingga selama pengambilan itu pop-up tampil tanpa gambar (belum tertutup layar loading, tampak berkedip)."""
     tgl = date.fromisoformat(tanggal_iso).strftime("%d/%m/%Y")
+    galat, b64 = None, None
+    try:
+        foto = foto_absen_satu(eng, nama, tanggal_iso, jenis)
+        if foto:
+            b64 = base64.b64encode(foto).decode()
+    except SQLAlchemyError as e:
+        galat = pesan_db(e)
 
     @st.dialog(f"Foto absen {jenis}", width="small")
     def _isi():
-        st.markdown(f"**{esc(nama)}**  \n{tgl} • pukul {jam} WITA")
-        try:
-            foto = foto_absen_satu(eng, nama, tanggal_iso, jenis)
-        except SQLAlchemyError as e:
-            st.error(pesan_db(e))
+        if galat:
+            st.error(galat)
             return
-        if foto:
-            # Foto disisipkan langsung di HTML (data URI), bukan lewat st.image: st.image diunduh browser SESUDAH skrip selesai,
-            # sehingga layar loading sudah hilang padahal foto belum tampil.
-            b64 = base64.b64encode(foto).decode()
-            st.markdown(f'<img class="pop-foto" src="data:image/jpeg;base64,{b64}" alt="Foto absen {jenis}">', unsafe_allow_html=True)
-            _tandai_foto_siap()
-        else:
+        if not b64:
+            st.markdown(f'<div class="pop-foto-ket"><b>{esc(nama)}</b><br>{tgl} • pukul {jam} WITA</div>', unsafe_allow_html=True)
             st.info("Foto tidak tersedia.")
+            return
+        # Foto disisipkan langsung di HTML (data URI), bukan lewat st.image: st.image diunduh browser SESUDAH skrip selesai,
+        # sehingga layar loading sudah hilang padahal foto belum tampil. Keterangan dan gambar satu elemen supaya muncul bersamaan.
+        st.markdown(
+            f'<div class="pop-foto-ket"><b>{esc(nama)}</b><br>{tgl} • pukul {jam} WITA</div>'
+            f'<img class="pop-foto" src="data:image/jpeg;base64,{b64}" alt="Foto absen {jenis}">',
+            unsafe_allow_html=True,
+        )
+        _tandai_foto_siap()
 
     _isi()
 
