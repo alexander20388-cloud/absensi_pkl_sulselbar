@@ -5909,7 +5909,7 @@ def halaman_login(eng, hanya_peserta=False):
     st.markdown(
         f"""<div class="auth-head">
 {'<img class="auth-logo-img" alt="Bank Sulselbar Syariah First" src="data:image/png;base64,' + LOGO_ADMIN_B64 + '">' if LOGO_ADMIN_B64 else ""}
-<div class="auth-greet">Selamat Datang 👋</div>
+<div class="auth-greet">Selamat Datang </div>
 <div class="auth-desc">Silakan masuk untuk melanjutkan</div>
 </div>""",
         unsafe_allow_html=True,
