@@ -6277,7 +6277,7 @@ def main():
     st.session_state["_dbg_q"], st.session_state["_dbg_co"] = [], 0
     st.session_state["_memo_run"] = {}
     pkl = mode_pkl()
-    st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="📍", layout="centered")
+    st.set_page_config(page_title="Presensi PKL" if pkl else "Presensi - Bank Sulselbar", page_icon="", layout="centered")
     st.markdown(CSS_TEMA, unsafe_allow_html=True)
     # Elemen ini SELALU ada di posisi yang sama (isinya saja yang berganti): kalau muncul/hilang, semua elemen di bawahnya bergeser dan
     # Streamlit memasang ulang halaman (tampak seperti refresh: gulir kembali ke atas, panel tertutup).
