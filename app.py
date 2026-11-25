@@ -57,9 +57,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
-from streamlit_js_eval import get_geolocation
+from streamlit_js_eval import get_geolocation, streamlit_js_eval
 
 import proyek
+import sesi
 
 # ------------------------------------------------------------------
 # KONFIGURASI - SESUAIKAN BAGIAN INI
@@ -5864,9 +5865,51 @@ def tampilkan_notif():
 
 def keluar():
     """Logout: hapus peran & data login, kembali ke layar login."""
-    for k in ("peran", "nama_login", "admin_ok", "tab", "rekap_detail", "drawer_admin", "menu_admin"):
+    for k in ("peran", "nama_login", "admin_ok", "tab", "rekap_detail", "drawer_admin", "menu_admin", "_sesi_simpan"):
         st.session_state.pop(k, None)
+    st.session_state["_sesi_dicek"] = True      # jangan pulihkan login otomatis di sesi ini
+    st.session_state["_sesi_hapus"] = True      # token di perangkat dihapus oleh main() pada eksekusi berikutnya
     st.rerun()
+
+
+# ------------------------------------------------------------------
+# LOGIN YANG BERTAHAN (khusus peserta, khusus aplikasi PKL ?mode=pkl)
+# ------------------------------------------------------------------
+def _kunci_sesi():
+    """Kunci penandatangan token. Boleh diatur khusus lewat Secrets `sesi_kunci`; bila tidak, memakai admin_password."""
+    return str(secret("sesi_kunci") or secret("admin_password") or "kunci-lokal-absensi-pkl")
+
+
+def _sesi_minta_simpan(eng, nama):
+    """Buat token untuk peserta `nama`; disimpan ke perangkat oleh main() pada eksekusi berikutnya."""
+    p = get_peserta(eng, nama)
+    if p is not None:
+        st.session_state["_sesi_simpan"] = sesi.buat_token(nama, _kunci_sesi(), sesi.sidik_pin(p["pin_hash"]))
+
+
+def _sesi_pulihkan(eng):
+    """Aplikasi PKL, belum login: baca token dari perangkat dan masuk otomatis bila sah. Hanya peserta."""
+    if st.session_state.get("_sesi_dicek"):
+        return
+    token = streamlit_js_eval(js_expressions=sesi.JS_BACA, key="sesi_baca")
+    if token is None:                       # komponen belum membalas (muat pertama): tunggu, jangan tampilkan layar login dulu
+        st.caption("Memuat…")
+        st.stop()
+    st.session_state["_sesi_dicek"] = True
+    if not token:
+        return
+
+    def sidik_dari_nama(n):
+        p = get_peserta(eng, n)
+        return None if p is None else sesi.sidik_pin(p["pin_hash"])
+
+    nama = sesi.baca_token(token, _kunci_sesi(), sidik_dari_nama)
+    if nama:
+        st.session_state.peran = "user"
+        st.session_state.nama_login = nama
+        _sesi_minta_simpan(eng, nama)       # perpanjang masa berlaku tiap aplikasi dibuka
+    else:
+        st.session_state["_sesi_hapus"] = True   # token rusak/kedaluwarsa/PIN diganti: bersihkan
 
 
 def mode_pkl():
@@ -5941,6 +5984,8 @@ def halaman_login(eng, hanya_peserta=False):
                     if status == "ok":
                         st.session_state.peran = "user"
                         st.session_state.nama_login = nama
+                        if hanya_peserta:                       # aplikasi PKL: ingat login di perangkat ini
+                            _sesi_minta_simpan(eng, nama)
                         st.rerun()
                     elif status == "terkunci":
                         st.error(pesan_terkunci(menit))
@@ -6413,6 +6458,15 @@ def main():
             st.error(pesan_db(e))
             st.stop()
         st.session_state.skema_ok = True
+
+    if pkl and not st.session_state.get("peran"):
+        _sesi_pulihkan(eng)
+    if pkl:                                  # tulis/hapus token di perangkat (iframe tinggi 0, satu asal dengan aplikasi)
+        if st.session_state.get("_sesi_hapus"):
+            st.session_state.pop("_sesi_hapus", None)
+            components.html(sesi.js_hapus(), height=0)
+        elif st.session_state.get("_sesi_simpan"):
+            components.html(sesi.js_simpan(st.session_state.pop("_sesi_simpan")), height=0)
 
     peran = st.session_state.get("peran")
     nama = st.session_state.get("nama_login")
