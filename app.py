@@ -2124,7 +2124,8 @@ html::-webkit-scrollbar, body::-webkit-scrollbar, [data-testid="stApp"]::-webkit
   background-size: 100% 96px; background-repeat: no-repeat; background-position: center top;
   border-radius: 0;
 }
-.auth-logo-img { display: block; width: 78%; max-width: 300px; height: auto; margin: 26px auto 66px; }
+/* logo dikecilkan (dulu 78% / maks 300px). Margin atas-bawah ditambah ~7px masing-masing supaya sapaan "Selamat Datang" tetap di posisi yang sama. */
+.auth-logo-img { display: block; width: 66%; max-width: 250px; height: auto; margin: 33px auto 73px; }
 .auth-logo { width: 61px; height: 61px; border-radius: 17px; background: #e8f1fa; color: #0a5a8f;
   display: flex; align-items: center; justify-content: center; flex: 0 0 61px; }
 .auth-title { font-size: 28px; font-weight: 700; color: #0a4f80; line-height: 1.1; }
