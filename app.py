@@ -1941,7 +1941,7 @@ html:has([data-testid="stApp"][data-test-script-state="running"])::after { opaci
 /* Pop-up foto: layar putih TETAP menutup selama fotonya belum selesai dimuat dan digambar (kelas .siap diberikan oleh skrip kecil di dalam pop-up,
    lihat _popup_foto_absen). Pengaman: bila skrip gagal, layar dilepas otomatis setelah 5 detik supaya tidak macet. */
 /* dialog Streamlit punya z-index sangat tinggi: selama ada pop-up foto, layar putih dinaikkan di atasnya (dan tetap di atas sampai selesai memudar) */
-html:has([role="dialog"] .pop-foto)::after { z-index: 2147483000; }
+html:has([role="dialog"] .pop-foto)::after { z-index: 2147483000; transition: opacity .15s ease 0s; }   /* tanpa jeda 0,4 dtk: layar langsung memudar begitu foto siap */
 html:has([role="dialog"] .pop-foto:not(.siap))::after { opacity: 1; pointer-events: auto; transition: opacity 0s; animation: popLepas 0s linear 5s forwards; }
 @keyframes popLepas { to { opacity: 0; pointer-events: none; } }
 /* Halaman yang memasang penanda .tanpa-loading (fungsi tanpa_loading()) TIDAK ditutup layar putih saat berinteraksi di dalamnya (kamera, lokasi,
