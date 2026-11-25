@@ -3464,33 +3464,51 @@ def halaman_kelola_peserta(eng):
 # ------------------------------------------------------------------
 CSS_REKAP = """
 <style>
-.st-key-rekap_tabel, .st-key-rekap_tabel > [data-testid="stVerticalBlock"] { overflow: auto !important; gap: 0 !important; row-gap: 0 !important; }
-.st-key-rekap_tabel { border: 1px solid var(--garis); border-radius: 12px; padding: 0 4px; }
-.st-key-rekap_tabel > * { border-bottom: 1px solid var(--garis); }
-.st-key-rekap_tabel > :has(.rk-h) { position: sticky; top: 0; z-index: 3; background: #eef2ff; }
-.st-key-rekap_tabel > :not(:has(.rk-h)):hover { background: #f3f8fb; }
-.st-key-rekap_tabel [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; min-width: 330px; gap: 0 !important; align-items: stretch !important; padding: 0 2px; margin: 0; }
-.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]) { align-self: stretch !important; display: flex !important; flex-direction: column; justify-content: center; padding: 4px 3px !important; }
-.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):not(:first-child) { border-left: 1px solid var(--garis); }
-.st-key-rekap_tabel [data-testid="stElementContainer"] { margin: 0 !important; }
-.st-key-rekap_tabel [data-testid="stMarkdownContainer"] { min-width: 0; overflow: hidden; margin: 0 !important; }
-.st-key-rekap_tabel [data-testid="stMarkdownContainer"] p { margin: 0 !important; }
-.st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]) { width: auto !important; min-width: 0 !important; flex: 1 1 0 !important; }
+:is(.st-key-rekap_tabel, .st-key-detail_tabel), :is(.st-key-rekap_tabel, .st-key-detail_tabel) > [data-testid="stVerticalBlock"] { overflow: auto !important; gap: 0 !important; row-gap: 0 !important; }
+:is(.st-key-rekap_tabel, .st-key-detail_tabel) { border: 1px solid var(--garis); border-radius: 12px; padding: 0 4px; }
+:is(.st-key-rekap_tabel, .st-key-detail_tabel) > * { border-bottom: 1px solid var(--garis); }
+:is(.st-key-rekap_tabel, .st-key-detail_tabel) > :has(.rk-h) { position: sticky; top: 0; z-index: 3; background: #eef2ff; }
+:is(.st-key-rekap_tabel, .st-key-detail_tabel) > :not(:has(.rk-h)):hover { background: #f3f8fb; }
+:is(.st-key-rekap_tabel, .st-key-detail_tabel) [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; min-width: 330px; gap: 0 !important; align-items: stretch !important; padding: 0 2px; margin: 0; }
+:is(.st-key-rekap_tabel, .st-key-detail_tabel) :is([data-testid="stColumn"], [data-testid="column"]) { align-self: stretch !important; display: flex !important; flex-direction: column; justify-content: center; padding: 4px 3px !important; }
+:is(.st-key-rekap_tabel, .st-key-detail_tabel) :is([data-testid="stColumn"], [data-testid="column"]):not(:first-child) { border-left: 1px solid var(--garis); }
+:is(.st-key-rekap_tabel, .st-key-detail_tabel) [data-testid="stElementContainer"] { margin: 0 !important; }
+:is(.st-key-rekap_tabel, .st-key-detail_tabel) [data-testid="stMarkdownContainer"] { min-width: 0; overflow: hidden; margin: 0 !important; }
+:is(.st-key-rekap_tabel, .st-key-detail_tabel) [data-testid="stMarkdownContainer"] p { margin: 0 !important; }
+:is(.st-key-rekap_tabel, .st-key-detail_tabel) :is([data-testid="stColumn"], [data-testid="column"]) { width: auto !important; min-width: 0 !important; flex: 1 1 0 !important; }
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):first-child { flex: 3 1 0 !important; }
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(7) { flex: 2.4 1 0 !important; }
 .st-key-rekap_tabel :is([data-testid="stColumn"], [data-testid="column"]):is(:nth-child(8), :last-child) { flex: 0 0 30px !important; }
 /* menimpa aturan tombol global panel admin (min-height 44px, border biru, !important) */
-.st-key-adminbody .st-key-rekap_tabel button[kind="secondary"] {
+.st-key-adminbody :is(.st-key-rekap_tabel, .st-key-detail_tabel) button[kind="secondary"] {
   min-height: 26px !important; height: 26px !important; padding: 0 !important; width: 100% !important;
   border-radius: 8px !important; border: 1px solid var(--garis) !important; background: var(--tint) !important; box-shadow: none !important;
 }
-.st-key-adminbody .st-key-rekap_tabel button[kind="secondary"] p { font-size: 16px !important; font-weight: 700; line-height: 1; margin: 0 !important; }
+.st-key-adminbody :is(.st-key-rekap_tabel, .st-key-detail_tabel) button[kind="secondary"] p { font-size: 16px !important; font-weight: 700; line-height: 1; margin: 0 !important; }
 .rk-h { font-size: 10.5px; font-weight: 700; color: var(--muted); text-align: center; white-space: nowrap; }
 .rk-h.kiri { text-align: left; }
 .rk-h.rk-wrap { white-space: normal; line-height: 1.15; }          /* "Tidak Hadir" boleh turun ke dua baris di layar sempit */
 .rk-n { font-size: 12.5px; font-weight: 600; color: var(--navy); line-height: 1.2; white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
 .rk-v { font-size: 12.5px; color: var(--navy); text-align: center; white-space: nowrap; }
 .rk-sub { font-size: 12px; color: var(--muted); }
+/* tabel detail absensi: lebar tiap kolom, tombol jam (foto), keterangan rata kiri */
+.st-key-detail_tabel [data-testid="stHorizontalBlock"] { min-width: 600px; }
+.st-key-detail_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(1) { flex: 0.5 1 0 !important; }
+.st-key-detail_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(2) { flex: 1.4 1 0 !important; }
+.st-key-detail_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(3) { flex: 1.5 1 0 !important; }
+.st-key-detail_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(4) { flex: 1.2 1 0 !important; }
+.st-key-detail_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(5) { flex: 0.9 1 0 !important; }
+.st-key-detail_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(6) { flex: 2 1 0 !important; }
+.st-key-detail_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(7) { flex: 1.5 1 0 !important; }
+.st-key-detail_tabel :is([data-testid="stColumn"], [data-testid="column"]):nth-child(8) { flex: 1.4 1 0 !important; }
+/* kolom absen masuk/pulang: jam di tengah, tombol kamera kecil (hanya ikonnya yang bisa ditekan) di tepi kanan sel */
+.st-key-detail_tabel :is([data-testid="stColumn"], [data-testid="column"]):is(:nth-child(3), :nth-child(7)) > [data-testid="stVerticalBlock"] { flex-direction: row !important; align-items: center !important; justify-content: center; gap: 4px !important; flex-wrap: nowrap !important; width: 100%; }
+.st-key-detail_tabel :is([data-testid="stColumn"], [data-testid="column"]):is(:nth-child(3), :nth-child(7)) > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:has(.rk-v) { flex: 1 1 auto; width: auto !important; min-width: 0; }
+.st-key-detail_tabel :is([data-testid="stColumn"], [data-testid="column"]):is(:nth-child(3), :nth-child(7)) > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:has(button) { flex: 0 0 26px; width: 26px !important; }
+.st-key-adminbody .st-key-detail_tabel button[kind="secondary"] { color: var(--biru) !important; }
+.st-key-adminbody .st-key-detail_tabel button[kind="secondary"] [data-testid="stIconMaterial"] { font-size: 15px !important; }
+div[role="dialog"] [data-testid="stImage"] { display: flex; justify-content: center; }   /* foto di pop-up tepat di tengah */
+.rk-v.rk-kiri { text-align: left; white-space: normal; line-height: 1.25; word-break: break-word; }
 .rk-n .rk-sub { font-size: 10px; font-weight: 400; }
 @media (max-width: 600px) { .db-k-n { font-size: 19px; white-space: nowrap; } }
 .rk-kartu { display: flex; align-items: center; gap: 14px; background: var(--tint); border-radius: 18px; padding: 14px 16px; margin-bottom: 12px; }
@@ -3627,15 +3645,15 @@ def detail_absensi_peserta(df, nama):
     return pd.DataFrame(baris, columns=kolom), {"hadir": hadir, "terlambat": telat, "izin": izin, "cuti": cuti, "uang": uang}
 
 
-def foto_absen_peserta(eng, nama, tanggal):
-    """{'masuk': (jam, bytes|None), 'pulang': (...)} untuk satu peserta di satu tanggal (hanya absen yang berhasil).
-    Foto diambil saat dibutuhkan, bukan ikut dimuat di tabel."""
-    q = select(absensi_t.c.jenis, absensi_t.c.jam, absensi_t.c.foto, absensi_t.c.foto_path).where(and_(
+def foto_absen_satu(eng, nama, tanggal, jenis):
+    """Foto SATU absen (jenis 'masuk' atau 'pulang') milik satu peserta di satu tanggal; None kalau tidak ada.
+    Hanya absen yang berhasil punya foto. Foto diambil saat dibutuhkan (dibuka lewat pop-up), bukan ikut dimuat di tabel."""
+    q = select(absensi_t.c.foto, absensi_t.c.foto_path).where(and_(
         absensi_t.c.nama == nama, absensi_t.c.tanggal == tanggal, absensi_t.c.status == "berhasil",
-        absensi_t.c.jenis.in_(("masuk", "pulang"))))
+        absensi_t.c.jenis == jenis)).order_by(absensi_t.c.id).limit(1)
     with eng.connect() as c:
-        baris = c.execute(q).mappings().all()
-    return {r["jenis"]: (r["jam"], ambil_foto(r["foto"], r["foto_path"])) for r in baris}
+        r = c.execute(q).mappings().first()
+    return ambil_foto(r["foto"], r["foto_path"]) if r else None
 
 
 def _html_kartu_rekap(aktif, r, label_periode):
@@ -3653,14 +3671,14 @@ def _html_kartu_rekap(aktif, r, label_periode):
 
 
 def _tabel_rekap_peserta(rekap, tahun, bulan):
-    """Tabel ringkas peserta dengan dua kolom tombol: 📷 (halaman bukti foto peserta itu) dan › (halaman detail absensi)."""
-    lebar = [3, 1, 1, 1, 1, 1, 2, 1, 1]
-    judul = ["Nama", "Hadir", "Telat", "Izin", "Cuti", "Tidak Hadir", "Uang", "Foto", ""]
+    """Tabel ringkas peserta dengan satu kolom tombol: › (halaman detail absensi; foto absen dibuka dari halaman itu)."""
+    lebar = [3, 1, 1, 1, 1, 1, 2, 1]
+    judul = ["Nama", "Hadir", "Telat", "Izin", "Cuti", "Tidak Hadir", "Uang", ""]
     # Tabel punya scroll sendiri (atas-bawah dan kiri-kanan) dengan tinggi dibatasi; halaman tidak ikut memanjang.
     with st.container(key="rekap_tabel", height=min(340, 40 + 35 * len(rekap))):
         for i, (kol, t) in enumerate(zip(st.columns(lebar), judul)):
             kelas = "rk-h kiri" if i == 0 else "rk-h rk-wrap" if t == "Tidak Hadir" else "rk-h"
-            bantu = {"Telat": ' title="Terlambat"', "Uang": ' title="Uang makan"', "Foto": ' title="Bukti foto"'}.get(t, "")
+            bantu = {"Telat": ' title="Terlambat"', "Uang": ' title="Uang makan"'}.get(t, "")
             kol.markdown(f'<div class="{kelas}"{bantu}>{t}</div>', unsafe_allow_html=True)
         for i, r in enumerate(rekap.to_dict("records"), 1):
             kol = st.columns(lebar, vertical_alignment="center")
@@ -3669,18 +3687,56 @@ def _tabel_rekap_peserta(rekap, tahun, bulan):
             for k, nilai in zip(kol[1:6], (r["Hari Hadir"], r["Terlambat"], r["Izin"], r["Cuti"], r["Tidak Hadir"])):
                 k.markdown(f'<div class="rk-v">{nilai}</div>', unsafe_allow_html=True)
             kol[6].markdown(f'<div class="rk-v">{_rp(r["Total Uang Makan"])}</div>', unsafe_allow_html=True)
-            if kol[7].button("📷", key=f"rk_fotobtn_{i}", help=f"Bukti foto {r['Nama']}"):
-                st.session_state["foto_detail"] = {"nama": r["Nama"], "tahun": tahun, "bulan": bulan}
-                st.session_state["menu_admin"] = "Foto"
-                st.session_state.pop("rekap_detail", None)
-                st.rerun()
-            if kol[8].button("›", key=f"rk_buka_{i}", help=f"Detail absensi {r['Nama']}"):
+            if kol[7].button("›", key=f"rk_buka_{i}", help=f"Detail absensi {r['Nama']}"):
                 st.session_state["rekap_detail"] = {"nama": r["Nama"], "tahun": tahun, "bulan": bulan}
                 st.rerun()
 
 
+def _popup_foto_absen(eng, nama, tanggal_iso, jenis, jam):
+    """Pop-up di tengah layar berisi foto absen masuk ATAU pulang (sesuai kolom yang ditekan)."""
+    tgl = date.fromisoformat(tanggal_iso).strftime("%d/%m/%Y")
+
+    @st.dialog(f"Foto absen {jenis}", width="small")
+    def _isi():
+        st.markdown(f"**{esc(nama)}**  \n{tgl} • pukul {jam} WITA")
+        try:
+            foto = foto_absen_satu(eng, nama, tanggal_iso, jenis)
+        except SQLAlchemyError as e:
+            st.error(pesan_db(e))
+            return
+        if foto:
+            st.image(foto, width=320)
+        else:
+            st.info("Foto tidak tersedia.")
+
+    _isi()
+
+
+def _tabel_detail_absen(eng, nama, tabel):
+    """Tabel detail absensi satu peserta. Di kolom 'Absen masuk' dan 'Absen pulang', jam diikuti tombol kamera kecil di tepi kanan
+    sel: ditekan, foto absen itu muncul di pop-up. Yang bisa ditekan hanya ikon kameranya, bukan jamnya."""
+    lebar = [1, 3, 3, 3, 2, 4, 3, 3]
+    judul = ["No", "Tanggal", "Absen masuk", "Status", "Jarak (m)", "Keterangan", "Absen pulang", "Uang makan"]
+    with st.container(key="detail_tabel", height=min(420, 44 + 40 * len(tabel))):
+        for kol, t in zip(st.columns(lebar), judul):
+            kol.markdown(f'<div class="rk-h rk-wrap">{t}</div>', unsafe_allow_html=True)
+        for i, r in enumerate(tabel.to_dict("records"), 1):
+            kol = st.columns(lebar, vertical_alignment="center")
+            kol[0].markdown(f'<div class="rk-v">{i}</div>', unsafe_allow_html=True)
+            kol[1].markdown(f'<div class="rk-v">{r["Tanggal"]}</div>', unsafe_allow_html=True)
+            for k, jenis, kunci in ((kol[2], "masuk", "Absen masuk"), (kol[6], "pulang", "Absen pulang")):
+                jam = r[kunci]
+                k.markdown(f'<div class="rk-v">{jam}</div>', unsafe_allow_html=True)
+                if jam != "-" and k.button("", key=f"dt_{jenis}_{r['_tgl']}", icon=":material/photo_camera:", help=f"Lihat foto absen {jenis}"):
+                    _popup_foto_absen(eng, nama, r["_tgl"], jenis, jam)
+            kol[3].markdown(f'<div class="rk-v">{esc(r["Status"])}</div>', unsafe_allow_html=True)
+            kol[4].markdown(f'<div class="rk-v">{r["Jarak (m)"]}</div>', unsafe_allow_html=True)
+            kol[5].markdown(f'<div class="rk-v rk-kiri">{esc(r["Keterangan"])}</div>', unsafe_allow_html=True)
+            kol[7].markdown(f'<div class="rk-v">{r["Uang makan"]}</div>', unsafe_allow_html=True)
+
+
 def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
-    """Halaman detail absensi satu peserta untuk satu bulan: ringkasan, tabel per tanggal, bukti foto, dan Excel peserta."""
+    """Halaman detail absensi satu peserta untuk satu bulan: ringkasan, tabel per tanggal (jam masuk/pulang membuka foto), dan Excel peserta."""
     if st.button("‹ Kembali ke rekap", key="rk_kembali"):
         st.session_state.pop("rekap_detail", None)
         st.rerun()
@@ -3708,20 +3764,7 @@ def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
     if tabel.empty:
         st.info("Tidak ada absen yang berhasil, izin, atau cuti untuk peserta ini di bulan tersebut.")
     else:
-        tabel_rapi(beri_nomor(tabel.drop(columns="_tgl")), width="stretch")
-        tgl_foto = list(tabel.loc[tabel["Status"].isin(["Hadir", "Terlambat"]), "_tgl"])
-        pilih = st.selectbox("Lihat bukti foto: pilih tanggal", tgl_foto, index=None, placeholder="Pilih tanggal",
-                             format_func=lambda t: date.fromisoformat(t).strftime("%d/%m/%Y"), key=f"rk_foto_{nama}_{tahun}_{bulan}")
-        if pilih:
-            foto = foto_absen_peserta(eng, nama, pilih)
-            kol = st.columns(2)
-            for k, jenis, judul in ((kol[0], "masuk", "Foto absen masuk"), (kol[1], "pulang", "Foto absen pulang")):
-                jam, isi = foto.get(jenis, ("", None))
-                k.caption(f"{judul} {jam[:5]}".strip())
-                if isi:
-                    k.image(isi, width=170)
-                else:
-                    k.caption("Belum absen pulang." if jenis == "pulang" and not jam else "Foto tidak tersedia.")
+        _tabel_detail_absen(eng, nama, tabel)
     aman = re.sub(r"[^A-Za-z0-9]+", "_", nama).strip("_")
     try:
         data = excel_template_bytes(eng, df, tahun, bulan, [nama])
@@ -5374,54 +5417,10 @@ def _daftar_foto_catatan(eng, milik):
                 st.caption("Absen gagal lokasi: foto tidak disimpan." if r["status"] != "berhasil" else "Foto tidak tersedia.")
 
 
-def _halaman_foto_peserta(eng, det):
-    """Bukti foto SATU peserta (dibuka dari tombol 📷 di tabel Rekap): pilih tanggal di bulan rekap, lalu lihat foto masuk/pulang."""
-    nama, tahun, bulan = det["nama"], det["tahun"], det["bulan"]
-    if st.button("‹ Kembali ke rekap", key="ft_kembali"):
-        st.session_state.pop("foto_detail", None)
-        st.session_state["menu_admin"] = "Rekap"
-        st.session_state["rekap_bulan"], st.session_state["rekap_tahun"] = bulan, tahun      # rekap dibuka lagi di bulan yang sama
-        st.rerun()
-    info = get_peserta(eng, nama)
-    divisi = (info["divisi"] if info else "") or "-"
-    gedung = f"Gedung {info['gedung']}" if info else "-"
-    chip = '<span class="rk-chip">Aktif</span>' if info else '<span class="rk-chip abu">Tidak terdaftar</span>'
-    st.markdown(
-        CSS_DASHBOARD + CSS_REKAP +
-        f'<div class="rk-kartu"><div class="rk-avatar">{esc(inisial(nama))}</div><div>'
-        f'<div class="rk-nama">{esc(nama)}</div><div class="rk-sub">Divisi {esc(divisi)} • {esc(gedung)}</div>{chip}</div></div>'
-        f'<div class="rk-periode"><div class="rk-periode-t">Periode Rekap</div>'
-        f'<div class="rk-periode-g"><div>{BULAN_ID[bulan - 1]}</div><div>{tahun}</div></div></div>',
-        unsafe_allow_html=True,
-    )
-    df = get_absensi_bulan(eng, tahun, bulan)
-    punya = df[(df["nama"] == nama) & df["jenis"].isin(["masuk", "pulang"])]
-    tanggal_ada = sorted(punya["tanggal"].unique())
-    if not tanggal_ada:
-        st.info("Tidak ada absen masuk/pulang untuk peserta ini di bulan tersebut.")
-        return
-    pilih = st.selectbox("Pilih tanggal", tanggal_ada, index=len(tanggal_ada) - 1,
-                         format_func=lambda t: date.fromisoformat(t).strftime("%d/%m/%Y"),
-                         key=f"ft_tgl_{nama}_{tahun}_{bulan}")
-    rows = [r for r in get_absensi_hari_foto(eng, pilih) if r["nama"] == nama and r["jenis"] not in ("izin", "cuti")]
-    if not rows:
-        st.info("Tidak ada absen masuk/pulang di tanggal ini.")
-        return
-    _daftar_foto_catatan(eng, rows)
-
-
 def halaman_foto(eng):
     st.header("Bukti Foto Absensi")
     if not admin_login():
         return
-    det = st.session_state.get("foto_detail")
-    if det:                                   # dibuka dari tabel Rekap: langsung ke peserta yang dipilih
-        try:
-            _halaman_foto_peserta(eng, det)
-        except SQLAlchemyError as e:
-            st.error(pesan_db(e))
-        return
-
     tgl = st.date_input("Tanggal", value=datetime.now(WITA).date())
     rows = [r for r in get_absensi_hari_foto(eng, tgl.strftime("%Y-%m-%d")) if r["jenis"] not in ("izin", "cuti")]
     if not rows:
@@ -5765,7 +5764,7 @@ def tampilkan_notif():
 
 def keluar():
     """Logout: hapus peran & data login, kembali ke layar login."""
-    for k in ("peran", "nama_login", "admin_ok", "tab", "rekap_detail", "foto_detail", "drawer_admin", "menu_admin"):
+    for k in ("peran", "nama_login", "admin_ok", "tab", "rekap_detail", "drawer_admin", "menu_admin"):
         st.session_state.pop(k, None)
     st.rerun()
 
@@ -6207,7 +6206,6 @@ def _drawer_admin(menu_aktif):
                 st.session_state.menu_admin = nama
                 st.session_state.drawer_n = st.session_state.get("drawer_n", 0) + 1   # membuat panel tertutup kembali
                 st.session_state.pop("rekap_detail", None)
-                st.session_state.pop("foto_detail", None)
                 st.rerun()
         st.markdown('<div class="dr-garis"></div>', unsafe_allow_html=True)
         if st.button("Keluar", key="drw_keluar", icon=":material/logout:", width="stretch"):
