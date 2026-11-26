@@ -1941,10 +1941,14 @@ iframe[title="streamlit_badge"], a[href*="streamlit.io/cloud"] { display: none !
 /* ---------- loading (pindah halaman ataupun tidak): layar ditutup PUTIH solid sampai skrip selesai, lalu halaman muncul utuh. Jeda 0,15 dtk
    supaya proses yang sangat cepat tidak berkedip. Dipasang di <html> supaya tidak terpengaruh latar biru/gradasi halaman. ---------- */
 html::after {
-  content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none; transition: opacity .15s ease;
+  content: ""; position: fixed; inset: 0; z-index: 99998; background: #fff; opacity: 0; pointer-events: none;
+  transition: opacity .15s ease .2s;      /* dilepas dengan jeda 0,2 dtk: celah singkat antar-eksekusi (mis. setelah login otomatis) tidak memperlihatkan halaman setengah jadi, dan halaman sempat tergambar penuh */
 }
 html:has([role="dialog"])::after { transition: opacity .15s ease .4s; }   /* ada pop-up: layar putih baru menghilang 0,4 dtk setelah skrip selesai, menunggu pop-up selesai tampil */
-html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: opacity 0s linear .05s; }
+html:has([data-testid="stApp"][data-test-script-state="running"])::after { opacity: 1; pointer-events: auto; transition: opacity 0s; }   /* muncul seketika, tanpa jeda */
+/* Menunggu pembacaan login tersimpan di perangkat (aplikasi PKL): layar putih TETAP menutup walau skrip sudah berhenti sebentar, sampai
+   beranda tergambar. Pengaman: dilepas otomatis setelah 8 detik bila komponen tidak membalas. */
+html:has([data-testid="stElementContainer"]:not([data-stale="true"]) .sesi-tunggu)::after { opacity: 1 !important; pointer-events: auto !important; transition: opacity 0s !important; animation: popLepas 0s linear 8s forwards; }
 /* Pop-up foto: layar putih TETAP menutup selama fotonya belum selesai dimuat dan digambar (kelas .siap diberikan oleh skrip kecil di dalam pop-up,
    lihat _popup_foto_absen). Pengaman: bila skrip gagal, layar dilepas otomatis setelah 5 detik supaya tidak macet. */
 /* dialog Streamlit punya z-index sangat tinggi: selama ada pop-up foto, layar putih dinaikkan di atasnya (dan tetap di atas sampai selesai memudar) */
@@ -1954,7 +1958,7 @@ html:has([role="dialog"] .pop-foto:not(.siap))::after { opacity: 1; pointer-even
 /* Halaman yang memasang penanda .tanpa-loading (fungsi tanpa_loading()) TIDAK ditutup layar putih saat berinteraksi di dalamnya (kamera, lokasi,
    tombol, filter). Penanda harus segar (bukan elemen lama/stale): saat pindah KELUAR dari halaman itu, penanda lamanya stale sehingga layar putih tetap muncul. */
 html:has([data-testid="stApp"][data-test-script-state="running"]):has([data-testid="stElementContainer"]:not([data-stale="true"]) .tanpa-loading)::after { opacity: 0 !important; pointer-events: none !important; }
-[data-testid="stElementContainer"]:has(.tanpa-loading, .tl-slot) { position: absolute !important; width: 0; height: 0; margin: 0; overflow: hidden; }
+[data-testid="stElementContainer"]:has(.tanpa-loading, .tl-slot, .sesi-tunggu) { position: absolute !important; width: 0; height: 0; margin: 0; overflow: hidden; }
 /* iframe tinggi 0 (pembaca/penulis token login di sesi.py, skrip pembantu) jangan memakan ruang: tanpa ini muncul garis/pita kosong di atas halaman
    saat aplikasi dibuka. Kontainernya dikeluarkan dari alur tata letak (bukan display:none, supaya skrip di dalamnya tetap jalan). */
 [data-testid="stElementContainer"]:has(> iframe[height="0"], > iframe[style*="height: 0"], > [data-testid="stIFrame"] iframe[height="0"],
@@ -5917,11 +5921,12 @@ def _sesi_pulihkan(eng, token):
     if st.session_state.get("_sesi_dicek"):
         return
     if not token:
-        # Cadangan: tidak ada cookie (WebView tertentu menolak/tidak menyimpan cookie). Baca localStorage lewat komponen, TANPA menahan
-        # halaman: form login langsung tampil; bila komponen membalas dengan token sah, eksekusi berikutnya masuk otomatis.
+        # Cadangan: tidak ada cookie (WebView tertentu menolak/tidak menyimpan cookie). Baca localStorage lewat komponen; selama menunggu,
+        # layar putih tetap menutup supaya form login tidak sempat terlihat lalu pindah sendiri ke beranda.
         token = streamlit_js_eval(js_expressions=sesi.JS_BACA, key="sesi_baca")
-        if token is None:                   # belum membalas
-            return
+        if token is None:                   # belum membalas: JANGAN tampilkan form login dulu (nanti pindah sendiri ke beranda = berkedip)
+            st.markdown('<span class="sesi-tunggu"></span>', unsafe_allow_html=True)    # menahan layar putih (lihat CSS .sesi-tunggu)
+            st.stop()
     st.session_state["_sesi_dicek"] = True
     if not token:
         return
