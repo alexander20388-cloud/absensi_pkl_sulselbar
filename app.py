@@ -5901,14 +5901,15 @@ def _sesi_minta_simpan(eng, nama):
 
 
 def _sesi_baca_token():
-    """Aplikasi PKL, belum login: baca token dari perangkat. Dipanggil SEBELUM menyentuh database: muat pertama hanya menunggu
-    balasan komponen (belum ada kueri), baru eksekusi kedua mengerjakan database. Mengembalikan None bila sudah pernah dicek."""
+    """Aplikasi PKL, belum login: baca token dari COOKIE yang dikirim browser pada permintaan pertama (st.context.cookies).
+    Tanpa komponen JavaScript dan tanpa muat ulang tambahan, jadi form login / beranda langsung tampil. Mengembalikan '' bila tidak ada
+    cookie (mis. perangkat yang belum login ulang sejak versi ini: login sekali lagi akan membuat cookie)."""
     if st.session_state.get("_sesi_dicek"):
         return None
-    token = streamlit_js_eval(js_expressions=sesi.JS_BACA, key="sesi_baca")
-    if token is None:                       # komponen belum membalas (muat pertama): tunggu, jangan tampilkan layar login dulu
-        st.stop()
-    return token
+    try:
+        return st.context.cookies.get(sesi.KUNCI_BROWSER) or ""
+    except Exception:
+        return ""
 
 
 def _sesi_pulihkan(eng, token):
