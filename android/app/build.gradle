@@ -26,6 +26,11 @@ android {
             signingConfig signingConfigs.rilis
         }
     }
+        // Nama berkas hasil build: Presensi-PKL.apk (bukan app-release.apk)
+    applicationVariants.all { variant ->
+        variant.outputs.all { outputFileName = "Presensi-PKL.apk" }
+    }
+    
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
