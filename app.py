@@ -5916,6 +5916,12 @@ def _sesi_pulihkan(eng, token):
     """Masuk otomatis bila token dari perangkat sah. Hanya peserta."""
     if st.session_state.get("_sesi_dicek"):
         return
+    if not token:
+        # Cadangan: tidak ada cookie (WebView tertentu menolak/tidak menyimpan cookie). Baca localStorage lewat komponen, TANPA menahan
+        # halaman: form login langsung tampil; bila komponen membalas dengan token sah, eksekusi berikutnya masuk otomatis.
+        token = streamlit_js_eval(js_expressions=sesi.JS_BACA, key="sesi_baca")
+        if token is None:                   # belum membalas
+            return
     st.session_state["_sesi_dicek"] = True
     if not token:
         return
