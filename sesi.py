@@ -65,9 +65,18 @@ def baca_token(token, kunci: str, sidik_dari_nama, sekarang: float | None = None
 JS_BACA = f"(function(){{try{{return localStorage.getItem({json.dumps(KUNCI_BROWSER)})||''}}catch(e){{return ''}}}})()"
 
 
+_COOKIE_ATRIBUT = '"; path=/; max-age=" + %d + "; SameSite=Lax" + (location.protocol === "https:" ? "; Secure" : "")'
+
+
 def js_simpan(token: str) -> str:
-    return f"<script>try{{localStorage.setItem({json.dumps(KUNCI_BROWSER)},{json.dumps(token)})}}catch(e){{}}</script>"
+    """Simpan token di COOKIE (server membacanya langsung dari permintaan pertama: tanpa menunggu komponen JavaScript) dan juga di localStorage."""
+    nama = json.dumps(KUNCI_BROWSER)
+    return ("<script>try{document.cookie=" + nama + '+"="+encodeURIComponent(' + json.dumps(token) + ")+"
+            + (_COOKIE_ATRIBUT % (MASA_BERLAKU_HARI * 86400)) + "}catch(e){}"
+            f"try{{localStorage.setItem({nama},{json.dumps(token)})}}catch(e){{}}</script>")
 
 
 def js_hapus() -> str:
-    return f"<script>try{{localStorage.removeItem({json.dumps(KUNCI_BROWSER)})}}catch(e){{}}</script>"
+    nama = json.dumps(KUNCI_BROWSER)
+    return ("<script>try{document.cookie=" + nama + '+"=; path=/; max-age=0; SameSite=Lax"}catch(e){}'
+            f"try{{localStorage.removeItem({nama})}}catch(e){{}}</script>")
