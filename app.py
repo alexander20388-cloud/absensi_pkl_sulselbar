@@ -614,8 +614,7 @@ def get_engine(versi_skema=9):
             f"sqlite:///{path}",
             connect_args={"check_same_thread": False, "timeout": 15},
         )
-    metadata.create_all(eng)
-    _migrasi(eng)
+    _migrasi(eng)           # sudah memanggil metadata.create_all
     eng.db_sementara = sementara
     event.listen(eng, "before_cursor_execute", _dbg_sebelum)
     event.listen(eng, "after_cursor_execute", _dbg_sesudah)
@@ -720,11 +719,18 @@ def tampilkan_debug(eng, t0):
     except Exception:
         pass
     ms_db = sum(m for m, _ in q)
-    st.caption(f"🔧 debug: {len(q)} kueri ({ms_db:.0f} ms di database), {st.session_state.get('_dbg_co', 0)} koneksi diambil, "
+    ringkas = (f"🔧 debug: {len(q)} kueri ({ms_db:.0f} ms di database), {st.session_state.get('_dbg_co', 0)} koneksi diambil, "
                f"1 bolak-balik jaringan ke database ≈ {('%.0f ms' % rtt) if rtt is not None else '?'}, "
                f"seluruh skrip sampai di sini {total:.0f} ms")
-    with st.expander("Rincian kueri (debug)"):
-        st.text("\n".join(f"{m:6.0f} ms  {t}" for m, t in semua) or "(tidak ada kueri)")
+    rincian = "\n".join(f"{m:6.0f} ms  {t}" for m, t in semua) or "(tidak ada kueri)"
+    # Panel melayang di dasar layar dengan warna sendiri: st.caption biasa tak terlihat di latar biru layar login dan bisa tertutup menu.
+    st.markdown(
+        '<div style="position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#fffbe6;color:#222;border-top:2px solid #e0b400;'
+        'font:12px/1.4 monospace;padding:6px 10px;max-height:45vh;overflow:auto">'
+        f'<details><summary style="cursor:pointer">{esc(ringkas)}</summary>'
+        f'<pre style="white-space:pre-wrap;margin:6px 0 0;font:11px/1.35 monospace;color:#222">{esc(rincian)}</pre></details></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def coba_ulang(fn):
@@ -1793,7 +1799,7 @@ def ic(nama, size=24, stroke=2):
 
 CSS_PRESENSI = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* font: tumpukan font sistem (tanpa @import Google Fonts: @import memblokir tampilan sampai server font menjawab, lambat di jaringan seluler) */
 html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
   background: #edf3f8 !important; font-family: 'Inter', system-ui, sans-serif;
 }
@@ -1918,7 +1924,7 @@ html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
 
 CSS_TEMA = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* font: tumpukan font sistem (tanpa @import Google Fonts: @import memblokir tampilan sampai server font menjawab, lambat di jaringan seluler) */
 :root {
   --biru: #0a5a8f; --ungu: #063f6b; --bg: #edf3f8; --tint: #e4f0f8;
   --navy: #0b3a5e; --navy2: #3f6785; --muted: #5f7b92; --garis: #d3e2ed;
@@ -5894,14 +5900,21 @@ def _sesi_minta_simpan(eng, nama):
         st.session_state["_sesi_simpan"] = sesi.buat_token(nama, _kunci_sesi(), sesi.sidik_pin(p["pin_hash"]))
 
 
-def _sesi_pulihkan(eng):
-    """Aplikasi PKL, belum login: baca token dari perangkat dan masuk otomatis bila sah. Hanya peserta."""
+def _sesi_baca_token():
+    """Aplikasi PKL, belum login: baca token dari perangkat. Dipanggil SEBELUM menyentuh database: muat pertama hanya menunggu
+    balasan komponen (belum ada kueri), baru eksekusi kedua mengerjakan database. Mengembalikan None bila sudah pernah dicek."""
     if st.session_state.get("_sesi_dicek"):
-        return
+        return None
     token = streamlit_js_eval(js_expressions=sesi.JS_BACA, key="sesi_baca")
     if token is None:                       # komponen belum membalas (muat pertama): tunggu, jangan tampilkan layar login dulu
-        st.caption("Memuat…")
         st.stop()
+    return token
+
+
+def _sesi_pulihkan(eng, token):
+    """Masuk otomatis bila token dari perangkat sah. Hanya peserta."""
+    if st.session_state.get("_sesi_dicek"):
+        return
     st.session_state["_sesi_dicek"] = True
     if not token:
         return
@@ -6446,6 +6459,7 @@ def main():
             st.session_state["_lok_terakhir"] = ident
     st.markdown('<span class="tanpa-loading"></span>' if senyap else '<span class="tl-slot"></span>', unsafe_allow_html=True)
     tampilkan_notif()
+    token_sesi = _sesi_baca_token() if (pkl and not st.session_state.get("peran")) else None
     try:
         eng = get_engine()
     except SQLAlchemyError as e:
@@ -6458,16 +6472,10 @@ def main():
         )
         st.stop()
 
-    if not st.session_state.get("skema_ok"):
-        try:
-            _migrasi(eng)       # tambah kolom yang belum ada (aman dijalankan berulang)
-        except SQLAlchemyError as e:
-            st.error(pesan_db(e))
-            st.stop()
-        st.session_state.skema_ok = True
-
+    # Migrasi skema TIDAK dijalankan per sesi: get_engine (di-cache) sudah menjalankannya sekali per proses aplikasi. Dulu tiap peserta
+    # yang membuka aplikasi memicu puluhan kueri ke Supabase (inspeksi tabel + 2 UPDATE) sebelum halaman bisa tampil.
     if pkl and not st.session_state.get("peran"):
-        _sesi_pulihkan(eng)
+        _sesi_pulihkan(eng, token_sesi)
     if pkl:                                  # tulis/hapus token di perangkat (iframe tinggi 0, satu asal dengan aplikasi)
         if st.session_state.get("_sesi_hapus"):
             st.session_state.pop("_sesi_hapus", None)
