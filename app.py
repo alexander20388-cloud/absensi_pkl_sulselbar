@@ -3452,7 +3452,7 @@ def halaman_kelola_peserta(eng):
                               + ("terpasang." if eng.indeks_unik_ok else "BELUM terpasang, cek lagi data."))
                         st.rerun()
 
-    with st.expander("🗑️ Hapus Data Peserta"):
+    with st.expander("Hapus Data Peserta"):
         nama_semua = sorted(set(df["nama"]) | set(daftar_nama_absensi(eng)))
         if not nama_semua:
             st.info("Belum ada peserta maupun data absensi.")
