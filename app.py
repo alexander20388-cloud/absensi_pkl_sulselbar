@@ -74,7 +74,7 @@ GEDUNG_COORD = {
 }
 
 RADIUS_METER = 200  # toleransi jarak dari titik gedung (meter)
-MAKS_AKURASI_METER = 100  # absen ditolak bila ketelitian GPS perangkat lebih buruk dari ini (BUKAN toleransi jarak; itu RADIUS_METER)
+MAKS_AKURASI_METER = 200  # absen ditolak bila ketelitian GPS perangkat lebih buruk dari ini (BUKAN toleransi jarak; itu RADIUS_METER)
 
 # Pembatasan percobaan login: setelah MAKS_GAGAL_LOGIN kali salah berturut-turut (dalam jendela KUNCI_LOGIN_MENIT menit),
 # akun/peran itu dikunci selama KUNCI_LOGIN_MENIT menit.
