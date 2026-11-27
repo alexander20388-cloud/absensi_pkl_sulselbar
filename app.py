@@ -105,7 +105,7 @@ DIVISI_GEDUNG = {
 }
 
 # Jendela waktu absen (WITA). Di luar jam ini absen ditolak. Izin bisa kapan saja.
-JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(12, 30)
+JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(15, 30)
 JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
 # Hari libur PKL (0=Senin ... 5=Sabtu, 6=Minggu). Pada hari ini TIDAK bisa absen masuk, pulang, izin, maupun cuti.
 HARI_LIBUR = (5, 6)
