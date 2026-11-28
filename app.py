@@ -6398,7 +6398,7 @@ CSS_DASHBOARD = """
 .st-key-kartu_db[data-testid="stVerticalBlock"], .st-key-kartu_db > [data-testid="stVerticalBlock"] {
   display: grid !important; grid-template-columns: repeat(6, 1fr); gap: 10px !important; }
 .st-key-kartu_db [data-testid="stElementContainer"] { grid-column: span 2; margin: 0 !important; width: auto !important; }
-.st-key-kartu_db .st-key-kartu_cuti, .st-key-kartu_db .st-key-kartu_belum { grid-column: span 3; }
+.st-key-kartu_db .st-key-kartu_izin_th, .st-key-kartu_db .st-key-kartu_belum { grid-column: span 3; }
 .st-key-adminbody .st-key-kartu_db button {
   display: flex !important; flex-direction: column; align-items: center !important; justify-content: center; text-align: center;
   width: 100% !important; min-height: 0 !important; height: auto !important; padding: 12px 14px !important;
