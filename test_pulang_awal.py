@@ -20,6 +20,7 @@ def jam(h, m=0, s=0):
 def _tanpa_deteksi_wajah(monkeypatch):
     monkeypatch.setattr(A, "periksa_wajah", lambda data: (True, "ok"))
     monkeypatch.setattr(A, "simpan_foto_storage", lambda path, data: False)
+    monkeypatch.setattr(A, "kompres_foto", lambda data, keterangan=None: data)   # foto tes bukan gambar sungguhan; cap foto dites di test_libur_foto
 
 
 @pytest.fixture
@@ -145,7 +146,9 @@ def test_setujui_mengisi_uang_makan_dan_tercatat_di_audit(siap):
     assert r["tinjau_status"] == "disetujui" and r["uang_makan"] == A.UANG_MAKAN
     assert r["tinjau_oleh"] == "admin" and r["tinjau_pada"]
     assert A.jumlah_pulang_awal_menunggu(eng) == 0
-    (a,) = A.daftar_audit(eng, aksi="absensi.tinjau_pulang_awal")
+    audit = A.daftar_audit(eng, aksi="absensi.tinjau_pulang_awal")
+    assert len(audit) == 1
+    a = audit.iloc[0]
     assert a["aktor"] == "admin" and a["objek"] == "absensi:P0:2026-11-06"
     assert A.verifikasi_audit(eng)["ok"]                                                  # rantai audit tetap utuh
 

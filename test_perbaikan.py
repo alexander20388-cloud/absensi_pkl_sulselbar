@@ -14,7 +14,11 @@ def _secret(nilai):
 
 def test_password_bawaan_hanya_untuk_mode_lokal(monkeypatch):
     monkeypatch.setattr(A, "secret", _secret({}))
-    assert A.password_admin() == "admin123"                          # lokal tanpa database cloud
+    assert A.password_admin() is None                                # tanpa database DAN tanpa MODE_LOKAL: bawaan mati (variabel DB salah ketik)
+    monkeypatch.setattr(A, "secret", _secret({"mode_lokal": "1"}))
+    assert A.password_admin() == "admin123"                          # lokal eksplisit tanpa database cloud
+    monkeypatch.setattr(A, "secret", _secret({"mode_lokal": "1", "db_host": "db.contoh.co"}))
+    assert A.password_admin() is None                                # MODE_LOKAL tidak menang atas database cloud
     monkeypatch.setattr(A, "secret", _secret({"db_host": "db.contoh.co", "db_password": "x"}))
     assert A.password_admin() is None                                # database cloud lewat db_host: bawaan DIMATIKAN
     monkeypatch.setattr(A, "secret", _secret({"database_url": "postgresql://u:p@h/db"}))

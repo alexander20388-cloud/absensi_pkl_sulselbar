@@ -14,6 +14,7 @@ import app as A
 def _tanpa_deteksi_wajah(monkeypatch):
     monkeypatch.setattr(A, "periksa_wajah", lambda data: (True, "ok"))
     monkeypatch.setattr(A, "simpan_foto_storage", lambda path, data: False)
+    monkeypatch.setattr(A, "kompres_foto", lambda data, keterangan=None: data)   # foto tes bukan gambar sungguhan; cap foto dites di test_libur_foto
 
 
 def jam(tgl, h, m=0):
@@ -49,11 +50,26 @@ def test_hari_izin_tanpa_masuk_bukan_tidak_hadir_dan_terhitung_izin(data):
     df = A.get_absensi_bulan(data, 2026, 11)
     r = A.rekap_peserta_bulan(data, df, 2026, 11, sekarang=datetime(2026, 11, 12, 18, 0, tzinfo=A.WITA))
     p0 = r[r["Nama"] == "P0"].iloc[0]
-    assert p0["Izin"] == 2 and p0["Hari Hadir"] == 2
+    assert p0["Izin"] == 1 and p0["Izin: Tidak Hadir"] == 1 and p0["Hari Hadir"] == 2
     tabel, ringkas = A.detail_absensi_peserta(df, "P0")
-    assert ringkas["hadir"] == 2 and ringkas["izin"] == 1                # 11 Nov: masuk menentukan (hadir); 10 Nov: izin saja
+    # 11 Nov: izin sebentar (tetap hadir, dihitung Izin); 10 Nov: izin tanpa masuk (Izin: Tidak Hadir)
+    assert ringkas["hadir"] == 2 and ringkas["izin"] == 1 and ringkas["izin_th"] == 1
     baris = tabel[tabel["_tgl"] == "2026-11-10"].iloc[0]
-    assert baris["Status"] == "Izin" and baris["Keterangan"] == "sakit demam"
+    assert baris["Status"] == "Izin: Tidak Hadir" and baris["Keterangan"] == "sakit demam"
+    sebentar = tabel[tabel["_tgl"] == "2026-11-11"].iloc[0]
+    assert sebentar["Status"] in ("Hadir", "Terlambat") and "ke kampus sebentar" in sebentar["Keterangan"]
+    rekap, _ = A._susun_rekap_detail(df)
+    assert int(rekap.loc[rekap["Nama"] == "P0", "Izin"].iloc[0]) == 1
+    assert int(rekap.loc[rekap["Nama"] == "P0", "Izin: Tidak Hadir"].iloc[0]) == 1
+
+
+def test_beranda_admin_izin_sebentar_dan_izin_tidak_hadir(data):
+    r = A.ringkasan_hari_ini(data, sekarang=jam(date(2026, 11, 11), 10))
+    assert r["izin"] == 1 and r["izin_th"] == 0 and r["terlambat"] == 1       # P0 izin tapi masuk 08:05
+    assert "P0" in r["izin_sebentar"]
+    r = A.ringkasan_hari_ini(data, sekarang=jam(date(2026, 11, 10), 10))
+    assert r["izin"] == 0 and r["izin_th"] == 1 and r["status"]["P0"] == "izin_th"
+    assert r["tepat"] + r["terlambat"] + r["izin_th"] + r["belum"] == r["aktif"]
 
 
 @pytest.mark.skipif(not __import__("os").path.exists(A.TEMPLATE_PATH), reason="template_absen.xlsx tidak ada")

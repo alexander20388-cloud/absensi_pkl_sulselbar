@@ -56,7 +56,7 @@ def test_harian_dan_per_hari():
     h = eda["harian"].set_index("tanggal")
     assert h.loc["2026-10-26", "Hadir"] == 2 and h.loc["2026-10-26", "Terlambat"] == 0
     assert h.loc["2026-10-27", "Hadir"] == 2 and h.loc["2026-10-27", "Terlambat"] == 2
-    assert h.loc["2026-10-28", "Hadir"] == 1 and h.loc["2026-10-28", "Izin"] == 1
+    assert h.loc["2026-10-28", "Hadir"] == 1 and h.loc["2026-10-28", "Izin"] == 0 and h.loc["2026-10-28", "Izin: Tidak Hadir"] == 1   # Sari izin tanpa absen masuk berhasil
     ph = eda["per_hari"].set_index("hari")
     assert ph.loc["Selasa", "persen"] == 100.0 and ph.loc["Senin", "persen"] == 0.0
 

@@ -1740,14 +1740,20 @@ def periksa_wajah(data: bytes):
 # ------------------------------------------------------------------
 # ADMIN LOGIN
 # ------------------------------------------------------------------
+def mode_lokal():
+    """True hanya bila MODE_LOKAL=1 diatur eksplisit (pengembangan di komputer sendiri). Tanpa ini password bawaan TIDAK berlaku,
+    jadi variabel database yang salah ketik di hosting tidak berubah diam-diam menjadi SQLite + admin/admin123 yang terbuka."""
+    return str(secret("mode_lokal") or "").strip().lower() in ("1", "true", "ya", "yes")
+
+
 def password_admin():
-    """Password admin yang berlaku. None = belum diatur di Secrets (mode cloud)."""
+    """Password admin yang berlaku. None = belum diatur di Secrets (mode cloud, atau mode lokal tanpa MODE_LOKAL=1)."""
     pw = secret("admin_password")
     if pw:
         return str(pw)
     if url_database() is not None:      # database cloud apa pun (database_url ATAU db_host dst.): jangan pernah pakai password bawaan
         return None
-    return "admin123"  # mode lokal (tanpa database cloud)
+    return "admin123" if mode_lokal() else None  # password bawaan hanya bila MODE_LOKAL=1 dan tanpa database cloud
 
 
 def cek_pin(eng, nama, pin):
@@ -1786,7 +1792,7 @@ def admin_login():
     if pw_benar is None:
         st.error("admin_password belum diatur di Secrets. Hubungi pengelola aplikasi.")
         return False
-    if not secret("admin_password") and url_database() is None:
+    if not secret("admin_password") and url_database() is None and mode_lokal():
         st.info("Mode lokal: password admin default = admin123")
 
     pw = st.text_input("Password admin", type="password", on_change=_senyap)
@@ -2894,7 +2900,7 @@ def tanpa_loading():
 
 
 def tab_absen(eng, nama, peserta):
-    header_halaman("Absen", f"{nama} • Gedung {peserta['gedung']} • {peserta['divisi']}", menu=True)
+    header_halaman("Absen", f"{esc(nama)} • Gedung {esc(peserta['gedung'])} • {esc(peserta['divisi'])}", menu=True)
     now = datetime.now(WITA)
     sh = get_status_hari(eng, nama, now.strftime("%Y-%m-%d"))
 
@@ -2967,11 +2973,13 @@ def tab_rekap(eng, nama):
     pulang_ok = [r for r in rows if r["jenis"] == "pulang" and r["status"] == "berhasil"]
     hadir = len({r["tanggal"] for r in masuk_ok})
     total = sum(r["uang_makan"] for r in pulang_ok)              # uang makan dihitung dari absen pulang
-    izin = len({r["tanggal"] for r in rows if r["jenis"] == "izin"})
-    cuti = len({r["tanggal"] for r in rows if r["jenis"] == "cuti"})
+    t_masuk = {r["tanggal"] for r in masuk_ok}
+    t_izin = {r["tanggal"] for r in rows if r["jenis"] == "izin"}
+    t_cuti = {r["tanggal"] for r in rows if r["jenis"] == "cuti"}
+    izin, izin_th = len(t_izin & t_masuk), len((t_izin | t_cuti) - t_masuk)
     n_terlambat = len({r["tanggal"] for r in masuk_ok if terlambat(r["jam"])})
     n_menunggu = sum(1 for r in pulang_ok if r["tinjau_status"] == "menunggu")
-    baris_cuti = f'<div class="pr-kv"><span>Cuti</span><span>{cuti}</span></div>' if cuti else ""      # pilihan Cuti sudah dihapus; hanya data lama
+    baris_cuti = f'<div class="pr-kv"><span>Izin: Tidak Hadir</span><span>{izin_th}</span></div>' if izin_th else ""
     with st.container(key="pagebody"):
         st.markdown(
             f'<div class="pr-stat"><div><span>Hari hadir</span><b>{hadir}</b></div>'
@@ -3282,7 +3290,7 @@ def _lb_progres(eng, nama, peserta, now):
 
 def tab_logbook(eng, nama, peserta):
     now = datetime.now(WITA)
-    header_halaman("Logbook", peserta["divisi"], menu=True)
+    header_halaman("Logbook", esc(peserta["divisi"]), menu=True)
     with st.container(key="pagebody"):
         if st.button("← Beranda", key="lb_kembali"):
             st.session_state.tab = "beranda"
@@ -3707,6 +3715,12 @@ def _rp(n):
     return "Rp" + f"{int(n):,}".replace(",", ".")
 
 
+def _mask_pasangan(df, pasangan, ada=True):
+    """Mask boolean: True untuk baris yang (nama, tanggal)-nya ada (ada=True) / tidak ada (ada=False) di himpunan `pasangan`.
+    Selalu Series boolean (aman untuk DataFrame kosong; daftar kosong sebagai indeks malah memilih KOLOM)."""
+    return pd.Series([((n, t) in pasangan) == ada for n, t in zip(df["nama"], df["tanggal"])], index=df.index, dtype=bool)
+
+
 def _susun_rekap_detail(df):
     """Tabel 'rekap' dan 'detail' bentuk lama (dipakai ekspor Excel ringkas): hanya nama yang punya data di bulan itu."""
     berhasil = df[(df["status"] == "berhasil") & (df["jenis"] == "masuk")]       # hari hadir = absen masuk berhasil
@@ -3718,8 +3732,12 @@ def _susun_rekap_detail(df):
     rekap["Absen Pulang"] = rekap["Nama"].map(pulang_ok.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
     terlambat_df = berhasil[berhasil["jam"].apply(terlambat)]
     rekap["Terlambat"] = rekap["Nama"].map(terlambat_df.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
-    rekap["Izin"] = rekap["Nama"].map(izin_df.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
-    rekap["Cuti"] = rekap["Nama"].map(cuti_df.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
+    hadir_tgl = set(zip(berhasil["nama"], berhasil["tanggal"]))
+    izin_ada = izin_df[_mask_pasangan(izin_df, hadir_tgl)]                      # izin sebentar (tetap masuk)
+    tdk_df = pd.concat([izin_df, cuti_df])
+    tdk_df = tdk_df[_mask_pasangan(tdk_df, hadir_tgl, ada=False)]               # izin / cuti tanpa absen masuk
+    rekap["Izin"] = rekap["Nama"].map(izin_ada.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
+    rekap["Izin: Tidak Hadir"] = rekap["Nama"].map(tdk_df.groupby("nama")["tanggal"].nunique()).fillna(0).astype(int)
     rekap["Total Uang Makan"] = rekap["Nama"].map(pulang_ok.groupby("nama")["uang_makan"].sum()).fillna(0).astype(int)
     detail = df.rename(columns={
         "nama": "Nama", "tanggal": "Tanggal", "jam": "Jam", "jenis": "Jenis",
@@ -3762,7 +3780,9 @@ def absen_pertama(eng):
 
 
 def rekap_peserta_bulan(eng, df, tahun, bulan, sekarang=None):
-    """Satu baris per peserta (terdaftar, ditambah nama yang hanya tersisa di riwayat). 'Tidak Hadir' = hari kerja yang
+    """Satu baris per peserta (terdaftar, ditambah nama yang hanya tersisa di riwayat). 'Izin' = izin sebentar (tetap absen
+    masuk hari itu, juga terhitung hadir); 'Izin: Tidak Hadir' = izin (atau cuti data lama) tanpa absen masuk.
+    'Tidak Hadir' = hari kerja yang
     sudah lewat tanpa absen masuk, izin, atau cuti, dihitung sejak awal bulan; aturannya sama dengan 'Tidak hadir' di Beranda
     (jumlah per hari), hanya dijumlahkan untuk satu bulan. Berlaku untuk peserta yang masih terdaftar, termasuk yang belum
     pernah absen. Nama yang hanya tersisa di riwayat (sudah dihapus) tidak dihitung, sama seperti Beranda.
@@ -3781,7 +3801,7 @@ def rekap_peserta_bulan(eng, df, tahun, bulan, sekarang=None):
         diabsen = t_hadir | t_izin | t_cuti
         baris.append({
             "Nama": nama, "Hari Hadir": len(t_hadir), "Terlambat": len(tgl(masuk[masuk["telat"]], nama)),
-            "Izin": len(t_izin), "Cuti": len(t_cuti),
+            "Izin": len(t_izin & t_hadir), "Izin: Tidak Hadir": len((t_izin | t_cuti) - t_hadir),
             "Tidak Hadir": sum(1 for d in hari_kerja if d not in diabsen) if nama in terdaftar else 0,
             "Absen Pulang": len(tgl(pulang, nama)), "Total Uang Makan": int(pulang.loc[pulang["nama"] == nama, "uang_makan"].sum()),
             "Terdaftar": nama in terdaftar,
@@ -3791,9 +3811,10 @@ def rekap_peserta_bulan(eng, df, tahun, bulan, sekarang=None):
 
 def detail_absensi_peserta(df, nama):
     """(tabel per tanggal, ringkasan) untuk halaman detail satu peserta. Hari yang hanya berisi percobaan gagal lokasi
-    tidak ditampilkan. Bila ada absen masuk dan izin di hari yang sama, absen masuk yang menentukan."""
+    tidak ditampilkan. Bila ada absen masuk dan izin di hari yang sama, hari itu tetap Hadir/Terlambat tetapi juga dihitung
+    sebagai Izin (izin sebentar); izin tanpa absen masuk tampil sebagai 'Izin: Tidak Hadir'."""
     d = df[df["nama"] == nama]
-    baris, hadir, telat, izin, cuti, uang = [], 0, 0, 0, 0, 0
+    baris, hadir, telat, izin, izin_th, uang = [], 0, 0, 0, 0, 0
     for tgl_iso, g in d.groupby("tanggal", sort=True):
         masuk = g[(g["jenis"] == "masuk") & (g["status"] == "berhasil")]
         pulang = g[(g["jenis"] == "pulang") & (g["status"] == "berhasil")]
@@ -3805,13 +3826,15 @@ def detail_absensi_peserta(df, nama):
             telat += status == "Terlambat"
             jarak = masuk["jarak"].iloc[0]
             ket = "-"
+            if not izin_g.empty:                                    # izin sebentar: tetap hadir, tapi dihitung & dicatat sebagai izin
+                izin += 1
+                al = izin_g["alasan"].iloc[0]
+                ket = f"Izin: {al.strip()}" if isinstance(al, str) and al.strip() else "Izin"
         elif not izin_g.empty or not cuti_g.empty:
-            ada_izin = not izin_g.empty
-            status = "Izin" if ada_izin else "Cuti"
-            izin += ada_izin
-            cuti += not ada_izin
+            status = "Izin: Tidak Hadir"
+            izin_th += 1
             jam, jarak = "", None
-            alasan = (izin_g if ada_izin else cuti_g)["alasan"].iloc[0]
+            alasan = (izin_g if not izin_g.empty else cuti_g)["alasan"].iloc[0]
             ket = alasan if isinstance(alasan, str) and alasan.strip() else "-"
         else:
             continue
@@ -3830,7 +3853,7 @@ def detail_absensi_peserta(df, nama):
             "Absen pulang": pulang["jam"].iloc[0][:5] if not pulang.empty else "-", "Uang makan": _rp(uang_hari),
         })
     kolom = ["_tgl", "Tanggal", "Absen masuk", "Status", "Jarak (m)", "Keterangan", "Absen pulang", "Uang makan"]
-    return pd.DataFrame(baris, columns=kolom), {"hadir": hadir, "terlambat": telat, "izin": izin, "cuti": cuti, "uang": uang}
+    return pd.DataFrame(baris, columns=kolom), {"hadir": hadir, "terlambat": telat, "izin": izin, "izin_th": izin_th, "uang": uang}
 
 
 def foto_absen_satu(eng, nama, tanggal, jenis):
@@ -3848,7 +3871,7 @@ def _html_kartu_rekap(aktif, r, label_periode):
     kartu = [
         ("db-hadir", aktif, "Peserta Aktif"), ("db-izin", int(r["Hari Hadir"].sum()), "Hari Hadir"),
         ("db-telat", int(r["Terlambat"].sum()), "Terlambat"), ("db-izin", int(r["Izin"].sum()), "Izin"),
-        ("db-cuti", int(r["Cuti"].sum()), "Cuti"), ("db-belum", int(r["Tidak Hadir"].sum()), "Tidak Hadir"),
+        ("db-izinth", int(r["Izin: Tidak Hadir"].sum()), "Izin: Tidak Hadir"), ("db-belum", int(r["Tidak Hadir"].sum()), "Tidak Hadir"),
     ]
     return (
         f'<div class="db-judul"><div class="db-judul-t">Rekap Total Peserta</div><div class="db-judul-s">{esc(label_periode)}</div></div>'
@@ -3861,18 +3884,18 @@ def _html_kartu_rekap(aktif, r, label_periode):
 def _tabel_rekap_peserta(rekap, tahun, bulan):
     """Tabel ringkas peserta dengan satu kolom tombol: › (halaman detail absensi; foto absen dibuka dari halaman itu)."""
     lebar = [3, 1, 1, 1, 1, 1, 2, 1]
-    judul = ["Nama", "Hadir", "Telat", "Izin", "Cuti", "Tidak Hadir", "Uang", ""]
+    judul = ["Nama", "Hadir", "Telat", "Izin", "Izin: Tidak Hadir", "Tidak Hadir", "Uang", ""]
     # Tabel punya scroll sendiri (atas-bawah dan kiri-kanan) dengan tinggi dibatasi; halaman tidak ikut memanjang.
     with st.container(key="rekap_tabel", height=min(340, 40 + 35 * len(rekap))):
         for i, (kol, t) in enumerate(zip(st.columns(lebar), judul)):
-            kelas = "rk-h kiri" if i == 0 else "rk-h rk-wrap" if t == "Tidak Hadir" else "rk-h"
+            kelas = "rk-h kiri" if i == 0 else "rk-h rk-wrap" if t in ("Tidak Hadir", "Izin: Tidak Hadir") else "rk-h"
             bantu = {"Telat": ' title="Terlambat"', "Uang": ' title="Uang makan"'}.get(t, "")
             kol.markdown(f'<div class="{kelas}"{bantu}>{t}</div>', unsafe_allow_html=True)
         for i, r in enumerate(rekap.to_dict("records"), 1):
             kol = st.columns(lebar, vertical_alignment="center")
             sisa = "" if r["Terdaftar"] else ' <span class="rk-sub">(tidak terdaftar)</span>'
             kol[0].markdown(f'<div class="rk-n" title="{esc(r["Nama"])}">{esc(r["Nama"])}{sisa}</div>', unsafe_allow_html=True)
-            for k, nilai in zip(kol[1:6], (r["Hari Hadir"], r["Terlambat"], r["Izin"], r["Cuti"], r["Tidak Hadir"])):
+            for k, nilai in zip(kol[1:6], (r["Hari Hadir"], r["Terlambat"], r["Izin"], r["Izin: Tidak Hadir"], r["Tidak Hadir"])):
                 k.markdown(f'<div class="rk-v">{nilai}</div>', unsafe_allow_html=True)
             kol[6].markdown(f'<div class="rk-v">{_rp(r["Total Uang Makan"])}</div>', unsafe_allow_html=True)
             if kol[7].button("›", key=f"rk_buka_{i}", help=f"Detail absensi {r['Nama']}"):
@@ -4017,7 +4040,7 @@ def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
         f'<div class="db-k db-hadir"><div class="db-k-n">{ring["hadir"]}</div><div class="db-k-t">Hari Hadir</div></div>'
         f'<div class="db-k db-telat"><div class="db-k-n">{ring["terlambat"]}</div><div class="db-k-t">Terlambat</div></div>'
         f'<div class="db-k db-izin"><div class="db-k-n">{_rp(ring["uang"])}</div><div class="db-k-t">Uang Makan</div></div></div>'
-        f'<div class="db-catatan">Izin {ring["izin"]} • Cuti {ring["cuti"]}</div>',
+        f'<div class="db-catatan">Izin {ring["izin"]} • Izin: Tidak Hadir {ring["izin_th"]}</div>',
         unsafe_allow_html=True,
     )
     if tabel.empty:
@@ -4724,8 +4747,11 @@ def siapkan_eda(df, peserta_df):
         return harian["tanggal"].map(sub.groupby("tanggal")["nama"].nunique()).fillna(0).astype(int)
     harian["Hadir"] = per_tgl(masuk)
     harian["Terlambat"] = per_tgl(masuk[masuk["terlambat"]])
-    harian["Izin"] = per_tgl(d[d["jenis"] == "izin"])
-    harian["Cuti"] = per_tgl(d[d["jenis"] == "cuti"])
+    t_masuk = set(zip(masuk["nama"], masuk["tanggal"]))
+    tdk = d[d["jenis"].isin(["izin", "cuti"])]
+    izin_d = d[d["jenis"] == "izin"]
+    harian["Izin"] = per_tgl(izin_d[_mask_pasangan(izin_d, t_masuk)])
+    harian["Izin: Tidak Hadir"] = per_tgl(tdk[_mask_pasangan(tdk, t_masuk, ada=False)])
 
     # histogram jam masuk (grid lengkap: blok x ketepatan, isi 0 kalau kosong)
     slot15 = daftar_slot(15)
@@ -4818,7 +4844,7 @@ def grafik_eda(eda):
     skala_ket = alt.Scale(domain=[KET_TEPAT_WAKTU, KET_TERLAMBAT], range=[biru, oranye])
     g = {}
 
-    panjang = eda["harian"].melt(id_vars="tanggal", value_vars=["Hadir", "Terlambat", "Izin", "Cuti"],
+    panjang = eda["harian"].melt(id_vars="tanggal", value_vars=["Hadir", "Terlambat", "Izin", "Izin: Tidak Hadir"],
                                  var_name="Kategori", value_name="Jumlah")
     g["tren"] = alt.Chart(panjang).mark_line(point=True).encode(
         x=alt.X("tanggal:T", title="Tanggal"),
@@ -4904,7 +4930,7 @@ def halaman_analitik(eng):
     with ukur("grafik_eda"):
         grafik = grafik_eda(eda)
     st.subheader("Tren kehadiran harian")
-    st.caption("Jumlah peserta per hari: hadir, terlambat, izin, dan cuti.")
+    st.caption("Jumlah peserta per hari: hadir, terlambat, izin (tetap masuk), dan izin tidak hadir.")
     st.altair_chart(grafik["tren"], width="stretch")
 
     st.subheader("Distribusi jam masuk")
@@ -6242,7 +6268,7 @@ def halaman_login(eng, hanya_peserta=False):
             if pw_benar is None:
                 st.error("admin_password belum diatur di Secrets. Hubungi pengelola aplikasi.")
             else:
-                if not secret("admin_password") and url_database() is None:
+                if not secret("admin_password") and url_database() is None and mode_lokal():
                     st.info("Mode lokal: password admin default = admin123")
                 with st.form("login_admin", border=False):
                     pw = st.text_input("Password admin", type="password", placeholder="Masukkan password admin")
@@ -6365,7 +6391,7 @@ CSS_DASHBOARD = """
 .db-hadir { background: #d9f7e8; } .db-hadir .db-k-n { color: #12a15f; }
 .db-telat { background: #fff4d6; } .db-telat .db-k-n { color: #b45309; }
 .db-izin { background: #dcecf7; } .db-izin .db-k-n { color: #0a5a8f; }
-.db-cuti { background: #dff3f0; } .db-cuti .db-k-n { color: #0e8a7d; }
+.db-cuti, .db-izinth { background: #dff3f0; } .db-cuti .db-k-n, .db-izinth .db-k-n { color: #0e8a7d; }
 .db-belum { background: #eaf0f5; } .db-belum .db-k-n { color: #3f6785; }
 .db-belum.merah { background: #fde2e2; } .db-belum.merah .db-k-n { color: #c0392b; }
 .db-libur { background: #fff4d6; color: #b45309; border-radius: 14px; padding: 10px 14px; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
@@ -6392,9 +6418,11 @@ CSS_DASHBOARD = """
 
 def ringkasan_hari_ini(eng, sekarang=None):
     """Hitung kehadiran satu hari untuk Beranda admin. Setiap peserta terdaftar masuk TEPAT SATU kelompok, jadi
-    tepat + terlambat + izin + cuti + belum = aktif. Yang dihitung hanya absen yang berhasil (percobaan gagal lokasi
+    tepat + terlambat + izin_th + belum = aktif. Yang dihitung hanya absen yang berhasil (percobaan gagal lokasi
     diabaikan) dan hanya peserta yang masih terdaftar. Bila satu peserta punya beberapa catatan hari itu, absen masuk
-    yang menentukan. 'Belum' = belum ada catatan sama sekali; di Sabtu/Minggu nilainya 0 karena memang tidak ada absen."""
+    yang menentukan. 'izin' = izin sebentar (tetap absen masuk hari itu; ia juga terhitung hadir, jadi bukan kelompok
+    tersendiri). 'izin_th' = izin (atau cuti data lama) tanpa absen masuk = tidak hadir. 'Belum' = belum ada catatan
+    sama sekali; di Sabtu/Minggu nilainya 0 karena memang tidak ada absen."""
     sekarang = sekarang or datetime.now(WITA)
     hari = sekarang.date()
     libur = hari_libur(hari)
@@ -6407,18 +6435,25 @@ def ringkasan_hari_ini(eng, sekarang=None):
     with eng.connect() as c:
         aktif = c.execute(select(func.count()).select_from(peserta_t)).scalar() or 0
         baris = c.execute(q).all()
-    status, jam_masuk, alasan_izin = {}, {}, {}
+    status, jam_masuk, alasan_izin, tidak_masuk = {}, {}, {}, {}
     for nama, jenis, jam, alasan in baris:
         if jenis == "masuk":
             status[nama] = "terlambat" if terlambat(jam) else "tepat"
             jam_masuk[nama] = jam
-        elif nama not in status:
-            status[nama] = jenis
-            alasan_izin[nama] = alasan
-    hitung = {k: sum(1 for v in status.values() if v == k) for k in ("tepat", "terlambat", "izin", "cuti")}
+        else:
+            tidak_masuk[nama] = (jenis, alasan)
+    izin_sebentar = set()
+    for nama, (jenis, alasan) in tidak_masuk.items():
+        alasan_izin[nama] = alasan
+        if nama in status:                        # izin tapi tetap absen masuk = izin sebentar
+            izin_sebentar.add(nama)
+        else:                                     # izin / cuti tanpa absen masuk = izin: tidak hadir
+            status[nama] = "izin_th"
+    hitung = {k: sum(1 for v in status.values() if v == k) for k in ("tepat", "terlambat", "izin_th")}
+    hitung["izin"] = len(izin_sebentar)
     belum = 0 if libur else max(int(aktif) - len(status), 0)
     return {
-        "tanggal": hari, "libur": libur, "aktif": int(aktif), **hitung, "belum": belum,
+        "tanggal": hari, "libur": libur, "aktif": int(aktif), **hitung, "belum": belum, "izin_sebentar": izin_sebentar,
         "sudah_absen": hitung["tepat"] + hitung["terlambat"],
         # sebelum jendela absen masuk tutup mereka baru "belum absen"; sesudahnya baru pantas disebut tidak hadir
         "label_belum": "Belum absen" if sekarang.time().replace(second=0, microsecond=0) <= JAM_MASUK_TUTUP else "Tidak hadir",
@@ -6428,7 +6463,7 @@ def ringkasan_hari_ini(eng, sekarang=None):
 
 
 def _daftar_kartu_beranda(eng, r, kode, label):
-    """Daftar nama di balik kotak yang diketuk di Beranda (hadir / terlambat / izin / cuti / belum absen)."""
+    """Daftar nama di balik kotak yang diketuk di Beranda (hadir / terlambat / izin / izin tidak hadir / belum absen)."""
     try:
         pes = list_peserta(eng)
     except SQLAlchemyError as e:
@@ -6439,8 +6474,10 @@ def _daftar_kartu_beranda(eng, r, kode, label):
         pilih = [n for n in pes["nama"] if status.get(n) in ("tepat", "terlambat")]
     elif kode == "telat":
         pilih = [n for n in pes["nama"] if status.get(n) == "terlambat"]
-    elif kode in ("izin", "cuti"):
-        pilih = [n for n in pes["nama"] if status.get(n) == kode]
+    elif kode == "izin":
+        pilih = [n for n in pes["nama"] if n in r["izin_sebentar"]]
+    elif kode == "izin_th":
+        pilih = [n for n in pes["nama"] if status.get(n) == "izin_th"]
     else:
         pilih = [] if r["libur"] else [n for n in pes["nama"] if n not in status]
     d = pes[pes["nama"].isin(pilih)].copy()
@@ -6449,7 +6486,7 @@ def _daftar_kartu_beranda(eng, r, kode, label):
         d = d.sort_values(["Jam masuk", "nama"])
         if kode == "hadir":
             d["Status"] = d["nama"].map(lambda n: "Terlambat" if status.get(n) == "terlambat" else "Tepat waktu")
-    elif kode in ("izin", "cuti"):
+    elif kode in ("izin", "izin_th"):
         d["Keterangan"] = d["nama"].map(lambda n: (r["alasan"].get(n) or "-"))
     d = d.rename(columns={"nama": "Nama", "divisi": "Divisi", "gedung": "Gedung"})
     urut = [c for c in ("Nama", "Divisi", "Gedung", "Jam masuk", "Status", "Keterangan") if c in d.columns]
@@ -6472,7 +6509,7 @@ def halaman_beranda_admin(eng):
     # (kode, jumlah, label, warna latar, warna angka)
     kartu = [
         ("hadir", r["sudah_absen"], "Hadir", "#d9f7e8", "#12a15f"), ("telat", r["terlambat"], "Terlambat", "#fff4d6", "#b45309"),
-        ("izin", r["izin"], "Izin", "#dcecf7", "#0a5a8f"), ("cuti", r["cuti"], "Cuti", "#dff3f0", "#0e8a7d"),
+        ("izin", r["izin"], "Izin", "#dcecf7", "#0a5a8f"), ("izin_th", r["izin_th"], "Izin: Tidak Hadir", "#dff3f0", "#0e8a7d"),
         ("belum", r["belum"], r["label_belum"], "#fde2e2" if merah else "#eaf0f5", "#c0392b" if merah else "#3f6785"),
     ]
     html = (
@@ -6516,6 +6553,8 @@ def halaman_beranda_admin(eng):
             st.caption(
                 f'Sudah absen masuk: {r["sudah_absen"]} dari {r["aktif"]} peserta. '
                 f'Hadir = semua yang sudah absen masuk (tepat waktu maupun terlambat). '
+                f'Izin = izin sebentar (tetap absen masuk hari itu, jadi ikut dihitung hadir). '
+                f'Izin: Tidak Hadir = izin yang memang tidak masuk. '
                 f'Terlambat = absen masuk sesudah {BATAS_TEPAT_WAKTU:%H:%M}. '
                 f'Diperbarui {r["waktu"]} WITA.'
             )
