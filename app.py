@@ -10,7 +10,8 @@ Fitur:
 - Jam absen: masuk 06:00-12:30 (sampai 08:00 tidak terlambat, lewat itu terlambat), pulang 12:30-18:00 (WITA).
   Uang makan didapat saat absen pulang, termasuk yang masuknya terlambat.
   Pulang SEBELUM 16:50 = pulang awal: wajib mengisi alasan, uang makan menunggu persetujuan admin (Rekap > Pulang Awal).
-  Izin (sebentar, tetap bisa absen) dan cuti (sehari penuh, tidak bisa absen masuk): kapan saja, dengan alasan
+  Izin: kapan saja, dengan alasan. Tidak datang sama sekali = cukup isi izin (di Excel satu baris penuh "Izin: alasan"); tetap datang = absen biasa.
+  Pilihan Cuti sudah dihapus dari halaman absen (catatan cuti lama tetap terbaca di rekap).
 - Uang makan Rp15.000 saat absen pulang berhasil (pulang awal: setelah alasannya disetujui admin)
 - Blokir absen dobel di hari yang sama
 - Admin (pakai password): kelola peserta, rekap + export Excel, analitik EDA (grafik), model ML (deteksi absen mencurigakan, prediksi terlambat, monitoring), bukti foto
@@ -1457,19 +1458,19 @@ def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir, 
             else:
                 ws[f"F{r}"].value = "-"
             ws[f"G{r}"].value = uang
-        else:                                             # satu baris blok: cuti / tidak hadir / libur
+        else:                                             # satu baris blok: izin (tidak datang) / cuti (data lama) / tidak hadir / libur
             baris(9, r, nilai_ganti=False)
             ws[f"B{r}"].value = tanggal_dt
             if iso in cuti:
                 teks = f"Cuti: {cuti[iso]}"
-            elif iso in izin and tgl.weekday() < 5:
-                teks = f"Tidak hadir (izin: {izin[iso]})"
+            elif iso in izin and tgl.weekday() < 5:           # izin tanpa absen masuk = tidak datang: satu baris penuh seperti cuti
+                teks = f"Izin: {izin[iso]}"
             else:
                 if tgl.weekday() >= 5:
                     teks = "Libur "
                 else:
                     teks = f"Libur: {nama_libur(tgl)}" if nama_libur(tgl) else "Tidak hadir"
-            if teks.startswith(("Cuti", "Tidak hadir (")):
+            if teks.startswith(("Cuti", "Izin: ")):
                 ws[f"C{r}"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                 ws[f"B{r}"].alignment = Alignment(horizontal="center", vertical="center")
                 tinggi(r, teks, lebar=62)
@@ -2480,7 +2481,7 @@ def tombol_overlay(key, html, tab=None, toast=None, nonaktif=False):
 
 MENU_PESERTA = [
     ("beranda", "Beranda", ":material/home:"),
-    ("absen", "Absen / Izin / Cuti", ":material/fingerprint:"),
+    ("absen", "Absen / Izin", ":material/fingerprint:"),
     ("riwayat", "Riwayat", ":material/history:"),
     ("rekap", "Rekap", ":material/bar_chart:"),
     ("logbook", "Logbook", ":material/menu_book:"),
@@ -2850,15 +2851,13 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
 
 
 def _form_tidak_hadir(eng, nama, now, jenis):
-    """Form izin / cuti: bisa kapan saja, tanpa lokasi/foto, wajib mengisi alasan.
-    Izin  = keluar sebentar, TETAP bisa absen masuk/pulang.
-    Cuti  = sehari penuh, TIDAK bisa absen masuk pada tanggal itu."""
+    """Form izin: bisa kapan saja, tanpa lokasi/foto, wajib mengisi alasan. Pilihan Cuti sudah tidak ditawarkan; izin
+    mencakup keduanya: kalau pada tanggal itu peserta tidak absen masuk, di Excel hari itu tercatat Izin satu baris penuh
+    beserta alasannya; kalau peserta tetap datang (mis. hanya keluar sebentar), tetap absen masuk dan pulang seperti biasa."""
     label = jenis.capitalize()
-    if jenis == "izin":
-        st.caption("Izin untuk keperluan sebentar (misalnya ke kampus beberapa jam). Kamu tetap bisa absen masuk dan pulang. "
-                   "Alasan akan masuk ke laporan Excel.")
-    else:
-        st.caption("Cuti sehari penuh. Pada tanggal cuti kamu tidak bisa absen masuk. Alasan akan masuk ke laporan Excel.")
+    st.caption("Kalau kamu tidak bisa datang sama sekali pada tanggal itu, cukup isi izin ini dan tidak perlu absen. Di laporan Excel "
+               "hari itu tercatat Izin beserta alasanmu. Kalau kamu tetap datang (misalnya hanya keluar sebentar), tetap absen masuk "
+               "dan pulang seperti biasa.")
     tgl = st.date_input(
         f"Tanggal {jenis}", value=now.date(), min_value=now.date(), max_value=now.date() + timedelta(days=30),
         key=f"{jenis}_tanggal",
@@ -2906,12 +2905,14 @@ def tab_absen(eng, nama, peserta):
 
     if "mode_absen" not in st.session_state:         # pilihan awal mengikuti kondisi hari ini
         st.session_state.mode_absen = "Pulang" if (sh["masuk"] is not None and sh["pulang"] is None) else "Masuk"
+    elif st.session_state.mode_absen not in ("Masuk", "Pulang", "Izin"):    # sesi lama yang masih memilih "Cuti"
+        st.session_state.mode_absen = "Izin"
 
     with st.container(key="pagebody"):
-        mode = st.radio("Jenis absen", ["Masuk", "Pulang", "Izin", "Cuti"], horizontal=True,
+        mode = st.radio("Jenis absen", ["Masuk", "Pulang", "Izin"], horizontal=True,
                         key="mode_absen", label_visibility="collapsed")
-        if mode in ("Izin", "Cuti"):
-            _form_tidak_hadir(eng, nama, now, mode.lower())
+        if mode == "Izin":
+            _form_tidak_hadir(eng, nama, now, "izin")
         else:
             _form_absen(eng, nama, peserta, mode.lower(), now, sh)
 
@@ -2970,13 +2971,14 @@ def tab_rekap(eng, nama):
     cuti = len({r["tanggal"] for r in rows if r["jenis"] == "cuti"})
     n_terlambat = len({r["tanggal"] for r in masuk_ok if terlambat(r["jam"])})
     n_menunggu = sum(1 for r in pulang_ok if r["tinjau_status"] == "menunggu")
+    baris_cuti = f'<div class="pr-kv"><span>Cuti</span><span>{cuti}</span></div>' if cuti else ""      # pilihan Cuti sudah dihapus; hanya data lama
     with st.container(key="pagebody"):
         st.markdown(
             f'<div class="pr-stat"><div><span>Hari hadir</span><b>{hadir}</b></div>'
             f'<div><span>Total uang makan</span><b>{rupiah(total)}</b></div></div>'
             f'<div class="pr-kv"><span>Terlambat</span><span>{n_terlambat}</span></div>'
             f'<div class="pr-kv"><span>Izin</span><span>{izin}</span></div>'
-            f'<div class="pr-kv"><span>Cuti</span><span>{cuti}</span></div>',
+            f'{baris_cuti}',
             unsafe_allow_html=True,
         )
         if n_menunggu:
