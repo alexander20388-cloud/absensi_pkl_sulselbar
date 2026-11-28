@@ -325,6 +325,8 @@ peserta_t = Table(
     Column("kelas_semester", String(50)),
     Column("setuju_versi", String(20)),                         # versi pemberitahuan privasi yang disetujui
     Column("setuju_pada", String(19)),                          # YYYY-MM-DD HH:MM:SS (WITA)
+    Column("mulai_pkl", String(10)),                            # YYYY-MM-DD; kosong = dihitung sejak awal (aturan lama)
+    Column("selesai_pkl", String(10)),                          # YYYY-MM-DD; kosong = belum ada tanggal selesai
 )
 
 absensi_t = Table(
@@ -571,7 +573,7 @@ def _migrasi(eng):
     perlu = {
         "peserta": [("no_rekening", "VARCHAR(40)"), ("setuju_versi", "VARCHAR(20)"), ("setuju_pada", "VARCHAR(19)"),
                     ("universitas", "VARCHAR(150)"), ("jurusan", "VARCHAR(150)"),
-                    ("kelas_semester", "VARCHAR(50)")],
+                    ("kelas_semester", "VARCHAR(50)"), ("mulai_pkl", "VARCHAR(10)"), ("selesai_pkl", "VARCHAR(10)")],
         "absensi": [
             ("foto_path", "VARCHAR(200)"), ("alasan", "VARCHAR(300)"),
             ("tinjau_status", "VARCHAR(12)"), ("tinjau_oleh", "VARCHAR(100)"), ("tinjau_pada", "VARCHAR(19)"),
@@ -606,7 +608,7 @@ def _migrasi(eng):
 
 
 @st.cache_resource
-def get_engine(versi_skema=10):
+def get_engine(versi_skema=11):
     url = url_database()
     sementara = False
     if url:
@@ -925,6 +927,7 @@ def list_peserta_lengkap(eng):
             select(
                 peserta_t.c.nama, peserta_t.c.gedung, peserta_t.c.divisi, peserta_t.c.no_rekening,
                 peserta_t.c.universitas, peserta_t.c.jurusan, peserta_t.c.kelas_semester,
+                peserta_t.c.mulai_pkl, peserta_t.c.selesai_pkl,
             ).order_by(peserta_t.c.nama), c
         )
 
@@ -936,16 +939,72 @@ def get_peserta(eng, nama):
 
 @coba_ulang
 def add_peserta(eng, nama, gedung, divisi, pin, no_rekening=None, aktor="admin", peran="admin",
-                universitas=None, jurusan=None, kelas_semester=None):
+                universitas=None, jurusan=None, kelas_semester=None, mulai_pkl=None, selesai_pkl=None):
+    mulai_s, selesai_s = _periode_iso(mulai_pkl, selesai_pkl)
     with eng.begin() as c:
         c.execute(insert(peserta_t).values(
+            mulai_pkl=mulai_s, selesai_pkl=selesai_s,
             nama=nama.strip(), gedung=gedung, divisi=divisi.strip(), pin_hash=proyek.hash_pin_kuat(pin),
             no_rekening=(no_rekening or None),
             universitas=((universitas or "").strip() or None), jurusan=((jurusan or "").strip() or None),
             kelas_semester=((kelas_semester or "").strip() or None),
         ))
         _audit(c, aktor, peran, "peserta.tambah", f"peserta:{nama.strip()}",
-               {"divisi": divisi.strip(), "gedung": gedung, "rekening_diisi": bool(no_rekening)})
+               {"divisi": divisi.strip(), "gedung": gedung, "rekening_diisi": bool(no_rekening),
+                "mulai_pkl": mulai_s, "selesai_pkl": selesai_s})
+
+
+def _tgl_atau_none(v):
+    """date / datetime / 'YYYY-MM-DD' / kosong -> date atau None. Format salah -> ValueError."""
+    if v is None or (isinstance(v, str) and not v.strip()) or (not isinstance(v, (str, date)) and pd.isna(v)):
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    try:
+        return date.fromisoformat(str(v).strip()[:10])
+    except ValueError:
+        raise ValueError("Tanggal harus berformat YYYY-MM-DD.") from None
+
+
+def _periode_iso(mulai, selesai):
+    """Validasi periode PKL; kembalikan (mulai_iso|None, selesai_iso|None). Selesai tidak boleh sebelum mulai."""
+    m, sl = _tgl_atau_none(mulai), _tgl_atau_none(selesai)
+    if m and sl and sl < m:
+        raise ValueError("Tanggal selesai PKL tidak boleh sebelum tanggal mulai.")
+    return (m.isoformat() if m else None), (sl.isoformat() if sl else None)
+
+
+@coba_ulang
+def set_periode_pkl(eng, nama, mulai, selesai, aktor="admin", peran="admin"):
+    """Atur tanggal mulai dan selesai PKL satu peserta (boleh kosong). 'Tidak Hadir' hanya dihitung di antara dua tanggal ini."""
+    mulai_s, selesai_s = _periode_iso(mulai, selesai)
+    with eng.begin() as c:
+        lama = c.execute(select(peserta_t.c.mulai_pkl, peserta_t.c.selesai_pkl).where(peserta_t.c.nama == nama)).first()
+        r = c.execute(update(peserta_t).where(peserta_t.c.nama == nama).values(mulai_pkl=mulai_s, selesai_pkl=selesai_s))
+        if r.rowcount:
+            _audit(c, aktor, peran, "peserta.ubah_periode", f"peserta:{nama}",
+                   {"dari": [lama[0], lama[1]], "ke": [mulai_s, selesai_s]})
+
+
+def periode_pkl(eng):
+    """{nama: (mulai, selesai)} (date atau None) untuk semua peserta terdaftar, dalam SATU kueri."""
+    with eng.connect() as c:
+        rows = c.execute(select(peserta_t.c.nama, peserta_t.c.mulai_pkl, peserta_t.c.selesai_pkl)).all()
+    hasil = {}
+    for n, m, sl in rows:
+        try:
+            hasil[n] = (_tgl_atau_none(m), _tgl_atau_none(sl))
+        except ValueError:
+            hasil[n] = (None, None)
+    return hasil
+
+
+def dalam_periode(periode, tgl):
+    """True bila tanggal (date) ada di dalam periode PKL (mulai, selesai); batas yang kosong tidak membatasi."""
+    mulai, selesai = periode if periode else (None, None)
+    return (mulai is None or tgl >= mulai) and (selesai is None or tgl <= selesai)
 
 
 def _akhir_rekening(nomor):
@@ -1506,6 +1565,7 @@ def excel_template_bytes(eng, df_bulan, tahun, bulan, daftar_nama):
 
     dipakai, jumlah_sheet = set(), 0
     peta = _peta_peserta(eng)
+    periode = periode_pkl(eng)
     for nama in daftar_nama:
         data = df_bulan[df_bulan["nama"] == nama]
         if data.empty:
@@ -1534,11 +1594,13 @@ def excel_template_bytes(eng, df_bulan, tahun, bulan, daftar_nama):
                         al = row.get("alasan")
                         pulang_awal[iso] = f"Pulang awal ({ts}): {al.strip() if isinstance(al, str) and al.strip() else '-'}"
         pertama = tanggal_pertama_absen(eng, nama) or data["tanggal"].min()
-        awal = max(awal_bulan, date.fromisoformat(pertama))
-        if awal > akhir:
+        mulai_pkl, selesai_pkl = periode.get(nama, (None, None))
+        awal = max(awal_bulan, mulai_pkl or date.fromisoformat(pertama))
+        akhir_p = min(akhir, selesai_pkl) if selesai_pkl else akhir
+        if awal > akhir_p:
             continue
         ws = wb.create_sheet(_nama_sheet(nama, dipakai))
-        _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir, pulang_awal)
+        _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir_p, pulang_awal)
         jumlah_sheet += 1
 
     if jumlah_sheet == 0:
@@ -3360,6 +3422,15 @@ def _kosong(v):
     return t if t else "-"
 
 
+def _fmt_tgl_pkl(v):
+    """'YYYY-MM-DD' -> '28 November 2026'; kosong -> '-'."""
+    try:
+        d = _tgl_atau_none(v if v != "-" else None)
+    except ValueError:
+        return "-"
+    return f"{d.day} {BULAN_ID[d.month - 1]} {d.year}" if d else "-"
+
+
 def halaman_profil_peserta(df, nama):
     """Halaman profil peserta (halaman penuh, bukan pop-up). Dibuka dengan menekan nama di tabel."""
     if st.button("← Kembali ke daftar peserta", key="profil_kembali"):
@@ -3376,6 +3447,7 @@ def halaman_profil_peserta(df, nama):
         ("Nama", data["nama"]), ("Divisi", data["divisi"]), ("Gedung", data["gedung"]),
         ("No. Rekening", data["no_rekening"]), ("Universitas/Sekolah", data["universitas"]), ("Jurusan", data["jurusan"]),
         ("Kelas/Semester", data["kelas_semester"]),
+        ("Mulai PKL", _fmt_tgl_pkl(data.get("mulai_pkl"))), ("Selesai PKL", _fmt_tgl_pkl(data.get("selesai_pkl"))),
     ]
     st.markdown(
         "".join(
@@ -3415,6 +3487,10 @@ def form_tambah_peserta(eng):
         jurusan = st.text_input("Jurusan", max_chars=150)
         kelas_sem = st.text_input("Kelas/Semester", max_chars=50, placeholder="contoh: Semester 6 atau Kelas XI")
         no_rek = st.text_input("Nomor rekening", placeholder="contoh: 130-210-000554616-9", max_chars=30)
+        kol_p1, kol_p2 = st.columns(2)
+        mulai_pkl = kol_p1.date_input("Mulai PKL (opsional)", value=None, format="DD/MM/YYYY", key="tambah_mulai")
+        selesai_pkl = kol_p2.date_input("Selesai PKL (opsional)", value=None, format="DD/MM/YYYY", key="tambah_selesai")
+        st.caption("Dipakai untuk menghitung 'Tidak Hadir' di rekap: hanya hari kerja di antara dua tanggal ini yang dihitung.")
         pin = st.text_input("PIN (4-6 angka)", max_chars=6)
         kirim = st.form_submit_button("Simpan Peserta", width="stretch")
 
@@ -3429,9 +3505,12 @@ def form_tambah_peserta(eng):
             st.error(rek_err)
         elif not (pin.isdigit() and 4 <= len(pin) <= 6):
             st.error("PIN harus 4-6 angka.")
+        elif mulai_pkl and selesai_pkl and selesai_pkl < mulai_pkl:
+            st.error("Tanggal selesai PKL tidak boleh sebelum tanggal mulai.")
         else:
             try:
-                add_peserta(eng, nama, gedung, divisi, pin, rek_rapi, universitas=univ, jurusan=jurusan, kelas_semester=kelas_sem)
+                add_peserta(eng, nama, gedung, divisi, pin, rek_rapi, universitas=univ, jurusan=jurusan, kelas_semester=kelas_sem,
+                            mulai_pkl=mulai_pkl, selesai_pkl=selesai_pkl)
             except IntegrityError:
                 st.error("Nama itu sudah terdaftar.")
             except SQLAlchemyError as e:
@@ -3552,6 +3631,26 @@ def halaman_kelola_peserta(eng):
                     st.error(pesan_db(e))
                 else:
                     notif(f"Universitas/sekolah, jurusan, dan kelas/semester {target} diperbarui.")
+                    st.rerun()
+
+            baris_t = df.loc[df["nama"] == target].iloc[0]
+            try:
+                m_lama, s_lama = _tgl_atau_none(baris_t["mulai_pkl"]), _tgl_atau_none(baris_t["selesai_pkl"])
+            except ValueError:
+                m_lama, s_lama = None, None
+            kp1, kp2 = st.columns(2)
+            m_baru = kp1.date_input("Mulai PKL", value=m_lama, format="DD/MM/YYYY", key=f"mulai_baru_{target}", on_change=_senyap)
+            s_baru = kp2.date_input("Selesai PKL", value=s_lama, format="DD/MM/YYYY", key=f"selesai_baru_{target}", on_change=_senyap)
+            st.caption("Kosongkan untuk tidak membatasi. 'Tidak Hadir' di rekap hanya dihitung di antara dua tanggal ini.")
+            if st.button("Simpan Periode PKL", key="simpan_periode_pkl"):
+                try:
+                    set_periode_pkl(eng, target, m_baru, s_baru)
+                except ValueError as e:
+                    st.error(str(e))
+                except SQLAlchemyError as e:
+                    st.error(pesan_db(e))
+                else:
+                    notif(f"Periode PKL {target} diperbarui.")
                     st.rerun()
 
             pin_baru = st.text_input("PIN baru (4-6 angka)", on_change=_senyap, max_chars=6, key="pin_baru")
@@ -3786,7 +3885,8 @@ def rekap_peserta_bulan(eng, df, tahun, bulan, sekarang=None):
     sudah lewat tanpa absen masuk, izin, atau cuti, dihitung sejak awal bulan; aturannya sama dengan 'Tidak hadir' di Beranda
     (jumlah per hari), hanya dijumlahkan untuk satu bulan. Berlaku untuk peserta yang masih terdaftar, termasuk yang belum
     pernah absen. Nama yang hanya tersisa di riwayat (sudah dihapus) tidak dihitung, sama seperti Beranda.
-    Catatan: tanggal daftar tidak disimpan, jadi peserta yang didaftarkan di tengah bulan ikut dihitung sejak tanggal 1."""
+    Hanya hari kerja di dalam periode PKL peserta (mulai_pkl..selesai_pkl) yang dihitung; bila tanggal itu belum diisi admin,
+    batas yang kosong tidak membatasi (peserta lama dihitung sejak tanggal 1 seperti dulu)."""
     terdaftar = set(list_peserta(eng)["nama"])
     nama_semua = sorted(terdaftar | set(df["nama"].unique()))
     masuk = df[(df["status"] == "berhasil") & (df["jenis"] == "masuk")]
@@ -3794,11 +3894,13 @@ def rekap_peserta_bulan(eng, df, tahun, bulan, sekarang=None):
     pulang = df[(df["status"] == "berhasil") & (df["jenis"] == "pulang")]
     izin, cuti = df[df["jenis"] == "izin"], df[df["jenis"] == "cuti"]
     tgl = lambda d, n: set(d.loc[d["nama"] == n, "tanggal"])
-    hari_kerja = [d.isoformat() for d in hari_kerja_periode(tahun, bulan, sekarang)]
+    hari_kerja_semua = hari_kerja_periode(tahun, bulan, sekarang)
+    periode = periode_pkl(eng)
     baris = []
     for nama in nama_semua:
         t_hadir, t_izin, t_cuti = tgl(masuk, nama), tgl(izin, nama), tgl(cuti, nama)
         diabsen = t_hadir | t_izin | t_cuti
+        hari_kerja = [d.isoformat() for d in hari_kerja_semua if dalam_periode(periode.get(nama), d)]
         baris.append({
             "Nama": nama, "Hari Hadir": len(t_hadir), "Terlambat": len(tgl(masuk[masuk["telat"]], nama)),
             "Izin": len(t_izin & t_hadir), "Izin: Tidak Hadir": len((t_izin | t_cuti) - t_hadir),
@@ -6418,7 +6520,8 @@ CSS_DASHBOARD = """
 
 def ringkasan_hari_ini(eng, sekarang=None):
     """Hitung kehadiran satu hari untuk Beranda admin. Setiap peserta terdaftar masuk TEPAT SATU kelompok, jadi
-    tepat + terlambat + izin_th + belum = aktif. Yang dihitung hanya absen yang berhasil (percobaan gagal lokasi
+    tepat + terlambat + izin_th + belum = aktif (bila semua peserta sedang dalam masa PKL-nya; peserta yang belum mulai atau
+    sudah selesai PKL tidak dihitung 'belum'). Yang dihitung hanya absen yang berhasil (percobaan gagal lokasi
     diabaikan) dan hanya peserta yang masih terdaftar. Bila satu peserta punya beberapa catatan hari itu, absen masuk
     yang menentukan. 'izin' = izin sebentar (tetap absen masuk hari itu; ia juga terhitung hadir, jadi bukan kelompok
     tersendiri). 'izin_th' = izin (atau cuti data lama) tanpa absen masuk = tidak hadir. 'Belum' = belum ada catatan
@@ -6435,6 +6538,8 @@ def ringkasan_hari_ini(eng, sekarang=None):
     with eng.connect() as c:
         aktif = c.execute(select(func.count()).select_from(peserta_t)).scalar() or 0
         baris = c.execute(q).all()
+    periode = periode_pkl(eng)
+    wajib = {n for n, per in periode.items() if dalam_periode(per, hari)}      # peserta yang hari ini memang dalam masa PKL
     status, jam_masuk, alasan_izin, tidak_masuk = {}, {}, {}, {}
     for nama, jenis, jam, alasan in baris:
         if jenis == "masuk":
@@ -6451,9 +6556,9 @@ def ringkasan_hari_ini(eng, sekarang=None):
             status[nama] = "izin_th"
     hitung = {k: sum(1 for v in status.values() if v == k) for k in ("tepat", "terlambat", "izin_th")}
     hitung["izin"] = len(izin_sebentar)
-    belum = 0 if libur else max(int(aktif) - len(status), 0)
+    belum = 0 if libur else len(wajib - set(status))
     return {
-        "tanggal": hari, "libur": libur, "aktif": int(aktif), **hitung, "belum": belum, "izin_sebentar": izin_sebentar,
+        "tanggal": hari, "libur": libur, "aktif": int(aktif), **hitung, "belum": belum, "izin_sebentar": izin_sebentar, "wajib": wajib,
         "sudah_absen": hitung["tepat"] + hitung["terlambat"],
         # sebelum jendela absen masuk tutup mereka baru "belum absen"; sesudahnya baru pantas disebut tidak hadir
         "label_belum": "Belum absen" if sekarang.time().replace(second=0, microsecond=0) <= JAM_MASUK_TUTUP else "Tidak hadir",
@@ -6479,7 +6584,7 @@ def _daftar_kartu_beranda(eng, r, kode, label):
     elif kode == "izin_th":
         pilih = [n for n in pes["nama"] if status.get(n) == "izin_th"]
     else:
-        pilih = [] if r["libur"] else [n for n in pes["nama"] if n not in status]
+        pilih = [] if r["libur"] else [n for n in pes["nama"] if n in r["wajib"] and n not in status]
     d = pes[pes["nama"].isin(pilih)].copy()
     if kode in ("hadir", "telat"):
         d["Jam masuk"] = d["nama"].map(lambda n: str(jam.get(n, "-")))
