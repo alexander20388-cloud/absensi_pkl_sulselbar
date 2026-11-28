@@ -3480,18 +3480,19 @@ def tabel_peserta(df):
 def form_tambah_peserta(eng):
     """Form tambah peserta (tampil di halaman, bukan pop-up); hanya muncul setelah tombol Tambah Peserta ditekan."""
     with st.form("tambah_peserta", clear_on_submit=False, border=True):
-        nama = st.text_input("Nama peserta")
-        divisi = st.selectbox("Divisi", list(DIVISI_GEDUNG.keys()))
+        st.caption(":red[**\\***] wajib diisi")
+        nama = st.text_input("Nama peserta :red[**\\***]")
+        divisi = st.selectbox("Divisi :red[**\\***]", list(DIVISI_GEDUNG.keys()))
         gedung = DIVISI_GEDUNG[divisi]
-        univ = st.text_input("Universitas/Sekolah (opsional)", max_chars=150)
-        jurusan = st.text_input("Jurusan (opsional)", max_chars=150)
-        kelas_sem = st.text_input("Kelas/Semester (opsional)", max_chars=50, placeholder="contoh: Semester 6 atau Kelas XI")
-        no_rek = st.text_input("Nomor rekening (opsional)", placeholder="contoh: 130-210-000554616-9", max_chars=30)
+        univ = st.text_input("Universitas/Sekolah", max_chars=150)
+        jurusan = st.text_input("Jurusan", max_chars=150)
+        kelas_sem = st.text_input("Kelas/Semester", max_chars=50, placeholder="contoh: Semester 6 atau Kelas XI")
+        no_rek = st.text_input("Nomor rekening", placeholder="contoh: 130-210-000554616-9", max_chars=30)
         kol_p1, kol_p2 = st.columns(2)
         mulai_pkl = kol_p1.date_input("Mulai PKL (opsional)", value=None, format="DD/MM/YYYY", key="tambah_mulai")
         selesai_pkl = kol_p2.date_input("Selesai PKL (opsional)", value=None, format="DD/MM/YYYY", key="tambah_selesai")
         st.caption("Dipakai untuk menghitung 'Tidak Hadir' di rekap: hanya hari kerja di antara dua tanggal ini yang dihitung.")
-        pin = st.text_input("PIN (4-6 angka)", max_chars=6)
+        pin = st.text_input("PIN (4-6 angka) :red[**\\***]", max_chars=6)
         kirim = st.form_submit_button("Simpan Peserta", width="stretch")
 
     if kirim:
