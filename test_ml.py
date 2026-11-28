@@ -226,6 +226,23 @@ def test_absen_pulang_jam_janggal_tetap_tertangkap():
     assert row["ditandai"] and "jam absen 03:30 jauh lebih awal dari jam tipikal" in row["alasan"]
 
 
+def test_pulang_awal_tidak_ditandai_hanya_karena_jamnya():
+    """Pulang jam 13:00 tanpa penanda tetap janggal; dengan tinjau_status (pulang awal, alasannya dinilai admin) tidak."""
+    df = data_lokasi()
+    lat0, lon0 = GEDUNG["A"]
+    ekstra = dict(nama="P0", tanggal="2026-12-14", jam="13:00:00", jenis="pulang", status="berhasil",
+                  lat=lat0 + 0.0001, lon=lon0 + 0.0001, akurasi=20.0, jarak=15.0)
+    tanpa = ml.deteksi_anomali(pd.concat([df, pd.DataFrame([ekstra])], ignore_index=True), PESERTA, GEDUNG, persen=5)
+    baris = tanpa[(tanpa["tanggal"] == "2026-12-14") & (tanpa["nama"] == "P0") & (tanpa["jenis"] == "pulang")].iloc[0]
+    assert baris["ditandai"] and "jam absen 13:00 jauh lebih awal dari jam tipikal" in baris["alasan"]
+
+    df2 = df.assign(tinjau_status=None)
+    dengan = ml.deteksi_anomali(pd.concat([df2, pd.DataFrame([{**ekstra, "tinjau_status": "menunggu"}])], ignore_index=True),
+                                PESERTA, GEDUNG, persen=5)
+    baris = dengan[(dengan["tanggal"] == "2026-12-14") & (dengan["nama"] == "P0") & (dengan["jenis"] == "pulang")].iloc[0]
+    assert "jam absen" not in baris["alasan"]
+
+
 def test_drift_tidak_dinilai_bila_data_baru_terlalu_sedikit(ds, h):
     d = ml.pantau_drift(h["baseline"], ds.tail(10))
     assert (d["status"] == "-").all() and d["psi"].isna().all()

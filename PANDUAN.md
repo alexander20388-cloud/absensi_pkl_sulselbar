@@ -66,7 +66,22 @@ terakhir. Tiap catatan terkait dengan catatan sebelumnya lewat hash, jadi mengub
 **Privasi.** Peserta menyetujui pemberitahuan privasi (GPS dan foto) sekali sebelum memakai aplikasi, dan lagi bila `VERSI_PRIVASI` dinaikkan.
 Teks `TEKS_PRIVASI` di `app.py` adalah **draf**: sesuaikan dengan kebijakan instansi dan mintalah tinjauan unit hukum atau Human Capital.
 
-**Anggaran uang makan.** Realisasi = uang makan yang tercatat saat absen pulang, per divisi peserta *saat absen*. Proyeksi akhir bulan = realisasi
+**Izin (pilihan Cuti sudah dihapus).** Halaman absen peserta kini hanya Masuk, Pulang, dan Izin. Bila peserta tidak bisa datang sama sekali, cukup isi
+Izin (tanggal hari ini sampai 30 hari ke depan, alasan wajib): tidak perlu absen, dan di Excel per peserta hari itu menjadi satu baris penuh
+"Izin: alasan" (menggantikan tulisan lama "Tidak hadir (izin: ...)"). Bila peserta tetap datang, ia tetap absen masuk dan pulang; hari itu dihitung
+hadir dan alasan izin ditulis di kolom Izin. Hari izin tanpa absen masuk tidak dihitung "Tidak Hadir". Catatan cuti yang sudah ada di database tetap
+terbaca di rekap dan Excel ("Cuti: alasan"); kolom dan kartu Cuti di layar admin tetap ada tetapi akan terus 0 untuk data baru.
+
+**Pulang awal.** Absen pulang dibuka 12:30-18:00 WITA (`JAM_PULANG_BUKA`, `JAM_PULANG_TUTUP`). Pulang **sebelum 16:50** (`JAM_PULANG_NORMAL`) disebut
+pulang awal: peserta wajib mengisi alasan (minimal 5 karakter, dicek di server), absennya tetap tercatat, tetapi uang makan hari itu Rp0 dan statusnya
+*menunggu*. Admin memutuskan di menu **Rekap** (bagian *Pulang Awal Menunggu Persetujuan*; Beranda admin menampilkan peringatan bila ada yang menunggu):
+**Setujui** mengisi uang makan Rp15.000, **Tolak** membiarkannya Rp0. Absennya tetap sah (hadir) apa pun keputusannya. Keputusan boleh diubah dan
+tercatat di jejak audit (`absensi.tinjau_pulang_awal`). Mulai 16:50 pulang seperti biasa: tanpa alasan, uang makan langsung diberikan. Alasan disimpan di
+kolom `alasan`, status di `tinjau_status` / `tinjau_oleh` / `tinjau_pada` (kolom baru, ditambahkan otomatis ke database lama). Pulang awal yang belum
+diputuskan tidak ikut total uang makan maupun realisasi anggaran, jadi tinjau sebelum akhir bulan. Di Excel per peserta, pulang awal ditulis di kolom Izin
+beserta statusnya. Deteksi absen mencurigakan (ML) tidak menghitung jam pulang awal sebagai keanehan.
+
+**Anggaran uang makan.** Realisasi = uang makan yang tercatat saat absen pulang (pulang awal baru terhitung setelah disetujui), per divisi peserta *saat absen*. Proyeksi akhir bulan = realisasi
 hari yang sudah selesai + rata-rata harian x hari kerja tersisa. Saran anggaran = peserta x hari kerja x tarif x tingkat kehadiran + cadangan 10%.
 
 ## 7. Batasan yang perlu diketahui

@@ -392,7 +392,11 @@ def deteksi_anomali(df, peserta_df, gedung_coord, persen=5.0, seed=42) -> pd.Dat
     d["dy"] = (d["lat"] - lat0) * M_PER_DERAJAT
     d["dx"] = (d["lon"] - lon0) * M_PER_DERAJAT * np.cos(np.radians(lat0))
     d["menit"] = d["jam"].map(menit_dari_jam)
-    d["menit_rel"] = d["menit"] - d.groupby("jenis")["menit"].transform("median")   # jam relatif terhadap jam tipikal jenis itu
+    # Pulang awal (ada tinjau_status; alasannya dinilai admin) bukan keanehan jam: tidak ikut menentukan jam tipikal dan
+    # tidak dihukum karena jamnya jauh dari jam pulang biasa.
+    awal = (d["jenis"] == "pulang") & d["tinjau_status"].notna() if "tinjau_status" in d.columns else pd.Series(False, index=d.index)
+    tipikal = d["menit"].where(~awal).groupby(d["jenis"]).transform("median")
+    d["menit_rel"] = (d["menit"] - tipikal).where(~awal, 0.0).fillna(0.0)   # jam relatif terhadap jam tipikal jenis itu
     d["akurasi_f"] = d["akurasi"].fillna(d["akurasi"].median() if d["akurasi"].notna().any() else 0.0)
     d["jarak_f"] = d["jarak"].fillna(np.sqrt(d["dx"] ** 2 + d["dy"] ** 2))
     med = d.groupby("nama")[["lat", "lon"]].transform("median")

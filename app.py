@@ -3,14 +3,15 @@ Aplikasi Absensi Peserta PKL - Bank Sulselbar (versi siap deploy)
 =================================================================
 Fitur:
 - Layar login di awal: pilih peran. Peserta (nama + PIN) -> halaman absen saja; Admin (password) -> area admin
-- Absen MASUK saja (tidak ada absen pulang): foto selfie + lokasi GPS
+- Absen MASUK dan PULANG: foto selfie + lokasi GPS
 - Login PIN per peserta (dibuat admin)
 - Cek lokasi: harus di sekitar gedung yang terdaftar untuk peserta (A / B)
 - Setiap peserta juga punya Divisi (dipilih dari daftar, Gedung ikut otomatis)
-- Jam absen: masuk 06:00-12:30 (sampai 08:00 tidak terlambat, lewat itu terlambat), pulang 16:50-18:00 (WITA).
+- Jam absen: masuk 06:00-12:30 (sampai 08:00 tidak terlambat, lewat itu terlambat), pulang 12:30-18:00 (WITA).
   Uang makan didapat saat absen pulang, termasuk yang masuknya terlambat.
+  Pulang SEBELUM 16:50 = pulang awal: wajib mengisi alasan, uang makan menunggu persetujuan admin (Rekap > Pulang Awal).
   Izin (sebentar, tetap bisa absen) dan cuti (sehari penuh, tidak bisa absen masuk): kapan saja, dengan alasan
-- Uang makan Rp15.000 otomatis saat absen masuk berhasil
+- Uang makan Rp15.000 saat absen pulang berhasil (pulang awal: setelah alasannya disetujui admin)
 - Blokir absen dobel di hari yang sama
 - Admin (pakai password): kelola peserta, rekap + export Excel, analitik EDA (grafik), model ML (deteksi absen mencurigakan, prediksi terlambat, monitoring), bukti foto
 - Database: SQLite (lokal) atau Postgres/Supabase (cloud) - otomatis
@@ -74,7 +75,7 @@ GEDUNG_COORD = {
 }
 
 RADIUS_METER = 200  # toleransi jarak dari titik gedung (meter)
-MAKS_AKURASI_METER = 200  # absen ditolak bila ketelitian GPS perangkat lebih buruk dari ini (BUKAN toleransi jarak; itu RADIUS_METER)
+MAKS_AKURASI_METER = 100  # absen ditolak bila ketelitian GPS perangkat lebih buruk dari ini (BUKAN toleransi jarak; itu RADIUS_METER)
 
 # Pembatasan percobaan login: setelah MAKS_GAGAL_LOGIN kali salah berturut-turut (dalam jendela KUNCI_LOGIN_MENIT menit),
 # akun/peran itu dikunci selama KUNCI_LOGIN_MENIT menit.
@@ -105,8 +106,14 @@ DIVISI_GEDUNG = {
 }
 
 # Jendela waktu absen (WITA). Di luar jam ini absen ditolak. Izin bisa kapan saja.
-JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(18, 00)
-JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(16, 50), dtime(18, 0)
+JAM_MASUK_BUKA, JAM_MASUK_TUTUP = dtime(6, 0), dtime(12, 30)
+JAM_PULANG_BUKA, JAM_PULANG_TUTUP = dtime(12, 30), dtime(18, 0)
+# Pulang SEBELUM jam ini = "pulang awal": wajib mengisi alasan, dan uang makan baru diberikan setelah admin menyetujui alasannya.
+# Mulai jam ini pulang seperti biasa (tanpa alasan, uang makan langsung diberikan).
+JAM_PULANG_NORMAL = dtime(16, 50)
+MIN_ALASAN_PULANG = 5
+STATUS_PULANG_AWAL = ("menunggu", "disetujui", "ditolak")
+KET_TINJAU = {"menunggu": "menunggu persetujuan admin", "disetujui": "disetujui", "ditolak": "ditolak"}
 # Hari libur PKL (0=Senin ... 5=Sabtu, 6=Minggu). Pada hari ini TIDAK bisa absen masuk, pulang, izin, maupun cuti.
 HARI_LIBUR = (5, 6)
 
@@ -336,7 +343,10 @@ absensi_t = Table(
     Column("uang_makan", Integer, nullable=False, default=0),
     Column("foto", LargeBinary),                                # foto di DB (cadangan / data lama)
     Column("foto_path", String(200)),                           # lokasi foto di Supabase Storage
-    Column("alasan", String(300)),                              # alasan izin / cuti
+    Column("alasan", String(300)),                              # alasan izin / cuti / pulang awal
+    Column("tinjau_status", String(12)),                        # khusus pulang awal: menunggu / disetujui / ditolak (NULL = bukan pulang awal)
+    Column("tinjau_oleh", String(100)),                         # admin yang memutuskan
+    Column("tinjau_pada", String(19)),                          # waktu keputusan (WITA)
 )
 
 # Anti absen ganda DI TINGKAT DATABASE: satu catatan per (nama, tanggal, jenis) untuk masuk/pulang yang berhasil
@@ -563,6 +573,7 @@ def _migrasi(eng):
                     ("kelas_semester", "VARCHAR(50)")],
         "absensi": [
             ("foto_path", "VARCHAR(200)"), ("alasan", "VARCHAR(300)"),
+            ("tinjau_status", "VARCHAR(12)"), ("tinjau_oleh", "VARCHAR(100)"), ("tinjau_pada", "VARCHAR(19)"),
             ("peserta_id", "INTEGER REFERENCES peserta(id) ON DELETE SET NULL"),
             ("divisi", "VARCHAR(100)"),
         ],
@@ -594,7 +605,7 @@ def _migrasi(eng):
 
 
 @st.cache_resource
-def get_engine(versi_skema=9):
+def get_engine(versi_skema=10):
     url = url_database()
     sementara = False
     if url:
@@ -1140,12 +1151,65 @@ def simpan_absen(eng, **nilai):
         ))
 
 
+def pulang_awal(now):
+    """True kalau jam (setingkat menit) SEBELUM JAM_PULANG_NORMAL: absen pulang saat itu dihitung pulang awal."""
+    return now.time().replace(second=0, microsecond=0) < JAM_PULANG_NORMAL
+
+
+def daftar_pulang_awal(eng, status="menunggu", limit=200):
+    """Absen pulang awal yang berhasil, terbaru dulu. status: salah satu STATUS_PULANG_AWAL, atau None untuk semuanya."""
+    q = (
+        select(
+            absensi_t.c.id, absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.jam, absensi_t.c.alasan,
+            absensi_t.c.tinjau_status, absensi_t.c.uang_makan, absensi_t.c.tinjau_oleh, absensi_t.c.tinjau_pada,
+        )
+        .where(and_(absensi_t.c.jenis == "pulang", absensi_t.c.status == "berhasil", absensi_t.c.tinjau_status.isnot(None)))
+        .order_by(absensi_t.c.tanggal.desc(), absensi_t.c.jam.desc())
+        .limit(limit)
+    )
+    if status:
+        q = q.where(absensi_t.c.tinjau_status == status)
+    with eng.connect() as c:
+        return c.execute(q).mappings().all()
+
+
+def jumlah_pulang_awal_menunggu(eng, nama=None):
+    q = select(func.count()).select_from(absensi_t).where(and_(
+        absensi_t.c.jenis == "pulang", absensi_t.c.status == "berhasil", absensi_t.c.tinjau_status == "menunggu"))
+    if nama:
+        q = q.where(absensi_t.c.nama == nama)
+    with eng.connect() as c:
+        return c.execute(q).scalar() or 0
+
+
+@coba_ulang
+def tinjau_pulang_awal(eng, absensi_id, keputusan, aktor="admin", peran="admin"):
+    """Admin menyetujui / menolak alasan pulang awal. Disetujui: uang makan diisi UANG_MAKAN. Ditolak: uang makan 0.
+    Absennya sendiri tetap sah. Keputusan boleh diubah (uang makan mengikuti keputusan terakhir) dan tercatat di audit.
+    Mengembalikan True kalau ada baris yang diperbarui, False kalau bukan absen pulang awal yang berhasil."""
+    if keputusan not in ("disetujui", "ditolak"):
+        raise ValueError("keputusan harus 'disetujui' atau 'ditolak'")
+    uang = UANG_MAKAN if keputusan == "disetujui" else 0
+    waktu = datetime.now(WITA).strftime("%Y-%m-%d %H:%M:%S")
+    with eng.begin() as c:
+        r = c.execute(select(absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.tinjau_status).where(and_(
+            absensi_t.c.id == absensi_id, absensi_t.c.jenis == "pulang", absensi_t.c.status == "berhasil",
+            absensi_t.c.tinjau_status.isnot(None)))).first()
+        if r is None:
+            return False
+        c.execute(update(absensi_t).where(absensi_t.c.id == absensi_id).values(
+            tinjau_status=keputusan, uang_makan=uang, tinjau_oleh=str(aktor)[:100], tinjau_pada=waktu))
+        _audit(c, aktor, peran, "absensi.tinjau_pulang_awal", f"absensi:{r[0]}:{r[1]}",
+               {"keputusan": keputusan, "uang_makan": uang, "sebelumnya": r[2]})
+    return True
+
+
 def get_absensi_bulan(eng, tahun, bulan):
     prefix = f"{tahun:04d}-{bulan:02d}-"
     q = (
         select(
             absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.jam, absensi_t.c.jenis,
-            absensi_t.c.status, absensi_t.c.jarak, absensi_t.c.uang_makan, absensi_t.c.alasan,
+            absensi_t.c.status, absensi_t.c.jarak, absensi_t.c.uang_makan, absensi_t.c.alasan, absensi_t.c.tinjau_status,
         )
         .where(absensi_t.c.tanggal.like(prefix + "%"))
         .order_by(absensi_t.c.tanggal, absensi_t.c.jam)
@@ -1337,10 +1401,10 @@ def _salin_gaya(src, dst, nilai=None):
         dst.value = nilai
 
 
-def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir):
+def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir, pulang_awal=None):
     """Isi satu sheet memakai gaya dari sheet 'Template' (kolom B..G): identitas (nama, unit kerja, no. rekening) + tabel, tanpa tanda tangan.
     hari = {tanggal_iso: jam_masuk}, pulang = {tanggal_iso: (jam_pulang, uang_makan)},
-    izin / cuti = {tanggal_iso: alasan}."""
+    izin / cuti = {tanggal_iso: alasan}, pulang_awal = {tanggal_iso: keterangan pulang awal} (ditulis di kolom Izin)."""
     isi = {
         "{nama}": peserta["nama"],
         "{unit_kerja}": (peserta["divisi"] or "-").upper(),
@@ -1384,10 +1448,12 @@ def _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir):
             jam_p, uang = pulang.get(iso, (None, 0))      # uang makan hanya kalau sudah absen pulang
             ws[f"D{r}"].value = jam_p if jam_p else "-"
             ws[f"E{r}"].value = ketepatan(hari[iso])          # "Tidak terlambat" / "Terlambat"
-            if iso in izin:                               # kolom Izin: alasan izin hari itu, selain itu "-"
-                ws[f"F{r}"].value = izin[iso]
+            ket_awal = (pulang_awal or {}).get(iso)
+            if iso in izin or ket_awal:                   # kolom Izin: alasan izin dan/atau pulang awal hari itu, selain itu "-"
+                teks_f = " | ".join(t for t in (izin.get(iso), ket_awal) if t)
+                ws[f"F{r}"].value = teks_f
                 ws[f"F{r}"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                tinggi(r, izin[iso])
+                tinggi(r, teks_f)
             else:
                 ws[f"F{r}"].value = "-"
             ws[f"G{r}"].value = uang
@@ -1449,7 +1515,7 @@ def excel_template_bytes(eng, df_bulan, tahun, bulan, daftar_nama):
             "divisi": (info["divisi"] if info else "") or "",
             "no_rekening": info["no_rekening"] if info else None,
         }
-        hari, pulang, izin, cuti = {}, {}, {}, {}
+        hari, pulang, izin, cuti, pulang_awal = {}, {}, {}, {}, {}
         for _, row in data.iterrows():
             iso = row["tanggal"]
             if row["jenis"] == "izin":
@@ -1462,12 +1528,16 @@ def excel_template_bytes(eng, df_bulan, tahun, bulan, daftar_nama):
                     hari.setdefault(iso, jam)
                 elif row["jenis"] == "pulang":
                     pulang[iso] = (jam, int(row["uang_makan"]))   # jam pulang + uang makan (didapat saat pulang)
+                    ts = row.get("tinjau_status")
+                    if isinstance(ts, str) and ts:
+                        al = row.get("alasan")
+                        pulang_awal[iso] = f"Pulang awal ({ts}): {al.strip() if isinstance(al, str) and al.strip() else '-'}"
         pertama = tanggal_pertama_absen(eng, nama) or data["tanggal"].min()
         awal = max(awal_bulan, date.fromisoformat(pertama))
         if awal > akhir:
             continue
         ws = wb.create_sheet(_nama_sheet(nama, dipakai))
-        _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir)
+        _isi_sheet_peserta(ws, tpl, peserta, hari, pulang, izin, cuti, awal, akhir, pulang_awal)
         jumlah_sheet += 1
 
     if jumlah_sheet == 0:
@@ -2345,7 +2415,7 @@ def get_status_hari(eng, nama, tanggal):
         return memo[kunci]
     q = (
         select(absensi_t.c.jenis, absensi_t.c.jam, absensi_t.c.status, absensi_t.c.uang_makan,
-               absensi_t.c.jarak, absensi_t.c.alasan)
+               absensi_t.c.jarak, absensi_t.c.alasan, absensi_t.c.tinjau_status)
         .where(and_(absensi_t.c.nama == nama, absensi_t.c.tanggal == tanggal))
         .order_by(absensi_t.c.jam)
     )
@@ -2355,7 +2425,7 @@ def get_status_hari(eng, nama, tanggal):
     return memo[kunci]
 
 
-_KOLOM_STATUS = ("jenis", "jam", "status", "uang_makan", "jarak", "alasan")
+_KOLOM_STATUS = ("jenis", "jam", "status", "uang_makan", "jarak", "alasan", "tinjau_status")
 
 
 def get_peserta_dan_status(eng, nama):
@@ -2379,7 +2449,7 @@ def get_riwayat_peserta(eng, nama, limit=60, tanpa_gagal=False):
     """Catatan absen milik peserta. tanpa_gagal=True: sembunyikan percobaan gagal (hanya berhasil + izin)."""
     q = (
         select(absensi_t.c.tanggal, absensi_t.c.jam, absensi_t.c.jenis, absensi_t.c.status,
-               absensi_t.c.jarak, absensi_t.c.uang_makan, absensi_t.c.alasan)
+               absensi_t.c.jarak, absensi_t.c.uang_makan, absensi_t.c.alasan, absensi_t.c.tinjau_status)
         .where(absensi_t.c.nama == nama)
         .order_by(absensi_t.c.tanggal.desc(), absensi_t.c.jam.desc())
         .limit(limit)
@@ -2461,6 +2531,18 @@ def header_halaman(judul, sub="", menu=False):
     st.markdown(f'<div class="pr-page-head">{judul}{sub_html}</div>', unsafe_allow_html=True)
 
 
+def teks_uang_pulang(p):
+    """Isi kotak 'Uang Makan' di Beranda peserta: '-' sebelum pulang, 'Menunggu' / 'Ditolak' untuk pulang awal, selain itu nominalnya."""
+    if not p:
+        return "-"
+    ts = p.get("tinjau_status")
+    if ts == "menunggu":
+        return "Menunggu"
+    if ts == "ditolak":
+        return "Ditolak"
+    return rupiah(p["uang_makan"])
+
+
 def teks_tombol_absen(now, sh):
     """(judul, keterangan, aktif, ikon) untuk tombol absen utama di Beranda; mengikuti jendela waktu yang sama dengan kotak status."""
     f = lambda t: t.strftime("%H:%M")
@@ -2480,6 +2562,8 @@ def teks_tombol_absen(now, sh):
         return judul, f"Dibuka pukul {f(buka)} WITA", False, "lock"
     if t > tutup:
         return judul, f"Waktu absen {jenis} sudah lewat", False, "lock"
+    if jenis == "pulang" and pulang_awal(now):
+        return judul, f"Sebelum {f(JAM_PULANG_NORMAL)}: selfie + GPS + alasan", True, "fingerprint"
     return judul, "Selfie + lokasi GPS", True, "fingerprint"
 
 
@@ -2515,11 +2599,17 @@ def teks_status_hari(now, sh, html=True):
         elif t <= JAM_PULANG_TUTUP:
             ekstra = " Percobaan terakhir gagal (di luar area)." if sh["gagal_pulang"] else ""
             judul, sub = "Status presensi", f"Absen pulang dibuka sampai {f(JAM_PULANG_TUTUP)} WITA.{ekstra}"
+            if t < JAM_PULANG_NORMAL:
+                sub += (f" Pulang sebelum {f(JAM_PULANG_NORMAL)} wajib mengisi alasan, dan uang makan "
+                        "menunggu persetujuan admin.")
         else:
             judul, sub = "Status presensi", f"Waktu absen pulang ({jendela_pulang}) sudah lewat"
     else:
         judul, sub = "Status presensi", (f"Presensi hari ini lengkap: masuk {sh['masuk']['jam'][:5]} "
                                          f"({ketepatan(sh['masuk']['jam']).lower()}), pulang {sh['pulang']['jam'][:5]}")
+        ts = sh["pulang"].get("tinjau_status")
+        if ts:
+            sub += f" (pulang awal, uang makan {KET_TINJAU.get(ts, ts)})"
     if sh["izin"] is not None:
         sub += f" • Izin: {esc(str(sh['izin']['alasan'] or '-'))}"
     return judul, sub
@@ -2530,7 +2620,7 @@ def tab_beranda(eng, nama, peserta):
     sh = get_status_hari(eng, nama, now.strftime("%Y-%m-%d"))
     jam_masuk = sh["masuk"]["jam"][:5] if sh["masuk"] else "--:--"
     jam_pulang = sh["pulang"]["jam"][:5] if sh["pulang"] else "--:--"
-    uang = rupiah(sh["pulang"]["uang_makan"]) if sh["pulang"] else "-"      # uang makan didapat saat absen pulang
+    uang = teks_uang_pulang(sh["pulang"])      # uang makan didapat saat absen pulang (pulang awal: menunggu persetujuan admin)
     info_judul, info_sub = teks_status_hari(now, sh)
 
     st.markdown(
@@ -2570,9 +2660,11 @@ def _hasil(level, pesan, **ekstra):
     return {"level": level, "pesan": pesan, "ok": level == "success", **ekstra}
 
 
-def proses_absen(eng, nama, peserta, jenis, foto_bytes, lat, lon, akurasi=None, now=None):
+def proses_absen(eng, nama, peserta, jenis, foto_bytes, lat, lon, akurasi=None, now=None, alasan=None):
     """Satu-satunya tempat aturan absen masuk/pulang (dipakai website Streamlit DAN API aplikasi native).
-    Mengembalikan dict: level (success/warning/error), pesan, ok, dan info tambahan."""
+    Mengembalikan dict: level (success/warning/error), pesan, ok, dan info tambahan.
+    alasan: hanya dipakai untuk absen pulang SEBELUM JAM_PULANG_NORMAL (pulang awal): wajib diisi, uang makan menunggu
+    persetujuan admin. Mulai JAM_PULANG_NORMAL alasan diabaikan. Dicek di sini (server), bukan hanya di form."""
     gedung = peserta["gedung"]
     buka, tutup = (JAM_MASUK_BUKA, JAM_MASUK_TUTUP) if jenis == "masuk" else (JAM_PULANG_BUKA, JAM_PULANG_TUTUP)
     rentang = f"{buka.strftime('%H:%M')}-{tutup.strftime('%H:%M')}"
@@ -2589,6 +2681,13 @@ def proses_absen(eng, nama, peserta, jenis, foto_bytes, lat, lon, akurasi=None, 
         return _hasil("warning", "Kamu belum absen masuk hari ini, jadi belum bisa absen pulang.")
     if not dalam_jendela(now, buka, tutup):
         return _hasil("error", f"❌ Absen ditolak: {jenis} hanya dibuka pukul {rentang} WITA (sekarang {now.strftime('%H:%M')}).")
+    awal, teks_alasan = False, None
+    if jenis == "pulang" and pulang_awal(now):                  # pulang sebelum 16:50: wajib alasan, dinilai ulang oleh admin
+        awal = True
+        teks_alasan = " ".join((alasan or "").split())[:300]
+        if len(teks_alasan) < MIN_ALASAN_PULANG:
+            return _hasil("warning", f"Absen pulang sebelum {JAM_PULANG_NORMAL.strftime('%H:%M')} WITA wajib disertai alasan "
+                                     f"(minimal {MIN_ALASAN_PULANG} karakter).", alasan="alasan_pulang")
 
     if akurasi is not None and akurasi > MAKS_AKURASI_METER:   # ketelitian GPS buruk (mis. lokasi dari IP/menara); BUKAN soal jarak ke gedung
         return _hasil("error", f"📡 Akurasi lokasi terlalu rendah (±{akurasi:.0f} m; maksimal ±{MAKS_AKURASI_METER} m). "
@@ -2600,7 +2699,8 @@ def proses_absen(eng, nama, peserta, jenis, foto_bytes, lat, lon, akurasi=None, 
 
     cocok, jarak = cek_lokasi(lat, lon, gedung)
     status = "berhasil" if cocok else "gagal_lokasi"
-    uang = UANG_MAKAN if (cocok and jenis == "pulang") else 0    # uang makan didapat saat absen PULANG
+    awal = awal and cocok                                        # hanya absen pulang awal yang berhasil yang perlu ditinjau
+    uang = UANG_MAKAN if (cocok and jenis == "pulang" and not awal) else 0   # uang makan didapat saat absen PULANG (pulang awal: setelah disetujui admin)
 
     foto_simpan, path_foto, di_storage = None, None, False
     if cocok:                                                    # foto HANYA disimpan kalau absen berhasil
@@ -2614,6 +2714,7 @@ def proses_absen(eng, nama, peserta, jenis, foto_bytes, lat, lon, akurasi=None, 
             eng, nama=nama, tanggal=tanggal, jam=jam, jenis=jenis,
             lat=lat, lon=lon, akurasi=akurasi, jarak=jarak,
             status=status, uang_makan=uang,
+            alasan=teks_alasan if awal else None, tinjau_status="menunggu" if awal else None,
             foto=foto_simpan,
             foto_path=path_foto if di_storage else None,
         )
@@ -2633,12 +2734,16 @@ def proses_absen(eng, nama, peserta, jenis, foto_bytes, lat, lon, akurasi=None, 
         )
     ket = ketepatan(jam) if jenis == "masuk" else None
     tambahan = f" ({ket.lower()})" if ket else ""
-    if jenis == "pulang":
+    if jenis == "pulang" and awal:
+        info, gaya = (f"⏳ Kamu pulang sebelum {JAM_PULANG_NORMAL.strftime('%H:%M')}. Uang makan hari ini menunggu "
+                      "persetujuan admin atas alasanmu.", "info")
+    elif jenis == "pulang":
         info, gaya = f"💰 Uang makan hari ini: {rupiah(uang)}", "info"
     else:
         info, gaya = "Uang makan didapat setelah absen pulang.", "caption"
     return _hasil("success", f"✅ Absen {jenis} berhasil pukul {jam} WITA{tambahan}.",
-                  status=status, jarak=round(jarak), jam=jam, uang=uang, ketepatan=ket, info=info, info_gaya=gaya)
+                  status=status, jarak=round(jarak), jam=jam, uang=uang, ketepatan=ket, info=info, info_gaya=gaya,
+                  pulang_awal=awal, tinjau_status="menunggu" if awal else None)
 
 
 def proses_tidak_hadir(eng, nama, jenis, tgl, alasan, now=None):
@@ -2690,7 +2795,8 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
         st.caption(f"Jam absen masuk: {rentang} WITA (tidak terlambat sampai {BATAS_TEPAT_WAKTU.strftime('%H:%M')}, "
                    "lewat itu dihitung terlambat)")
     else:
-        st.caption(f"Jam absen pulang: {rentang} WITA")
+        st.caption(f"Jam absen pulang: {rentang} WITA. Pulang sebelum {JAM_PULANG_NORMAL.strftime('%H:%M')} wajib mengisi alasan, "
+                   "dan uang makan baru diberikan setelah admin menyetujui alasanmu.")
 
     if sh["cuti"] is not None and sh["masuk"] is None:
         st.warning(f"Kamu cuti hari ini ({sh['cuti']['alasan']}), jadi tidak bisa absen {jenis}.")
@@ -2718,6 +2824,12 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
     else:
         st.info("Menunggu lokasi... klik **Allow/Izinkan** saat browser meminta akses lokasi.")
 
+    alasan_pulang = None
+    if jenis == "pulang" and pulang_awal(now):
+        st.warning(f"Sekarang belum pukul {JAM_PULANG_NORMAL.strftime('%H:%M')} WITA, jadi ini dihitung **pulang awal**. "
+                   "Isi alasannya. Uang makan hari ini baru diberikan kalau admin menyetujui.")
+        alasan_pulang = st.text_area("Alasan pulang lebih awal", max_chars=300, height=100, key="alasan_pulang", on_change=_senyap,
+                                     placeholder="Contoh: ada bimbingan di kampus, sakit, keperluan keluarga...")
     st.caption("Posisikan wajahmu di dalam bingkai oval, lalu ambil foto. Foto tanpa wajah tidak diterima.")
     foto = st.camera_input("Foto selfie untuk absen", key=f"foto_{jenis}", on_change=_senyap)
 
@@ -2725,12 +2837,15 @@ def _form_absen(eng, nama, peserta, jenis, now, sh):
         if not coords:
             st.error("Lokasi belum terdeteksi. Aktifkan GPS/izin lokasi lalu coba lagi.")
             return
+        if alasan_pulang is not None and len(" ".join(alasan_pulang.split())) < MIN_ALASAN_PULANG:
+            st.error(f"Alasan pulang awal wajib diisi (minimal {MIN_ALASAN_PULANG} karakter).")
+            return
         if foto is None:
             st.error("Foto belum diambil.")
             return
 
         lat, lon = coords["latitude"], coords["longitude"]
-        hasil = proses_absen(eng, nama, peserta, jenis, foto.getvalue(), lat, lon, coords.get("accuracy"))
+        hasil = proses_absen(eng, nama, peserta, jenis, foto.getvalue(), lat, lon, coords.get("accuracy"), alasan=alasan_pulang)
         _tampilkan_hasil(hasil)
 
 
@@ -2818,7 +2933,16 @@ def tab_riwayat(eng, nama):
             else:
                 label = "Masuk" if r["jenis"] == "masuk" else "Pulang"
                 info = f"{label} {r['jam'][:5]} WITA • {r['jarak'] or 0:.0f} m"
-                if r["jenis"] == "pulang" and r["uang_makan"]:
+                ts = r["tinjau_status"] if r["jenis"] == "pulang" else None
+                if ts:                                                    # pulang awal: tampilkan alasan + status persetujuan
+                    info += f" • Pulang awal: {esc(str(r['alasan'] or '-'))}"
+                    if ts == "menunggu":
+                        ket, kelas = "Menunggu persetujuan", "izin"
+                    elif ts == "ditolak":
+                        ket, kelas = "Ditolak • uang makan Rp0", "bad"
+                    else:
+                        ket, kelas = f"Disetujui • {rupiah(r['uang_makan'])}", "ok"
+                elif r["jenis"] == "pulang" and r["uang_makan"]:
                     ket, kelas = rupiah(r["uang_makan"]), "ok"          # uang makan muncul di baris pulang
                 elif r["jenis"] == "masuk":
                     ket = ketepatan(r["jam"])
@@ -2845,6 +2969,7 @@ def tab_rekap(eng, nama):
     izin = len({r["tanggal"] for r in rows if r["jenis"] == "izin"})
     cuti = len({r["tanggal"] for r in rows if r["jenis"] == "cuti"})
     n_terlambat = len({r["tanggal"] for r in masuk_ok if terlambat(r["jam"])})
+    n_menunggu = sum(1 for r in pulang_ok if r["tinjau_status"] == "menunggu")
     with st.container(key="pagebody"):
         st.markdown(
             f'<div class="pr-stat"><div><span>Hari hadir</span><b>{hadir}</b></div>'
@@ -2854,6 +2979,8 @@ def tab_rekap(eng, nama):
             f'<div class="pr-kv"><span>Cuti</span><span>{cuti}</span></div>',
             unsafe_allow_html=True,
         )
+        if n_menunggu:
+            st.caption(f"{n_menunggu} absen pulang awal masih menunggu persetujuan admin. Uang makannya belum masuk total.")
 
 
 def tab_profil(eng, nama, peserta):
@@ -3452,7 +3579,7 @@ def halaman_kelola_peserta(eng):
                               + ("terpasang." if eng.indeks_unik_ok else "BELUM terpasang, cek lagi data."))
                         st.rerun()
 
-    with st.expander("Hapus Data Peserta"):
+    with st.expander("🗑️ Hapus Data Peserta"):
         nama_semua = sorted(set(df["nama"]) | set(daftar_nama_absensi(eng)))
         if not nama_semua:
             st.info("Belum ada peserta maupun data absensi.")
@@ -3597,8 +3724,15 @@ def _susun_rekap_detail(df):
         "status": "Status", "jarak": "Jarak (m)", "uang_makan": "Uang Makan", "alasan": "Alasan",
     })
     detail["Alasan"] = detail["Alasan"].fillna("")
-    detail["Keterangan"] = detail.apply(
-        lambda r: ketepatan(r["Jam"]) if (r["Jenis"] == "masuk" and r["Status"] == "berhasil") else "", axis=1)
+    def _ket(r):
+        if r["Jenis"] == "masuk" and r["Status"] == "berhasil":
+            return ketepatan(r["Jam"])
+        ts = r.get("tinjau_status")
+        if r["Jenis"] == "pulang" and r["Status"] == "berhasil" and isinstance(ts, str) and ts:
+            return f"Pulang awal ({ts})"
+        return ""
+    detail["Keterangan"] = detail.apply(_ket, axis=1)
+    detail = detail.drop(columns=["tinjau_status"], errors="ignore")
     detail["Jarak (m)"] = detail["Jarak (m)"].round(0)
     return rekap, detail
 
@@ -3679,6 +3813,12 @@ def detail_absensi_peserta(df, nama):
             ket = alasan if isinstance(alasan, str) and alasan.strip() else "-"
         else:
             continue
+        if not pulang.empty and "tinjau_status" in pulang.columns:
+            ts = pulang["tinjau_status"].iloc[0]
+            if isinstance(ts, str) and ts:
+                al = pulang["alasan"].iloc[0] if "alasan" in pulang.columns else None
+                ket_awal = f"Pulang awal ({ts}): {al if isinstance(al, str) and al.strip() else '-'}"
+                ket = ket_awal if ket == "-" else f"{ket} | {ket_awal}"
         uang_hari = int(pulang["uang_makan"].sum()) if not pulang.empty else 0
         uang += uang_hari
         baris.append({
@@ -3894,6 +4034,56 @@ def _halaman_detail_rekap(eng, df, nama, tahun, bulan):
                            file_name=f"ABSEN_MAGANG_{aman}_{tahun}_{bulan:02d}.xlsx")
 
 
+def _putuskan_pulang_awal(eng, absensi_id, keputusan):
+    try:
+        ok = tinjau_pulang_awal(eng, absensi_id, keputusan)
+    except SQLAlchemyError as e:
+        st.error(pesan_db(e))
+        return
+    if not ok:
+        st.warning("Data pulang awal itu tidak ditemukan (mungkin sudah dihapus). Muat ulang halaman.")
+        return
+    st.rerun()
+
+
+def _panel_tinjau_pulang_awal(eng):
+    """Daftar pulang awal (pulang sebelum JAM_PULANG_NORMAL) yang menunggu keputusan admin, plus riwayat keputusan.
+    Setuju: uang makan hari itu diisi. Tolak: uang makan tetap Rp0. Absennya sendiri tetap sah."""
+    try:
+        menunggu = daftar_pulang_awal(eng, "menunggu")
+        sudah = [r for r in daftar_pulang_awal(eng, None, limit=100) if r["tinjau_status"] != "menunggu"]
+    except SQLAlchemyError as e:
+        st.error(pesan_db(e))
+        return
+    st.markdown(f'<div class="db-judul"><div class="db-judul-t">Pulang Awal Menunggu Persetujuan ({len(menunggu)})</div></div>',
+                unsafe_allow_html=True)
+    if not menunggu:
+        st.caption("Tidak ada pulang awal yang menunggu persetujuan.")
+    else:
+        st.caption(f"Peserta pulang sebelum {JAM_PULANG_NORMAL.strftime('%H:%M')} WITA dan mengisi alasan. Setujui agar uang makan "
+                   f"{rupiah(UANG_MAKAN)} masuk, atau tolak (uang makan hari itu Rp0).")
+    for r in menunggu:
+        with st.container(border=True):
+            st.markdown(
+                f"**{esc(r['nama'])}** • {esc(tgl_indonesia(date.fromisoformat(r['tanggal'])))} pukul {esc(r['jam'][:5])} WITA<br>"
+                f"Alasan: {esc(str(r['alasan'] or '-'))}", unsafe_allow_html=True)
+            k1, k2 = st.columns(2)
+            if k1.button("Setujui", key=f"tj_ok_{r['id']}", type="primary", width="stretch"):
+                _putuskan_pulang_awal(eng, r["id"], "disetujui")
+            if k2.button("Tolak", key=f"tj_no_{r['id']}", width="stretch"):
+                _putuskan_pulang_awal(eng, r["id"], "ditolak")
+    with st.expander(f"Riwayat keputusan ({len(sudah)})"):
+        if not sudah:
+            st.caption("Belum ada keputusan.")
+        else:
+            d = pd.DataFrame([{
+                "Nama": r["nama"], "Tanggal": r["tanggal"], "Jam pulang": r["jam"][:5], "Alasan": r["alasan"] or "-",
+                "Keputusan": r["tinjau_status"].capitalize(), "Uang makan": _rp(r["uang_makan"]),
+                "Oleh": r["tinjau_oleh"] or "-", "Pada": r["tinjau_pada"] or "-",
+            } for r in sudah])
+            tabel_rapi(beri_nomor(d))
+
+
 def halaman_rekap(eng):
     if st.session_state.get("rekap_detail"):
         st.header("Detail Absensi")
@@ -3908,6 +4098,7 @@ def halaman_rekap(eng):
             _halaman_detail_rekap(eng, get_absensi_bulan(eng, det["tahun"], det["bulan"]), det["nama"], det["tahun"], det["bulan"])
             return
 
+        _panel_tinjau_pulang_awal(eng)
         hari_ini = datetime.now(WITA).date()
         c1, c2 = st.columns(2)
         bulan = c1.selectbox("Bulan", list(range(1, 13)), index=hari_ini.month - 1, format_func=lambda m: BULAN_ID[m - 1], key="rekap_bulan")
@@ -4769,7 +4960,7 @@ def get_absensi_lengkap(eng, awal, akhir):
     q = (
         select(
             absensi_t.c.nama, absensi_t.c.tanggal, absensi_t.c.jam, absensi_t.c.jenis, absensi_t.c.status,
-            absensi_t.c.lat, absensi_t.c.lon, absensi_t.c.akurasi, absensi_t.c.jarak,
+            absensi_t.c.lat, absensi_t.c.lon, absensi_t.c.akurasi, absensi_t.c.jarak, absensi_t.c.tinjau_status,
         )
         .where(and_(absensi_t.c.tanggal >= awal.isoformat(), absensi_t.c.tanggal <= akhir.isoformat()))
         .order_by(absensi_t.c.tanggal, absensi_t.c.jam)
@@ -6293,6 +6484,16 @@ def halaman_beranda_admin(eng):
         ket_l = f"libur: {esc(nama_l)}" if nama_l else "libur PKL (Sabtu/Minggu)"
         html += f'<div class="db-libur">Hari ini {ket_l}, tidak ada absen yang diharapkan.</div>'
     st.markdown(html, unsafe_allow_html=True)
+    try:
+        n_tinjau = jumlah_pulang_awal_menunggu(eng)
+    except SQLAlchemyError:
+        n_tinjau = 0
+    if n_tinjau:
+        st.warning(f"{n_tinjau} absen pulang awal menunggu persetujuan (uang makan belum diberikan).")
+        if st.button("Tinjau sekarang", key="tinjau_dari_beranda"):
+            st.session_state.menu_admin = "Rekap"
+            st.session_state.pop("rekap_detail", None)
+            st.rerun()
     pilih = st.session_state.get("db_kartu")
     css = ["<style>"]
     for kode, n, label, bg, fg in kartu:
